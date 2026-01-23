@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-module github.com/NobleFactor/devlore-ops
+module github.com/NobleFactor/noblefactor-ops
 
 go 1.24.0
 
