@@ -698,3 +698,65 @@ To add a new method (e.g., `ctx.os.temp_dir()`):
 4. **Shared libraries**: Can extensions import other .star files?
    — Recommend: yes, via `load("nf-ops-lib-<name>.star", ...)` syntax, searched
    on the same extension path.
+
+## Addendum: Why `HasAttrs` Over `starlarkstruct`
+
+The `go.starlark.net` library offers two approaches for exposing Go functions
+to Starlark scripts. This plan uses `starlark.HasAttrs`; here is the rationale.
+
+### `starlarkstruct` (the simpler alternative)
+
+Uses `starlarkstruct.FromStringDict` to build modules from a flat dictionary:
+
+```go
+osModule := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+    "run":     starlark.NewBuiltin("ctx.os.run", osRun),
+    "env":     starlark.NewBuiltin("ctx.os.env", osEnv),
+    "which":   starlark.NewBuiltin("ctx.os.which", osWhich),
+})
+```
+
+- No custom types — assemble a dict and hand it off
+- Methods are standalone functions; shared state (dry-run, logger) must be
+  captured via closures
+- Error messages on typos are generic: `struct has no .runn attribute`
+- No control over `String()`, `Type()`, or freeze behavior
+
+### `starlark.HasAttrs` (chosen approach)
+
+Each module is a Go struct implementing the interface directly:
+
+```go
+type OSModule struct {
+    dryRun bool
+    logger *audit.Logger
+}
+
+func (m *OSModule) Attr(name string) (starlark.Value, error) { ... }
+func (m *OSModule) AttrNames() []string { ... }
+```
+
+- Methods are real method calls — natural access to struct fields
+- Custom error messages: `ctx.os has no .runn attribute`
+- Control over `Type()` (shows `"os_module"` not `"struct"`) and `String()`
+  (shows `"<ctx.os>"` not `struct(run = ..., env = ...)`)
+- Explicit freeze semantics
+
+### Comparison
+
+| Concern | `starlarkstruct` | `HasAttrs` |
+|---------|-------------------|------------|
+| Lines per module | ~5 (just the dict) | ~20 (interface methods) |
+| State access | Closures | Struct fields |
+| Error messages | Generic | Custom, contextual |
+| Type display | `struct` | `os_module`, `gh_module` |
+| Repr in REPL | `struct(run = ..., ...)` | `<ctx.os>` |
+| Testability | Mock the dict | Mock the struct |
+| Freeze semantics | Freezes all values recursively | You decide |
+
+### Decision
+
+`HasAttrs` is chosen because nf-ops modules carry mutable state (dry-run mode,
+audit logger, auth tokens) and because clear error messages matter for
+operator-facing tooling. The boilerplate cost is ~15 lines per module, paid
+once across ~7 modules, and is entirely mechanical.
