@@ -760,3 +760,109 @@ func (m *OSModule) AttrNames() []string { ... }
 audit logger, auth tokens) and because clear error messages matter for
 operator-facing tooling. The boilerplate cost is ~15 lines per module, paid
 once across ~7 modules, and is entirely mechanical.
+
+## Addendum: Starlark as a Management Tool
+
+### Consistency with Google's Starlark Usage
+
+The binding strategy (`HasAttrs` in Go, `@StarlarkBuiltin`/`@StarlarkMethod`
+in Java) is directly consistent with how Google implements Starlark bindings
+across all their tools:
+
+| | Bazel (Java) | nf-ops (Go) |
+|---|---|---|
+| Type declaration | `@StarlarkBuiltin(name = "ctx")` | `func (c *Context) Type() string` |
+| Method exposure | `@StarlarkMethod(name = "run")` | `case "run": return NewBuiltin(...)` |
+| Attribute dispatch | Annotation-driven reflection | `Attr(name)` switch |
+| Interface | `implements StarlarkValue` | `implements starlark.HasAttrs` |
+
+Bazel's `repository_ctx`, `ctx`, `actions`, and `native` modules all follow
+this same pattern. The Go `HasAttrs` interface is the direct equivalent of
+Java's `@StarlarkBuiltin` annotation.
+
+### Intentional Departure: Imperative Execution
+
+Where nf-ops diverges from Bazel is the **execution model**, not the binding
+model. Starlark was designed for hermetic, side-effect-free evaluation. Bazel
+enforces this: rule implementations declare actions that form a build graph,
+but nothing executes during Starlark evaluation itself.
+
+nf-ops uses Starlark as an **operations management tool**. The entire purpose
+is side effects — creating secrets, signing artifacts, calling APIs, rotating
+keys. This is an intentional and appropriate departure:
+
+| | Bazel (build system) | nf-ops (management tool) |
+|---|---|---|
+| Purpose | Declare build graph | Execute operations |
+| Side effects | Prohibited during eval | The whole point |
+| Hermeticity | Core requirement | Not a goal |
+| `ctx.os.run()` | Not available | Executes immediately |
+| Network access | None during eval | Explicit via `ctx.http`, `ctx.gh` |
+| Idempotence | Via action caching | Where idempotence is a value |
+
+### Why Starlark Still Fits
+
+Starlark's value for management tooling is not hermeticity — it is:
+
+1. **Sandboxed by default** — Scripts cannot import arbitrary Python packages
+   or access the filesystem outside the provided `ctx` modules. The runtime
+   controls exactly what capabilities are available.
+
+2. **Deterministic language semantics** — No threads, no global mutable state
+   between scripts, no monkey-patching. Scripts are predictable even when
+   their effects are not hermetic.
+
+3. **Familiar syntax** — Python-like syntax means operators can read and write
+   extensions without learning a new language.
+
+4. **Embeddable** — A single Go binary contains the interpreter. No external
+   runtime, no dependency management, no version conflicts.
+
+5. **Auditable** — Every side-effecting operation goes through a `ctx` method
+   that the runtime can log, gate behind `--dry-run`, or require confirmation
+   for (`metadata.ceremony = True`).
+
+### Idempotence Strategy
+
+Where idempotence is a value, extensions should implement it explicitly:
+
+```python
+def main(ctx):
+    # Idempotent: only sets if different
+    secrets = ctx.gh.secret_list(repo=REPO)
+    if SECRET_NAME not in secrets:
+        ctx.gh.secret_set(SECRET_NAME, token, repo=REPO)
+        ctx.ui.success("Secret created")
+    else:
+        ctx.ui.note("Secret already exists — replacing")
+        ctx.gh.secret_set(SECRET_NAME, token, repo=REPO)
+        ctx.ui.success("Secret rotated")
+```
+
+The runtime does not enforce idempotence — that is the extension author's
+responsibility. The `--dry-run` flag and audit logging provide visibility
+into what would happen vs. what did happen.
+
+### Precedent
+
+Google itself uses Starlark imperatively in several tools beyond Bazel:
+
+- **Copybara** — Code transformation tool; Starlark scripts describe
+  transformations that execute with side effects (file modifications,
+  git operations)
+- **Skycfg** — Starlark-based configuration tool for generating protobuf
+  messages, used at Stripe and other companies
+- **Tilt** — Development environment tool using Starlark (Tiltfiles) for
+  imperative container orchestration
+- **Isopod** — Kubernetes deployment tool using Starlark for imperative
+  cluster configuration
+
+### Sources
+
+- [google/starlark-go implementation guide](https://github.com/google/starlark-go/blob/master/doc/impl.md)
+- [starlarkstruct package](https://github.com/google/starlark-go/blob/master/starlarkstruct/struct.go)
+- [Bazel StarlarkRepositoryContext](https://github.com/bazelbuild/bazel/blob/master/src/main/java/com/google/devtools/build/lib/bazel/repository/starlark/StarlarkRepositoryContext.java)
+- [Bazel StarlarkOS](https://github.com/bazelbuild/bazel/blob/master/src/main/java/com/google/devtools/build/lib/bazel/repository/starlark/StarlarkOS.java)
+- [Bazel Starlark language specification](https://bazel.build/rules/language)
+- [google/copybara](https://github.com/google/copybara)
+- [Starlark language spec](https://github.com/bazelbuild/starlark/blob/master/spec.md)
