@@ -388,6 +388,299 @@ def main(ctx):
 go.starlark.net v0.0.0-...    # Starlark interpreter (already used in devlore-cli)
 ```
 
+## Binding Implementation Strategy
+
+### Context Object Structure
+
+The `ctx` object passed to `main(ctx)` implements `starlark.HasAttrs`. Each
+sub-module (`ctx.os`, `ctx.gh`, etc.) is also a `starlark.HasAttrs` value.
+This gives precise control over attribute resolution and clear error messages
+for typos.
+
+```go
+// context.go
+type Context struct {
+    os      *OSModule
+    gh      *GHModule
+    http    *HTTPModule
+    crypto  *CryptoModule
+    yaml    *YAMLModule
+    ui      *UIModule
+    git     *GitModule
+    args    *starlark.List
+    flags   *starlark.Dict
+    verbose starlark.Bool
+    dryRun  starlark.Bool
+    // ...
+}
+
+func (c *Context) String() string        { return "<ctx>" }
+func (c *Context) Type() string          { return "context" }
+func (c *Context) Freeze()               { /* freeze sub-modules */ }
+func (c *Context) Truth() starlark.Bool   { return starlark.True }
+func (c *Context) Hash() (uint32, error)  { return 0, fmt.Errorf("unhashable: context") }
+
+func (c *Context) Attr(name string) (starlark.Value, error) {
+    switch name {
+    case "os":
+        return c.os, nil
+    case "gh":
+        return c.gh, nil
+    case "args":
+        return c.args, nil
+    case "flags":
+        return c.flags, nil
+    case "verbose":
+        return c.verbose, nil
+    case "dry_run":
+        return c.dryRun, nil
+    case "require":
+        return c.builtinRequire(), nil
+    case "error":
+        return c.builtinError(), nil
+    // ...
+    }
+    return nil, starlark.NoSuchAttrError(fmt.Sprintf("context has no .%s attribute", name))
+}
+
+func (c *Context) AttrNames() []string {
+    return []string{"os", "gh", "http", "crypto", "yaml", "ui", "git",
+        "args", "flags", "verbose", "dry_run", "version", "script_path",
+        "require", "error"}
+}
+```
+
+### Sub-Module Pattern
+
+Each module is a Go struct implementing `starlark.HasAttrs`. Methods are
+returned as `starlark.Builtin` values from `Attr()`:
+
+```go
+// modules/os.go
+type OSModule struct {
+    dryRun bool
+    logger *audit.Logger
+}
+
+func (m *OSModule) String() string        { return "<ctx.os>" }
+func (m *OSModule) Type() string          { return "os_module" }
+func (m *OSModule) Freeze()               {}
+func (m *OSModule) Truth() starlark.Bool   { return starlark.True }
+func (m *OSModule) Hash() (uint32, error)  { return 0, fmt.Errorf("unhashable: os_module") }
+
+func (m *OSModule) Attr(name string) (starlark.Value, error) {
+    switch name {
+    case "run":
+        return starlark.NewBuiltin("ctx.os.run", m.run), nil
+    case "run_ok":
+        return starlark.NewBuiltin("ctx.os.run_ok", m.runOK), nil
+    case "env":
+        return starlark.NewBuiltin("ctx.os.env", m.env), nil
+    case "which":
+        return starlark.NewBuiltin("ctx.os.which", m.which), nil
+    // ...
+    }
+    return nil, starlark.NoSuchAttrError(fmt.Sprintf("ctx.os has no .%s attribute", name))
+}
+
+func (m *OSModule) AttrNames() []string {
+    return []string{"run", "run_ok", "env", "which", "platform", "home",
+        "read_file", "write_file", "file_exists", "mkdir"}
+}
+```
+
+### Builtin Function Signature
+
+Every binding follows the same `starlark.Builtin` signature. Use
+`starlark.UnpackArgs` or `starlark.UnpackPositionalArgs` for argument parsing:
+
+```go
+func (m *OSModule) run(thread *starlark.Thread, fn *starlark.Builtin,
+    args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+
+    var cmd string
+    var cmdArgs *starlark.List
+    if err := starlark.UnpackPositionalArgs("ctx.os.run", args, kwargs, 1, &cmd, &cmdArgs); err != nil {
+        return nil, err
+    }
+
+    // Convert starlark.List to []string
+    goArgs := []string{}
+    if cmdArgs != nil {
+        for i := 0; i < cmdArgs.Len(); i++ {
+            s, ok := starlark.AsString(cmdArgs.Index(i))
+            if !ok {
+                return nil, fmt.Errorf("ctx.os.run: argument %d is not a string", i+1)
+            }
+            goArgs = append(goArgs, s)
+        }
+    }
+
+    // Execute (respecting dry-run)
+    if m.dryRun {
+        m.logger.Log("dry-run: %s %v", cmd, goArgs)
+        return newResult(0, "", ""), nil
+    }
+
+    result := exec.Command(cmd, goArgs...).CombinedOutput()
+    // ...
+    return newResult(code, stdout, stderr), nil
+}
+```
+
+### Keyword Argument Handling
+
+For functions with keyword arguments (e.g., `ctx.gh.secret_set(name, value, repo=)`),
+use `starlark.UnpackArgs` which handles both positional and keyword args:
+
+```go
+func (m *GHModule) secretSet(thread *starlark.Thread, fn *starlark.Builtin,
+    args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+
+    var name, value, repo string
+    if err := starlark.UnpackArgs("ctx.gh.secret_set", args, kwargs,
+        "name", &name, "value", &value, "repo?", &repo); err != nil {
+        return nil, err
+    }
+
+    // "repo?" means optional — if omitted, repo == ""
+    if repo == "" {
+        return nil, fmt.Errorf("ctx.gh.secret_set: repo is required")
+    }
+
+    // ...
+}
+```
+
+The `?` suffix in the parameter name makes it optional. Required parameters
+without `?` will cause `UnpackArgs` to return an error if missing.
+
+### Type Marshalling
+
+| Starlark Type | Go Type | Conversion |
+|---------------|---------|------------|
+| `String` | `string` | `starlark.AsString(v)` or `string(v.(starlark.String))` |
+| `Int` | `int` | `v.(starlark.Int).Int64()` |
+| `Bool` | `bool` | `bool(v.(starlark.Bool))` |
+| `List` | `[]starlark.Value` | iterate with `.Index(i)` and `.Len()` |
+| `Dict` | `map[string]string` | iterate with `.Items()` |
+| `None` | `nil` | `v == starlark.None` |
+
+Return values use the inverse:
+
+```go
+// Go → Starlark
+starlark.String("hello")
+starlark.MakeInt(42)
+starlark.Bool(true)
+starlark.None
+```
+
+For structured return values (e.g., `ctx.os.run()` returning `Result`), use a
+custom `starlark.HasAttrs`:
+
+```go
+type ExecResult struct {
+    code   int
+    stdout string
+    stderr string
+}
+
+func (r *ExecResult) Attr(name string) (starlark.Value, error) {
+    switch name {
+    case "code":
+        return starlark.MakeInt(r.code), nil
+    case "stdout":
+        return starlark.String(r.stdout), nil
+    case "stderr":
+        return starlark.String(r.stderr), nil
+    }
+    return nil, nil
+}
+```
+
+### Error Propagation
+
+Two distinct error paths:
+
+1. **Go errors → Starlark exceptions**: Return `(nil, error)` from a builtin.
+   The Starlark runtime surfaces this as a stack trace with source location.
+   Use for programming errors (wrong argument types, missing required args).
+
+2. **`ctx.error(msg)` → process exit**: The `error` builtin calls
+   `os.Exit(1)` after printing the message. This is for operational errors
+   (token invalid, command not found). Implemented by panicking with a
+   sentinel type that the top-level runner catches:
+
+```go
+type exitError struct {
+    message string
+    code    int
+}
+
+func (c *Context) builtinError() *starlark.Builtin {
+    return starlark.NewBuiltin("ctx.error", func(
+        thread *starlark.Thread, fn *starlark.Builtin,
+        args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+
+        var msg string
+        starlark.UnpackPositionalArgs("ctx.error", args, kwargs, 1, &msg)
+        panic(exitError{message: msg, code: 1})
+    })
+}
+```
+
+The top-level runner in `cmd/nf-ops/main.go` uses `recover()` to catch this
+and exit cleanly.
+
+### Thread Setup and Script Loading
+
+The runtime creates a `starlark.Thread` per extension invocation, loads the
+script, extracts metadata, parses flags, then calls `main(ctx)`:
+
+```go
+func RunExtension(path string, rawArgs []string) error {
+    // 1. Load and parse the script (first pass — extracts globals)
+    thread := &starlark.Thread{Name: filepath.Base(path)}
+    globals, err := starlark.ExecFile(thread, path, nil, builtins())
+
+    // 2. Extract metadata dict
+    meta := extractMetadata(globals)
+
+    // 3. Parse flags from rawArgs using metadata.flags
+    flags, positional := parseFlags(meta, rawArgs)
+
+    // 4. Build context
+    ctx := NewContext(positional, flags, path)
+
+    // 5. Call main(ctx)
+    mainFn := globals["main"]
+    _, err = starlark.Call(thread, mainFn, starlark.Tuple{ctx}, nil)
+    return err
+}
+```
+
+### Adding a New Module — Checklist
+
+To add a new built-in module (e.g., `ctx.docker`):
+
+1. Create `internal/modules/docker.go` — struct with `HasAttrs`, methods as builtins
+2. Add field to `Context` struct in `internal/runtime/context.go`
+3. Add case to `Context.Attr()` and `Context.AttrNames()`
+4. Add constructor call in `NewContext()`
+5. Write unit tests in `internal/modules/docker_test.go`
+6. Document the API in this plan file
+
+### Adding a Method to an Existing Module — Checklist
+
+To add a new method (e.g., `ctx.os.temp_dir()`):
+
+1. Add the method function to the module struct in `internal/modules/os.go`
+2. Add case to the module's `Attr()` switch
+3. Add to the module's `AttrNames()` return slice
+4. Write unit test
+5. Document in the API table above
+
 ## Open Questions
 
 1. **Embedding vs. filesystem**: Should bundled extensions be embedded in the binary
