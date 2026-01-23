@@ -1,17 +1,18 @@
-# devlore-ops
+# noblefactor-ops
 
-Internal operations tooling for the DevLore project. **This repository is private.**
+Team site for NobleFactor projects. **This repository is private.**
 
-- **nf-ops** — Release signing, key management, and registry maintenance
+- **nf-ops** — Operations tooling: release signing, key management, registry maintenance, and cross-repo automation
 
 ## Purpose
 
-This repository contains tools that require elevated access:
+This repository contains shared operations tooling for all NobleFactor projects:
 
 - Release signing ceremonies (YubiKey/HSM required)
 - SSH key generation and rotation
 - INDEX.yaml generation and signing
 - Registry maintenance utilities
+- Cross-repo automation (token rotation, deploy workflows)
 
 ## Building
 
@@ -59,7 +60,7 @@ See [ADR-040: SSH Key Ceremony](https://github.com/NobleFactor/noblefactor/blob/
 ## Project Structure
 
 ```
-devlore-ops/
+noblefactor-ops/
 ├── cmd/
 │   └── nf-ops/main.go        # nf-ops entry point
 ├── internal/
