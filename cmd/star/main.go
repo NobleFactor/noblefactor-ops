@@ -196,11 +196,11 @@ Generate shell completions with:
 		Short: "Sign artifacts",
 	}
 	signCmd.AddCommand(&cobra.Command{
-		Use:   "pmm <path>",
-		Short: "Sign a PMM with release key",
+		Use:   "package <path>",
+		Short: "Sign a lore package with release key",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("PMM signing not yet implemented: %s\n", args[0])
+			fmt.Printf("Lore package signing not yet implemented: %s\n", args[0])
 		},
 	})
 	signCmd.AddCommand(&cobra.Command{
@@ -227,14 +227,14 @@ Generate shell completions with:
 	}
 	registryCmd.AddCommand(&cobra.Command{
 		Use:   "reindex",
-		Short: "Regenerate INDEX.yaml from PMMs",
+		Short: "Regenerate INDEX.yaml from lore packages",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println("Registry reindexing not yet implemented")
 		},
 	})
 	registryCmd.AddCommand(&cobra.Command{
 		Use:   "verify",
-		Short: "Verify all PMM signatures",
+		Short: "Verify all lore package signatures",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println("Signature verification not yet implemented")
 		},
