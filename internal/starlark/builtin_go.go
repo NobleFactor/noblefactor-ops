@@ -23,6 +23,7 @@ func goModule() *starlarkstruct.Module {
 		Name: "go",
 		Members: starlark.StringDict{
 			"parse_starlark_bindings": starlark.NewBuiltin("go.parse_starlark_bindings", goParseStarlarkBindings),
+			"parse_migrate_knowledge": starlark.NewBuiltin("go.parse_migrate_knowledge", goParseMigrateKnowledge),
 			"complexity":              starlark.NewBuiltin("go.complexity", goComplexity),
 			"metrics":                 starlark.NewBuiltin("go.metrics", goMetrics),
 			"deps":                    starlark.NewBuiltin("go.deps", goDeps),
@@ -1232,4 +1233,288 @@ func mapKeysToStarlarkList(m map[string]bool) starlark.Value {
 		list = append(list, starlark.String(k))
 	}
 	return starlark.NewList(list)
+}
+
+// =============================================================================
+// MIGRATION KNOWLEDGE PARSING
+// =============================================================================
+
+// MigrateKnowledge holds extracted migration knowledge from Go source.
+type MigrateKnowledge struct {
+	SourceSystems     []TypeConstant
+	EncryptionSystems []TypeConstant
+	RepoLayers        []TypeConstant
+	Platforms         []string
+	SystemPrompt      string
+}
+
+// TypeConstant represents a typed const declaration.
+type TypeConstant struct {
+	Name     string // Constant name (e.g., "SystemTuckr")
+	Value    string // String value (e.g., "tuckr")
+	TypeName string // Type name (e.g., "SourceSystem")
+	Line     int
+	File     string
+}
+
+// goParseMigrateKnowledge parses Go source files in the writ/migrate directory
+// and extracts migration knowledge: system types, encryption types, platforms.
+//
+// Args:
+//   - path: Path to the migrate directory (e.g., "internal/writ/migrate")
+//
+// Returns:
+//   - A struct with:
+//   - source_systems: List of {name, value, type, file, line}
+//   - encryption_systems: List of {name, value, type, file, line}
+//   - repo_layers: List of {name, value, type, file, line}
+//   - platforms: List of platform name strings
+//   - system_prompt: The raw system prompt text from plan.go
+func goParseMigrateKnowledge(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.parse_migrate_knowledge", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.parse_migrate_knowledge: %w", err)
+	}
+
+	if !info.IsDir() {
+		return nil, fmt.Errorf("go.parse_migrate_knowledge: path must be a directory")
+	}
+
+	knowledge := &MigrateKnowledge{}
+
+	// Parse analysis.go for type constants
+	analysisPath := filepath.Join(path, "analysis.go")
+	if _, err := os.Stat(analysisPath); err == nil {
+		if err := parseAnalysisFile(analysisPath, knowledge); err != nil {
+			return nil, fmt.Errorf("go.parse_migrate_knowledge: parsing analysis.go: %w", err)
+		}
+	}
+
+	// Parse plan.go for system prompt and platforms
+	planPath := filepath.Join(path, "plan.go")
+	if _, err := os.Stat(planPath); err == nil {
+		if err := parsePlanFile(planPath, knowledge); err != nil {
+			return nil, fmt.Errorf("go.parse_migrate_knowledge: parsing plan.go: %w", err)
+		}
+	}
+
+	return knowledgeToStarlark(knowledge), nil
+}
+
+// parseAnalysisFile extracts typed constants from analysis.go.
+func parseAnalysisFile(path string, knowledge *MigrateKnowledge) error {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return err
+	}
+
+	filename := filepath.Base(path)
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		genDecl, ok := n.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.CONST {
+			return true
+		}
+
+		// Track the type for this const block
+		var currentType string
+
+		for _, spec := range genDecl.Specs {
+			valueSpec, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+
+			// Check for typed const (e.g., SystemTuckr SourceSystem = "tuckr")
+			if valueSpec.Type != nil {
+				if ident, ok := valueSpec.Type.(*ast.Ident); ok {
+					currentType = ident.Name
+				}
+			}
+
+			// Extract const name and value
+			for i, name := range valueSpec.Names {
+				if i >= len(valueSpec.Values) {
+					continue
+				}
+
+				// Get string value from basic lit
+				basicLit, ok := valueSpec.Values[i].(*ast.BasicLit)
+				if !ok || basicLit.Kind != token.STRING {
+					continue
+				}
+
+				// Unquote the string value
+				value := strings.Trim(basicLit.Value, `"`)
+				line := fset.Position(name.Pos()).Line
+
+				tc := TypeConstant{
+					Name:     name.Name,
+					Value:    value,
+					TypeName: currentType,
+					Line:     line,
+					File:     filename,
+				}
+
+				switch currentType {
+				case "SourceSystem":
+					knowledge.SourceSystems = append(knowledge.SourceSystems, tc)
+				case "EncryptionSystem":
+					knowledge.EncryptionSystems = append(knowledge.EncryptionSystems, tc)
+				case "RepoLayer":
+					knowledge.RepoLayers = append(knowledge.RepoLayers, tc)
+				}
+			}
+		}
+
+		return true
+	})
+
+	return nil
+}
+
+// parsePlanFile extracts the system prompt and platform list from plan.go.
+func parsePlanFile(path string, knowledge *MigrateKnowledge) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	contentStr := string(content)
+
+	// Find buildSystemPrompt function and extract the prompt string
+	// Look for the return statement with the raw string literal
+	promptStart := strings.Index(contentStr, "func buildSystemPrompt() string {")
+	if promptStart == -1 {
+		return nil // Function not found, not an error
+	}
+
+	// Find the backtick-quoted string
+	searchStart := promptStart
+	backtickStart := strings.Index(contentStr[searchStart:], "`")
+	if backtickStart == -1 {
+		return nil
+	}
+	backtickStart += searchStart
+
+	backtickEnd := strings.Index(contentStr[backtickStart+1:], "`")
+	if backtickEnd == -1 {
+		return nil
+	}
+	backtickEnd += backtickStart + 1
+
+	knowledge.SystemPrompt = contentStr[backtickStart+1 : backtickEnd]
+
+	// Extract platforms from the prompt
+	// Handles both formats:
+	//   Single line: "Known platforms: Darwin, Linux, Windows"
+	//   Multi-line:  "Known platforms:\n  - Darwin (macOS)\n  - Linux\n..."
+	lines := strings.Split(knowledge.SystemPrompt, "\n")
+	inPlatformSection := false
+	for i, line := range lines {
+		if strings.Contains(line, "Known platforms:") {
+			// Check if platforms are on the same line (comma-separated)
+			colonIdx := strings.Index(line, ":")
+			if colonIdx != -1 {
+				platformStr := strings.TrimSpace(line[colonIdx+1:])
+				if platformStr != "" {
+					// Single-line format: comma-separated
+					platforms := strings.Split(platformStr, ",")
+					for _, p := range platforms {
+						p = strings.TrimSpace(p)
+						if p != "" {
+							knowledge.Platforms = append(knowledge.Platforms, p)
+						}
+					}
+					break
+				}
+			}
+			// Multi-line format: start collecting from subsequent lines
+			inPlatformSection = true
+			continue
+		}
+
+		if inPlatformSection {
+			trimmed := strings.TrimSpace(line)
+			// Check for bullet point format "- Platform (description)"
+			if strings.HasPrefix(trimmed, "- ") {
+				// Extract platform name (first word after "- ")
+				entry := strings.TrimPrefix(trimmed, "- ")
+				// Platform name is everything before the first space or parenthesis
+				platform := entry
+				if spaceIdx := strings.Index(entry, " "); spaceIdx > 0 {
+					platform = entry[:spaceIdx]
+				}
+				if parenIdx := strings.Index(platform, "("); parenIdx > 0 {
+					platform = platform[:parenIdx]
+				}
+				platform = strings.TrimSpace(platform)
+				if platform != "" {
+					knowledge.Platforms = append(knowledge.Platforms, platform)
+				}
+			} else if trimmed == "" || !strings.HasPrefix(trimmed, "-") {
+				// End of platform section (empty line or non-bullet line)
+				// But skip if next line might continue (check for ## header)
+				if i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "##") {
+					inPlatformSection = false
+				} else if trimmed != "" && !strings.HasPrefix(trimmed, "-") {
+					inPlatformSection = false
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// knowledgeToStarlark converts MigrateKnowledge to a Starlark struct.
+func knowledgeToStarlark(k *MigrateKnowledge) starlark.Value {
+	// Convert source systems
+	var sourceSystems []starlark.Value
+	for _, s := range k.SourceSystems {
+		sourceSystems = append(sourceSystems, typeConstToStarlark(s))
+	}
+
+	// Convert encryption systems
+	var encryptionSystems []starlark.Value
+	for _, e := range k.EncryptionSystems {
+		encryptionSystems = append(encryptionSystems, typeConstToStarlark(e))
+	}
+
+	// Convert repo layers
+	var repoLayers []starlark.Value
+	for _, r := range k.RepoLayers {
+		repoLayers = append(repoLayers, typeConstToStarlark(r))
+	}
+
+	// Convert platforms
+	var platforms []starlark.Value
+	for _, p := range k.Platforms {
+		platforms = append(platforms, starlark.String(p))
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"source_systems":     starlark.NewList(sourceSystems),
+		"encryption_systems": starlark.NewList(encryptionSystems),
+		"repo_layers":        starlark.NewList(repoLayers),
+		"platforms":          starlark.NewList(platforms),
+		"system_prompt":      starlark.String(k.SystemPrompt),
+	})
+}
+
+// typeConstToStarlark converts a TypeConstant to a Starlark struct.
+func typeConstToStarlark(tc TypeConstant) starlark.Value {
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"name":      starlark.String(tc.Name),
+		"value":     starlark.String(tc.Value),
+		"type_name": starlark.String(tc.TypeName),
+		"file":      starlark.String(tc.File),
+		"line":      starlark.MakeInt(tc.Line),
+	})
 }
