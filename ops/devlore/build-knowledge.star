@@ -152,19 +152,234 @@ def build_onboarding_knowledge(source_path, registry_path, dry_run):
 # =============================================================================
 
 def build_migration_knowledge(source_path, registry_path, dry_run):
-    """Build migration knowledge from writ migrate source."""
+    """Build migration knowledge from writ migrate source.
+
+    This validates that the Go source constants match the registry knowledge:
+    - SourceSystem constants should have corresponding signature files
+    - EncryptionSystem constants should be documented
+    - Platform names should match writ-structure.yaml
+    """
     note("Building migration knowledge...")
 
     migrate_path = fs.join(source_path, "internal", "writ", "migrate")
     if not fs.is_dir(migrate_path):
         fail("Migrate source not found: " + migrate_path)
 
-    # TODO: Implement migration knowledge extraction
-    # This will parse:
-    # - Known dotfile systems and their signatures
-    # - Naming conventions (<group>-<Platform> -> <group>.<Platform>)
-    # - Directory structure patterns
-    warn("  Migration knowledge build not yet implemented")
+    knowledge_path = fs.join(registry_path, "knowledge", "migration")
+    if not fs.is_dir(knowledge_path):
+        fail("Migration knowledge path not found: " + knowledge_path)
+
+    # Step 1: Parse Go source files
+    note("  Scanning " + migrate_path + "...")
+    result = go.parse_migrate_knowledge(migrate_path)
+
+    source_systems = list(result.source_systems)
+    encryption_systems = list(result.encryption_systems)
+    repo_layers = list(result.repo_layers)
+    platforms = list(result.platforms)
+
+    note("  Found " + str(len(source_systems)) + " source systems")
+    note("  Found " + str(len(encryption_systems)) + " encryption systems")
+    note("  Found " + str(len(platforms)) + " platforms")
+
+    # Step 2: Load registry signature files
+    signatures_path = fs.join(knowledge_path, "signatures")
+    registry_systems = []
+    if fs.is_dir(signatures_path):
+        for entry in fs.list_dir(signatures_path):
+            if entry.name.endswith(".yaml"):
+                system_name = entry.name.replace(".yaml", "")
+                registry_systems.append(system_name)
+
+    # Step 3: Load writ-structure.yaml for platform validation
+    writ_structure_path = fs.join(knowledge_path, "concepts", "writ-structure.yaml")
+    registry_platforms = []
+    registry_platform_aliases = []
+    if fs.exists(writ_structure_path):
+        content = fs.read(writ_structure_path)
+        structure = yaml.decode(content)
+        segments = structure.get("naming", {}).get("segments", {})
+        platform_list = segments.get("platforms", [])
+        for p in platform_list:
+            if "name" in p:
+                registry_platforms.append(p["name"])
+            # Also collect aliases
+            aliases = p.get("aliases", [])
+            for alias in aliases:
+                registry_platform_aliases.append(alias)
+
+    # Step 4: Check for contract violations (source vs registry consistency)
+    violations = check_migration_contract_violations(
+        source_systems,
+        encryption_systems,
+        platforms,
+        registry_systems,
+        registry_platforms,
+        registry_platform_aliases,
+    )
+
+    if violations:
+        error("Contract violations detected:")
+        for v in violations:
+            error("  " + v["type"] + ": " + v["message"])
+        fail("Fix contract violations before building knowledge")
+
+    success("  No contract violations")
+
+    # Step 5: Generate/update systems reference file
+    systems_ref = generate_systems_reference(source_systems, encryption_systems, repo_layers, platforms)
+    systems_ref_path = fs.join(knowledge_path, "systems-reference.yaml")
+
+    # Compare with existing
+    changes_detected = False
+    if fs.exists(systems_ref_path):
+        current_content = fs.read(systems_ref_path)
+        new_content = yaml.encode(systems_ref)
+        if current_content != new_content:
+            changes_detected = True
+            note("  Changes detected in systems-reference.yaml")
+    else:
+        changes_detected = True
+        note("  Creating new systems-reference.yaml")
+
+    if changes_detected:
+        if dry_run:
+            note("  Dry run - would write to: " + systems_ref_path)
+        else:
+            fs.write(systems_ref_path, yaml.encode(systems_ref))
+            success("  Wrote " + systems_ref_path)
+    else:
+        success("  No changes to systems-reference.yaml")
+
+    # Step 6: Validate all signature files exist for source systems
+    validate_signature_coverage(source_systems, signatures_path)
+
+
+def check_migration_contract_violations(source_systems, encryption_systems, platforms, registry_systems, registry_platforms, registry_platform_aliases):
+    """Check for contract violations between source code and registry.
+
+    Contract:
+      - Every SourceSystem constant (except 'unknown') should have a signature file
+      - Registry platforms should match source platforms (including aliases)
+    """
+    violations = []
+
+    # Get source system values (excluding unknown and native which don't need signatures)
+    source_system_values = []
+    for s in source_systems:
+        val = str(s.value)
+        if val not in ["unknown", "native"]:
+            source_system_values.append(val)
+
+    # Check: source systems should have registry signatures
+    for system in source_system_values:
+        if system not in registry_systems:
+            violations.append({
+                "type": "missing_signature",
+                "message": "Source system '" + system + "' has no signature file in registry",
+            })
+
+    # Check: registry signatures should have source system constants
+    for system in registry_systems:
+        # Skip encryption systems (git-crypt is an encryption system, not a source system)
+        if system in ["git-crypt", "sops", "age", "gpg", "blackbox", "transcrypt", "ansible-vault"]:
+            continue
+        found = False
+        for s in source_systems:
+            if str(s.value) == system:
+                found = True
+                break
+        if not found:
+            violations.append({
+                "type": "orphan_signature",
+                "message": "Registry signature '" + system + "' has no SourceSystem constant",
+            })
+
+    # Check: platforms in prompt should match registry platforms (or be an alias)
+    # Aliases are case-insensitive (ubuntu is alias for Debian)
+    if registry_platforms:
+        all_valid_platforms = set(registry_platforms)
+        for alias in registry_platform_aliases:
+            all_valid_platforms.add(alias)
+            all_valid_platforms.add(alias.lower())
+            all_valid_platforms.add(alias.title())
+
+        for platform in platforms:
+            if platform not in all_valid_platforms and platform.lower() not in all_valid_platforms:
+                violations.append({
+                    "type": "undocumented_platform",
+                    "message": "Platform '" + platform + "' in LLM prompt not in writ-structure.yaml",
+                })
+
+    return violations
+
+
+def generate_systems_reference(source_systems, encryption_systems, repo_layers, platforms):
+    """Generate systems-reference.yaml from Go source constants."""
+    ref = {
+        "version": "1.0",
+        "source": "devlore-cli/internal/writ/migrate",
+        "generated": True,
+        "description": "Auto-generated reference of migrate constants from Go source",
+    }
+
+    # Source systems
+    systems = []
+    for s in source_systems:
+        systems.append({
+            "name": str(s.name),
+            "value": str(s.value),
+            "file": str(s.file),
+            "line": int(s.line),
+        })
+    ref["source_systems"] = systems
+
+    # Encryption systems
+    encryptions = []
+    for e in encryption_systems:
+        encryptions.append({
+            "name": str(e.name),
+            "value": str(e.value),
+            "file": str(e.file),
+            "line": int(e.line),
+        })
+    ref["encryption_systems"] = encryptions
+
+    # Repo layers
+    layers = []
+    for r in repo_layers:
+        layers.append({
+            "name": str(r.name),
+            "value": str(r.value),
+            "file": str(r.file),
+            "line": int(r.line),
+        })
+    ref["repo_layers"] = layers
+
+    # Platforms from LLM prompt
+    ref["platforms"] = [str(p) for p in platforms]
+
+    return ref
+
+
+def validate_signature_coverage(source_systems, signatures_path):
+    """Validate that all source systems have proper signature files."""
+    for s in source_systems:
+        val = str(s.value)
+        if val in ["unknown", "native"]:
+            continue
+
+        sig_file = fs.join(signatures_path, val + ".yaml")
+        if not fs.exists(sig_file):
+            warn("  Missing signature file: " + sig_file)
+        else:
+            # Validate signature file has required fields
+            content = fs.read(sig_file)
+            sig = yaml.decode(content)
+            if not sig.get("name"):
+                warn("  Signature missing 'name': " + sig_file)
+            if not sig.get("markers"):
+                warn("  Signature missing 'markers': " + sig_file)
 
 
 # =============================================================================
