@@ -1,42 +1,81 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 #
-# refresh-bindings.star - Static analysis tool for devlore-cli Starlark bindings
+# build-knowledge.star - Build knowledge base from devlore-cli source
 #
-# Primary function: Detect violations of the binding contract:
-#   - package.* must be read-only (lore package context)
-#   - system.* must be read-only (system state queries)
-#   - plan.* must mutate (execution graph builder)
+# This is a build step that:
+# 1. Interrogates devlore-cli source code (static analysis)
+# 2. Enforces contracts (fails build on violations)
+# 3. Rebuilds knowledge artifacts in devlore-registry
 #
-# Side effect: Updates the knowledge base (reference.yaml, rules.yaml)
-#
-# This script:
-# 1. Parses devlore-cli/internal/starlark/*.go to extract binding definitions
-# 2. Analyzes each binding for contract violations
-# 3. Reports violations as errors
-# 4. Updates reference.yaml and rules.yaml (if no violations)
+# Targets:
+#   onboarding - Starlark bindings for lore onboard
+#   migration  - Writ migrate patterns for writ migrate
+#   all        - Both targets
 
 def run(ctx):
-    """Main entry point for refresh-bindings command."""
-    cli_path = ctx.args.get("cli_path", "")
+    """Main entry point for build-knowledge command."""
+    target = ctx.args.get("target", "all")
+    source_path = ctx.args.get("source_path", "")
     registry_path = ctx.args.get("registry_path", "")
     dry_run = ctx.args.get("dry_run", "") == "true"
 
-    if not cli_path:
-        fail("--cli-path is required")
-    if not registry_path:
-        fail("--registry-path is required")
+    # Smart defaults: look for sibling directories
+    if not source_path:
+        source_path = _find_sibling("devlore-cli")
+        if source_path:
+            note("Using sibling source: " + source_path)
+        else:
+            fail("--source-path required (no ../devlore-cli found)")
 
-    starlark_path = fs.join(cli_path, "internal", "starlark")
+    if not registry_path:
+        registry_path = _find_sibling("devlore-registry")
+        if registry_path:
+            note("Using sibling registry: " + registry_path)
+        else:
+            fail("--registry-path required (no ../devlore-registry found)")
+
+    # Validate paths exist
+    if not fs.is_dir(source_path):
+        fail("Source path not found: " + source_path)
+    if not fs.is_dir(registry_path):
+        fail("Registry path not found: " + registry_path)
+
+    # Run requested targets
+    if target == "all" or target == "onboarding":
+        build_onboarding_knowledge(source_path, registry_path, dry_run)
+
+    if target == "all" or target == "migration":
+        build_migration_knowledge(source_path, registry_path, dry_run)
+
+
+def _find_sibling(name):
+    """Find a sibling directory by name."""
+    # Try ../name relative to current directory
+    sibling = fs.join("..", name)
+    if fs.is_dir(sibling):
+        return sibling
+    return ""
+
+
+# =============================================================================
+# ONBOARDING KNOWLEDGE (Starlark bindings for lore onboard)
+# =============================================================================
+
+def build_onboarding_knowledge(source_path, registry_path, dry_run):
+    """Build onboarding knowledge from Starlark bindings."""
+    note("Building onboarding knowledge...")
+
+    starlark_path = fs.join(source_path, "internal", "starlark")
     if not fs.is_dir(starlark_path):
-        fail("Not found: " + starlark_path)
+        fail("Starlark source not found: " + starlark_path)
 
     knowledge_path = fs.join(registry_path, "knowledge", "package-authoring", "bindings")
     reference_path = fs.join(knowledge_path, "reference.yaml")
     rules_path = fs.join(knowledge_path, "rules.yaml")
 
     # Step 1: Parse Go source files
-    note("Scanning " + starlark_path + "...")
+    note("  Scanning " + starlark_path + "...")
     result = go.parse_starlark_bindings(starlark_path)
 
     bindings = list(result.bindings)
@@ -44,16 +83,16 @@ def run(ctx):
 
     note("  Found " + str(len(bindings)) + " bindings in " + str(len(namespaces)) + " namespaces")
 
-    # Step 2: Check for contract violations (PRIMARY FUNCTION)
-    violations = check_contract_violations(bindings)
+    # Step 2: Check for contract violations (fails build)
+    violations = check_binding_contract_violations(bindings)
     if violations:
         error("Contract violations detected:")
         for v in violations:
             error("  " + v["binding"] + " (" + v["file"] + ":" + str(v["line"]) + ")")
             error("    " + v["message"])
-        fail("Fix contract violations before updating knowledge base")
+        fail("Fix contract violations before building knowledge")
 
-    success("No contract violations")
+    success("  No contract violations")
 
     # Step 3: Organize bindings by namespace
     binding_tree = organize_bindings(bindings, namespaces)
@@ -61,78 +100,84 @@ def run(ctx):
     # Step 4: Load current reference if exists
     current_bindings = {}
     if fs.exists(reference_path):
-        note("Loading current reference.yaml...")
         current_content = fs.read(reference_path)
         current_ref = yaml.decode(current_content)
         current_bindings = extract_current_bindings(current_ref)
-        note("  Current reference has " + str(len(current_bindings)) + " bindings")
 
-    # Step 5: Compare and generate diff
+    # Step 5: Compare and report diff
     new_bindings, removed_bindings, unchanged = compare_bindings(binding_tree, current_bindings)
 
     if new_bindings:
-        success("New bindings found: " + str(len(new_bindings)))
+        success("  New bindings: " + str(len(new_bindings)))
         for b in new_bindings:
-            note("  + " + b)
+            note("    + " + b)
 
     if removed_bindings:
-        warn("Removed bindings: " + str(len(removed_bindings)))
+        warn("  Removed bindings: " + str(len(removed_bindings)))
         for b in removed_bindings:
-            note("  - " + b)
+            note("    - " + b)
 
     if not new_bindings and not removed_bindings:
-        success("No changes detected")
+        success("  No changes detected")
 
-    # Step 6: Generate new reference.yaml (SIDE EFFECT)
+    # Step 6: Generate new reference.yaml
     new_reference = generate_reference(binding_tree, bindings)
     reference_content = yaml.encode(new_reference)
 
     if dry_run:
-        note("Dry run - would write to: " + reference_path)
-        print("---")
-        print(reference_content)
-        print("---")
+        note("  Dry run - would write to: " + reference_path)
     else:
         fs.write(reference_path, reference_content)
-        success("Wrote " + reference_path)
+        success("  Wrote " + reference_path)
 
-    # Step 7: Update rules.yaml with new bindings (SIDE EFFECT)
+    # Step 7: Update rules.yaml with new bindings
     if new_bindings and fs.exists(rules_path):
-        note("Updating rules.yaml with new bindings...")
         rules_content = fs.read(rules_path)
         rules = yaml.decode(rules_content)
-
         updated_rules = update_rules_with_new_bindings(rules, new_bindings)
 
         if dry_run:
-            note("Dry run - would update rules.yaml")
+            note("  Dry run - would update rules.yaml")
         else:
             fs.write(rules_path, yaml.encode(updated_rules))
-            success("Updated " + rules_path)
+            success("  Updated " + rules_path)
 
     # Step 8: Validate rules against reference
     if fs.exists(rules_path):
-        note("Validating rules.yaml...")
         validate_rules(rules_path, binding_tree)
+
+
+# =============================================================================
+# MIGRATION KNOWLEDGE (Writ migrate patterns for writ migrate)
+# =============================================================================
+
+def build_migration_knowledge(source_path, registry_path, dry_run):
+    """Build migration knowledge from writ migrate source."""
+    note("Building migration knowledge...")
+
+    migrate_path = fs.join(source_path, "internal", "writ", "migrate")
+    if not fs.is_dir(migrate_path):
+        fail("Migrate source not found: " + migrate_path)
+
+    # TODO: Implement migration knowledge extraction
+    # This will parse:
+    # - Known dotfile systems and their signatures
+    # - Naming conventions (<group>-<Platform> -> <group>.<Platform>)
+    # - Directory structure patterns
+    warn("  Migration knowledge build not yet implemented")
 
 
 # =============================================================================
 # CONTRACT VIOLATION DETECTION
 # =============================================================================
 
-def check_contract_violations(bindings):
+def check_binding_contract_violations(bindings):
     """Check all bindings for contract violations.
 
     Contract:
       - package.* must be read-only (should NOT mutate)
       - system.* must be read-only (should NOT mutate)
       - plan.* must be execution graph builder (SHOULD mutate)
-
-    Returns list of violations, each with:
-      - binding: full binding name
-      - file: source file
-      - line: line number
-      - message: violation description
     """
     violations = []
 
@@ -143,44 +188,41 @@ def check_contract_violations(bindings):
         file = b.file
         line = int(b.line)
 
-        # Determine expected contract based on top-level namespace
         top_level = namespace.split(".")[0] if namespace else full_name.split(".")[0]
 
         if top_level == "package":
-            # package.* must be read-only
             if mutates:
                 violations.append({
                     "binding": full_name,
                     "file": file,
                     "line": line,
-                    "message": "package.* bindings must be read-only but this one mutates (creates execution.Node)",
+                    "message": "package.* bindings must be read-only but this one mutates",
                 })
 
         elif top_level == "system":
-            # system.* must be read-only
             if mutates:
                 violations.append({
                     "binding": full_name,
                     "file": file,
                     "line": line,
-                    "message": "system.* bindings must be read-only but this one mutates (creates execution.Node)",
+                    "message": "system.* bindings must be read-only but this one mutates",
                 })
 
         elif top_level == "plan":
-            # plan.* SHOULD mutate (build execution graph)
             if not mutates:
                 violations.append({
                     "binding": full_name,
                     "file": file,
                     "line": line,
-                    "message": "plan.* bindings must build execution graph but this one doesn't create execution.Node",
+                    "message": "plan.* bindings must build execution graph but this one doesn't",
                 })
-
-        # Other namespaces (fs, shell, git, docker, etc.) are allowed to have either behavior
-        # These are utility namespaces used in ops scripts, not lore packages
 
     return violations
 
+
+# =============================================================================
+# BINDING ORGANIZATION AND COMPARISON
+# =============================================================================
 
 def organize_bindings(bindings, namespaces):
     """Organize bindings into a tree structure by namespace."""
@@ -211,7 +253,6 @@ def extract_current_bindings(ref):
     """Extract binding names from current reference.yaml."""
     bindings = {}
 
-    # Handle different possible structures
     if "package" in ref:
         _extract_namespace_bindings(ref, "package", bindings)
     if "system" in ref:
@@ -226,14 +267,12 @@ def _extract_namespace_bindings(ref, ns_name, bindings):
     """Extract bindings from a namespace in the reference."""
     ns = ref.get(ns_name, {})
 
-    # Check for methods list
     methods = ns.get("methods", [])
     for m in methods:
         if "name" in m:
             full_name = ns_name + "." + m["name"]
             bindings[full_name] = m
 
-    # Check for nested namespaces
     namespaces = ns.get("namespaces", {})
     for sub_name, sub_ns in namespaces.items():
         sub_methods = sub_ns.get("methods", [])
@@ -259,9 +298,12 @@ def compare_bindings(new_tree, current_bindings):
     return new_bindings, removed_bindings, unchanged
 
 
+# =============================================================================
+# REFERENCE GENERATION
+# =============================================================================
+
 def generate_reference(binding_tree, bindings):
     """Generate new reference.yaml content."""
-    # Build structured reference
     ref = {
         "version": "1.0",
         "source": "devlore-cli/internal/starlark",
@@ -269,7 +311,6 @@ def generate_reference(binding_tree, bindings):
         "binding_count": len(bindings),
     }
 
-    # Organize by top-level namespace (package, system, plan)
     for ns, data in sorted(binding_tree.items()):
         parts = ns.split(".")
         top_level = parts[0]
@@ -282,10 +323,8 @@ def generate_reference(binding_tree, bindings):
             }
 
         if len(parts) == 1:
-            # Top-level methods
             ref[top_level]["methods"] = data["methods"]
         else:
-            # Nested namespace
             sub_ns = ".".join(parts[1:])
             ref[top_level]["namespaces"][sub_ns] = {
                 "description": _get_namespace_description(ns),
@@ -320,19 +359,18 @@ def _get_namespace_description(ns):
 
 
 def update_rules_with_new_bindings(rules, new_bindings):
-    """Add new bindings to rules.yaml as proposed."""
+    """Add new bindings to rules.yaml as implemented."""
     binding_coverage = rules.get("binding_coverage", {})
 
     for binding_name in new_bindings:
         parts = binding_name.split(".")
         if len(parts) >= 2:
-            category = parts[0]  # e.g., "plan", "system"
-            method = parts[-1]   # e.g., "install", "clone"
+            category = parts[0]
+            method = parts[-1]
 
             if category not in binding_coverage:
                 binding_coverage[category] = {}
 
-            # Add as proposed if not already present
             if method not in binding_coverage[category]:
                 binding_coverage[category][method] = {
                     "binding": binding_name,
@@ -349,29 +387,24 @@ def validate_rules(rules_path, binding_tree):
     rules_content = fs.read(rules_path)
     rules = yaml.decode(rules_content)
 
-    # Collect all binding names
     all_bindings = set()
     for ns, data in binding_tree.items():
         for m in data["methods"]:
             all_bindings.add(m["full_name"])
 
-    # Check shell_antipatterns
     antipatterns = rules.get("shell_antipatterns", [])
     warnings = []
 
     for ap in antipatterns:
         correct = ap.get("correct_binding", "")
         if correct and not _binding_exists(correct, all_bindings):
-            # Check if it's a proposed binding
             proposed = ap.get("proposed_binding", {})
             if not proposed:
                 warnings.append("Rule references missing binding: " + correct)
 
-    # Check binding_coverage
     coverage = rules.get("binding_coverage", {})
     for category, methods in coverage.items():
         for method_name, method_data in methods.items():
-            # Check if method_data is a dict by checking type
             binding = ""
             status = ""
             if type(method_data) == "dict":
@@ -382,7 +415,7 @@ def validate_rules(rules_path, binding_tree):
 
     if warnings:
         for w in warnings:
-            warn("  " + w)
+            warn("    " + w)
     else:
         success("  All rule references are valid")
 
@@ -392,7 +425,6 @@ def _binding_exists(binding_name, all_bindings):
     if binding_name in all_bindings:
         return True
 
-    # Handle patterns like plan.file.*
     if "*" in binding_name:
         prefix = binding_name.replace("*", "")
         for b in all_bindings:
@@ -403,11 +435,12 @@ def _binding_exists(binding_name, all_bindings):
 
 
 command(
-    name = "devlore.refresh-bindings",
-    help = "Refresh binding knowledge from devlore-cli source code",
+    name = "devlore.build-knowledge",
+    help = "Build knowledge base from devlore-cli source",
     flags = [
-        {"name": "cli_path", "help": "Path to devlore-cli repository", "required": True},
-        {"name": "registry_path", "help": "Path to devlore-registry repository", "required": True},
+        {"name": "target", "help": "Target: all, onboarding, migration", "default": "all"},
+        {"name": "source_path", "help": "Path to devlore-cli (default: ../devlore-cli)", "default": ""},
+        {"name": "registry_path", "help": "Path to devlore-registry (default: ../devlore-registry)", "default": ""},
         {"name": "dry_run", "help": "Preview changes without writing", "default": ""},
     ],
     run = run,
