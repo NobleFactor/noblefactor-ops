@@ -29,26 +29,28 @@ func NewRuntime(opsDir string) *Runtime {
 	}
 }
 
-// LoadAll loads all .star files from the ops directory.
+// LoadAll loads all .star files from the ops directory and subdirectories.
 func (r *Runtime) LoadAll() error {
-	entries, err := os.ReadDir(r.opsDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // No ops directory is fine
+	return filepath.WalkDir(r.opsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil // No ops directory is fine
+			}
+			return err
 		}
-		return fmt.Errorf("reading ops dir: %w", err)
-	}
 
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".star" {
-			continue
+		// Skip directories and non-.star files
+		if d.IsDir() || filepath.Ext(d.Name()) != ".star" {
+			return nil
 		}
-		path := filepath.Join(r.opsDir, entry.Name())
+
+		// Load the star file
+		relPath, _ := filepath.Rel(r.opsDir, path)
 		if err := r.Load(path); err != nil {
-			return fmt.Errorf("loading %s: %w", entry.Name(), err)
+			return fmt.Errorf("loading %s: %w", relPath, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 // Load loads a single .star file and registers its commands.
@@ -67,6 +69,7 @@ func (r *Runtime) Load(path string) error {
 		"fs":      fsModule(),
 		"yaml":    yamlModule(),
 		"schema":  schemaModule(),
+		"go":      goModule(),
 		"command": starlark.NewBuiltin("command", collector.commandBuiltin),
 		// Output functions in global namespace
 		"note":    starlark.NewBuiltin("note", noteBuiltin),
