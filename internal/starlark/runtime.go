@@ -66,11 +66,13 @@ func (r *Runtime) Load(path string) error {
 
 	// Build predeclared environment
 	predeclared := starlark.StringDict{
-		"fs":      fsModule(),
-		"yaml":    yamlModule(),
-		"schema":  schemaModule(),
-		"go":      goModule(),
-		"command": starlark.NewBuiltin("command", collector.commandBuiltin),
+		"fs":             fsModule(),
+		"yaml":           yamlModule(),
+		"schema":         schemaModule(),
+		"go":             goModule(),
+		"shell":          shellModule(),
+		"starlark_parse": starlarkParseModule(),
+		"command":        starlark.NewBuiltin("command", collector.commandBuiltin),
 		// Output functions in global namespace
 		"note":    starlark.NewBuiltin("note", noteBuiltin),
 		"warn":    starlark.NewBuiltin("warn", warnBuiltin),

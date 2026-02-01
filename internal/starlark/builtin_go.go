@@ -22,8 +22,11 @@ func goModule() *starlarkstruct.Module {
 	return &starlarkstruct.Module{
 		Name: "go",
 		Members: starlark.StringDict{
-			"parse_starlark_bindings":  starlark.NewBuiltin("go.parse_starlark_bindings", goParseStarlarkBindings),
-			"parse_migrate_knowledge":  starlark.NewBuiltin("go.parse_migrate_knowledge", goParseMigrateKnowledge),
+			"parse_starlark_bindings": starlark.NewBuiltin("go.parse_starlark_bindings", goParseStarlarkBindings),
+			"parse_migrate_knowledge": starlark.NewBuiltin("go.parse_migrate_knowledge", goParseMigrateKnowledge),
+			"complexity":              starlark.NewBuiltin("go.complexity", goComplexity),
+			"metrics":                 starlark.NewBuiltin("go.metrics", goMetrics),
+			"deps":                    starlark.NewBuiltin("go.deps", goDeps),
 		},
 	}
 }
@@ -368,6 +371,868 @@ func namespaceToStarlark(ns Namespace, file string) starlark.Value {
 		"file":   starlark.String(filepath.Base(file)),
 		"line":   starlark.MakeInt(ns.Line),
 	})
+}
+
+// =============================================================================
+// CODE COMPLEXITY ANALYSIS
+// =============================================================================
+
+// FunctionComplexity holds complexity metrics for a single function.
+type FunctionComplexity struct {
+	Name       string
+	File       string
+	Line       int
+	Cyclomatic int // McCabe cyclomatic complexity
+	Cognitive  int // Cognitive complexity (SonarSource algorithm)
+	LOC        int // Lines of code in function
+	Params     int // Number of parameters
+}
+
+// FileComplexity holds complexity metrics for a file.
+type FileComplexity struct {
+	Path          string
+	Functions     []FunctionComplexity
+	TotalCyclo    int
+	TotalCognit   int
+	TotalLOC      int
+	AvgCyclo      float64
+	AvgCognit     float64
+	MaxCyclo      int
+	MaxCognit     int
+	MaxCycloFunc  string
+	MaxCognitFunc string
+}
+
+// goComplexity calculates cyclomatic and cognitive complexity for Go source.
+//
+// Args:
+//   - path: Path to a Go file or directory
+//
+// Returns:
+//   - A struct with:
+//   - files: List of file complexity structs
+//   - total_cyclomatic: Sum of all cyclomatic complexity
+//   - total_cognitive: Sum of all cognitive complexity
+//   - total_loc: Total lines of code
+//   - avg_cyclomatic: Average cyclomatic per function
+//   - avg_cognitive: Average cognitive per function
+//   - max_cyclomatic: Highest cyclomatic complexity found
+//   - max_cognitive: Highest cognitive complexity found
+//   - hotspots: Functions with cyclomatic > 10 or cognitive > 15
+func goComplexity(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.complexity", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.complexity: %w", err)
+	}
+
+	var allFiles []FileComplexity
+	var totalFuncs int
+	var totalCyclo, totalCognit, totalLOC int
+	var maxCyclo, maxCognit int
+	var maxCycloFunc, maxCognitFunc string
+	var hotspots []starlark.Value
+
+	for _, file := range files {
+		fc, err := analyzeFileComplexity(file)
+		if err != nil {
+			continue // Skip files that fail to parse
+		}
+
+		allFiles = append(allFiles, fc)
+		totalFuncs += len(fc.Functions)
+		totalCyclo += fc.TotalCyclo
+		totalCognit += fc.TotalCognit
+		totalLOC += fc.TotalLOC
+
+		if fc.MaxCyclo > maxCyclo {
+			maxCyclo = fc.MaxCyclo
+			maxCycloFunc = fc.MaxCycloFunc
+		}
+		if fc.MaxCognit > maxCognit {
+			maxCognit = fc.MaxCognit
+			maxCognitFunc = fc.MaxCognitFunc
+		}
+
+		// Identify hotspots
+		for _, fn := range fc.Functions {
+			if fn.Cyclomatic > 10 || fn.Cognitive > 15 {
+				hotspots = append(hotspots, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+					"name":       starlark.String(fn.Name),
+					"file":       starlark.String(fn.File),
+					"line":       starlark.MakeInt(fn.Line),
+					"cyclomatic": starlark.MakeInt(fn.Cyclomatic),
+					"cognitive":  starlark.MakeInt(fn.Cognitive),
+					"loc":        starlark.MakeInt(fn.LOC),
+				}))
+			}
+		}
+	}
+
+	// Calculate averages
+	var avgCyclo, avgCognit float64
+	if totalFuncs > 0 {
+		avgCyclo = float64(totalCyclo) / float64(totalFuncs)
+		avgCognit = float64(totalCognit) / float64(totalFuncs)
+	}
+
+	// Convert files to Starlark
+	var filesList []starlark.Value
+	for _, fc := range allFiles {
+		filesList = append(filesList, fileComplexityToStarlark(fc))
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"files":            starlark.NewList(filesList),
+		"total_cyclomatic": starlark.MakeInt(totalCyclo),
+		"total_cognitive":  starlark.MakeInt(totalCognit),
+		"total_loc":        starlark.MakeInt(totalLOC),
+		"total_functions":  starlark.MakeInt(totalFuncs),
+		"avg_cyclomatic":   starlark.Float(avgCyclo),
+		"avg_cognitive":    starlark.Float(avgCognit),
+		"max_cyclomatic":   starlark.MakeInt(maxCyclo),
+		"max_cognitive":    starlark.MakeInt(maxCognit),
+		"max_cyclo_func":   starlark.String(maxCycloFunc),
+		"max_cognit_func":  starlark.String(maxCognitFunc),
+		"hotspots":         starlark.NewList(hotspots),
+	}), nil
+}
+
+// analyzeFileComplexity calculates complexity metrics for a single file.
+func analyzeFileComplexity(path string) (FileComplexity, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return FileComplexity{}, err
+	}
+
+	fc := FileComplexity{Path: path}
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			return true
+		}
+
+		funcName := fn.Name.Name
+		if fn.Recv != nil && len(fn.Recv.List) > 0 {
+			// Method: include receiver type in name
+			if t, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok {
+				if ident, ok := t.X.(*ast.Ident); ok {
+					funcName = ident.Name + "." + funcName
+				}
+			} else if ident, ok := fn.Recv.List[0].Type.(*ast.Ident); ok {
+				funcName = ident.Name + "." + funcName
+			}
+		}
+
+		startLine := fset.Position(fn.Pos()).Line
+		endLine := fset.Position(fn.End()).Line
+		loc := endLine - startLine + 1
+
+		// Count parameters
+		paramCount := 0
+		if fn.Type.Params != nil {
+			for _, field := range fn.Type.Params.List {
+				if len(field.Names) == 0 {
+					paramCount++ // Unnamed parameter
+				} else {
+					paramCount += len(field.Names)
+				}
+			}
+		}
+
+		cyclo := calculateCyclomatic(fn)
+		cognit := calculateCognitive(fn)
+
+		fnComplexity := FunctionComplexity{
+			Name:       funcName,
+			File:       filepath.Base(path),
+			Line:       startLine,
+			Cyclomatic: cyclo,
+			Cognitive:  cognit,
+			LOC:        loc,
+			Params:     paramCount,
+		}
+
+		fc.Functions = append(fc.Functions, fnComplexity)
+		fc.TotalCyclo += cyclo
+		fc.TotalCognit += cognit
+		fc.TotalLOC += loc
+
+		if cyclo > fc.MaxCyclo {
+			fc.MaxCyclo = cyclo
+			fc.MaxCycloFunc = funcName
+		}
+		if cognit > fc.MaxCognit {
+			fc.MaxCognit = cognit
+			fc.MaxCognitFunc = funcName
+		}
+
+		return true
+	})
+
+	if len(fc.Functions) > 0 {
+		fc.AvgCyclo = float64(fc.TotalCyclo) / float64(len(fc.Functions))
+		fc.AvgCognit = float64(fc.TotalCognit) / float64(len(fc.Functions))
+	}
+
+	return fc, nil
+}
+
+// calculateCyclomatic calculates McCabe cyclomatic complexity.
+// Formula: 1 + number of decision points
+// Decision points: if, for, switch case, select case, &&, ||
+func calculateCyclomatic(fn *ast.FuncDecl) int {
+	complexity := 1 // Base complexity
+
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.IfStmt:
+			complexity++
+		case *ast.ForStmt:
+			complexity++
+		case *ast.RangeStmt:
+			complexity++
+		case *ast.CaseClause:
+			if x.List != nil { // Not default case
+				complexity++
+			}
+		case *ast.CommClause:
+			if x.Comm != nil { // Not default case
+				complexity++
+			}
+		case *ast.BinaryExpr:
+			if x.Op == token.LAND || x.Op == token.LOR {
+				complexity++
+			}
+		}
+		return true
+	})
+
+	return complexity
+}
+
+// calculateCognitive calculates cognitive complexity (SonarSource algorithm).
+// Increments for: control structures, nesting, recursion, breaks in flow.
+// Nesting adds extra penalty for nested control structures.
+func calculateCognitive(fn *ast.FuncDecl) int {
+	complexity := 0
+	nesting := 0
+
+	var walk func(ast.Node)
+	walk = func(n ast.Node) {
+		if n == nil {
+			return
+		}
+
+		switch x := n.(type) {
+		case *ast.IfStmt:
+			complexity += 1 + nesting // Base + nesting penalty
+			nesting++
+			walk(x.Cond)
+			walk(x.Body)
+			if x.Else != nil {
+				// else if doesn't add to nesting, else does
+				if _, isIf := x.Else.(*ast.IfStmt); !isIf {
+					complexity++ // else keyword
+				}
+				walk(x.Else)
+			}
+			nesting--
+			return
+
+		case *ast.ForStmt:
+			complexity += 1 + nesting
+			nesting++
+			if x.Init != nil {
+				walk(x.Init)
+			}
+			if x.Cond != nil {
+				walk(x.Cond)
+			}
+			if x.Post != nil {
+				walk(x.Post)
+			}
+			walk(x.Body)
+			nesting--
+			return
+
+		case *ast.RangeStmt:
+			complexity += 1 + nesting
+			nesting++
+			walk(x.Key)
+			walk(x.Value)
+			walk(x.X)
+			walk(x.Body)
+			nesting--
+			return
+
+		case *ast.SwitchStmt:
+			complexity += 1 + nesting
+			nesting++
+			if x.Init != nil {
+				walk(x.Init)
+			}
+			if x.Tag != nil {
+				walk(x.Tag)
+			}
+			walk(x.Body)
+			nesting--
+			return
+
+		case *ast.TypeSwitchStmt:
+			complexity += 1 + nesting
+			nesting++
+			if x.Init != nil {
+				walk(x.Init)
+			}
+			walk(x.Assign)
+			walk(x.Body)
+			nesting--
+			return
+
+		case *ast.SelectStmt:
+			complexity += 1 + nesting
+			nesting++
+			walk(x.Body)
+			nesting--
+			return
+
+		case *ast.BinaryExpr:
+			// Sequences of && and || add complexity
+			if x.Op == token.LAND || x.Op == token.LOR {
+				complexity++
+			}
+			walk(x.X)
+			walk(x.Y)
+			return
+
+		case *ast.BranchStmt:
+			// break, continue, goto with labels add complexity
+			if x.Label != nil {
+				complexity++
+			}
+
+		case *ast.FuncLit:
+			// Nested functions increase nesting
+			nesting++
+			walk(x.Body)
+			nesting--
+			return
+		}
+
+		// Default: walk children
+		switch x := n.(type) {
+		case *ast.BlockStmt:
+			for _, stmt := range x.List {
+				walk(stmt)
+			}
+		case *ast.ExprStmt:
+			walk(x.X)
+		case *ast.AssignStmt:
+			for _, expr := range x.Lhs {
+				walk(expr)
+			}
+			for _, expr := range x.Rhs {
+				walk(expr)
+			}
+		case *ast.ReturnStmt:
+			for _, expr := range x.Results {
+				walk(expr)
+			}
+		case *ast.DeclStmt:
+			walk(x.Decl)
+		case *ast.CallExpr:
+			walk(x.Fun)
+			for _, arg := range x.Args {
+				walk(arg)
+			}
+		case *ast.CaseClause:
+			for _, expr := range x.List {
+				walk(expr)
+			}
+			for _, stmt := range x.Body {
+				walk(stmt)
+			}
+		case *ast.CommClause:
+			walk(x.Comm)
+			for _, stmt := range x.Body {
+				walk(stmt)
+			}
+		}
+	}
+
+	walk(fn.Body)
+	return complexity
+}
+
+// fileComplexityToStarlark converts FileComplexity to a Starlark struct.
+func fileComplexityToStarlark(fc FileComplexity) starlark.Value {
+	var functions []starlark.Value
+	for _, fn := range fc.Functions {
+		functions = append(functions, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"name":       starlark.String(fn.Name),
+			"file":       starlark.String(fn.File),
+			"line":       starlark.MakeInt(fn.Line),
+			"cyclomatic": starlark.MakeInt(fn.Cyclomatic),
+			"cognitive":  starlark.MakeInt(fn.Cognitive),
+			"loc":        starlark.MakeInt(fn.LOC),
+			"params":     starlark.MakeInt(fn.Params),
+		}))
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"path":            starlark.String(fc.Path),
+		"functions":       starlark.NewList(functions),
+		"total_cyclo":     starlark.MakeInt(fc.TotalCyclo),
+		"total_cognit":    starlark.MakeInt(fc.TotalCognit),
+		"total_loc":       starlark.MakeInt(fc.TotalLOC),
+		"avg_cyclo":       starlark.Float(fc.AvgCyclo),
+		"avg_cognit":      starlark.Float(fc.AvgCognit),
+		"max_cyclo":       starlark.MakeInt(fc.MaxCyclo),
+		"max_cognit":      starlark.MakeInt(fc.MaxCognit),
+		"max_cyclo_func":  starlark.String(fc.MaxCycloFunc),
+		"max_cognit_func": starlark.String(fc.MaxCognitFunc),
+	})
+}
+
+// =============================================================================
+// CODE METRICS
+// =============================================================================
+
+// FileMetrics holds code metrics for a file.
+type FileMetrics struct {
+	Path          string
+	LOC           int // Total lines
+	SLOC          int // Source lines (non-blank, non-comment)
+	Comments      int // Comment lines
+	Blanks        int // Blank lines
+	Functions     int
+	Methods       int
+	Structs       int
+	Interfaces    int
+	Types         int
+	Constants     int
+	Variables     int
+	Imports       int
+	TestFunctions int
+}
+
+// goMetrics calculates code metrics for Go source.
+//
+// Args:
+//   - path: Path to a Go file or directory
+//
+// Returns:
+//   - A struct with file-level and aggregate metrics
+func goMetrics(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.metrics", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.metrics: %w", err)
+	}
+
+	var allFiles []starlark.Value
+	totals := FileMetrics{}
+
+	for _, file := range files {
+		fm, err := analyzeFileMetrics(file)
+		if err != nil {
+			continue
+		}
+
+		allFiles = append(allFiles, fileMetricsToStarlark(fm))
+
+		// Accumulate totals
+		totals.LOC += fm.LOC
+		totals.SLOC += fm.SLOC
+		totals.Comments += fm.Comments
+		totals.Blanks += fm.Blanks
+		totals.Functions += fm.Functions
+		totals.Methods += fm.Methods
+		totals.Structs += fm.Structs
+		totals.Interfaces += fm.Interfaces
+		totals.Types += fm.Types
+		totals.Constants += fm.Constants
+		totals.Variables += fm.Variables
+		totals.Imports += fm.Imports
+		totals.TestFunctions += fm.TestFunctions
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"files":                starlark.NewList(allFiles),
+		"file_count":           starlark.MakeInt(len(files)),
+		"total_loc":            starlark.MakeInt(totals.LOC),
+		"total_sloc":           starlark.MakeInt(totals.SLOC),
+		"total_comments":       starlark.MakeInt(totals.Comments),
+		"total_blanks":         starlark.MakeInt(totals.Blanks),
+		"total_functions":      starlark.MakeInt(totals.Functions),
+		"total_methods":        starlark.MakeInt(totals.Methods),
+		"total_structs":        starlark.MakeInt(totals.Structs),
+		"total_interfaces":     starlark.MakeInt(totals.Interfaces),
+		"total_types":          starlark.MakeInt(totals.Types),
+		"total_constants":      starlark.MakeInt(totals.Constants),
+		"total_variables":      starlark.MakeInt(totals.Variables),
+		"total_imports":        starlark.MakeInt(totals.Imports),
+		"total_test_functions": starlark.MakeInt(totals.TestFunctions),
+	}), nil
+}
+
+// analyzeFileMetrics calculates metrics for a single file.
+func analyzeFileMetrics(path string) (FileMetrics, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return FileMetrics{}, err
+	}
+
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return FileMetrics{}, err
+	}
+
+	fm := FileMetrics{Path: path}
+
+	// Count lines
+	lines := strings.Split(string(content), "\n")
+	fm.LOC = len(lines)
+
+	// Count blanks
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			fm.Blanks++
+		}
+	}
+
+	// Count comments from AST
+	for _, cg := range node.Comments {
+		for _, c := range cg.List {
+			fm.Comments += strings.Count(c.Text, "\n") + 1
+		}
+	}
+
+	fm.SLOC = fm.LOC - fm.Blanks - fm.Comments
+	if fm.SLOC < 0 {
+		fm.SLOC = 0
+	}
+
+	// Count imports
+	fm.Imports = len(node.Imports)
+
+	// Count declarations
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.FuncDecl:
+			if x.Recv != nil {
+				fm.Methods++
+			} else {
+				fm.Functions++
+			}
+			// Check for test functions
+			if strings.HasPrefix(x.Name.Name, "Test") || strings.HasPrefix(x.Name.Name, "Benchmark") {
+				fm.TestFunctions++
+			}
+		case *ast.GenDecl:
+			switch x.Tok {
+			case token.TYPE:
+				for _, spec := range x.Specs {
+					if ts, ok := spec.(*ast.TypeSpec); ok {
+						fm.Types++
+						switch ts.Type.(type) {
+						case *ast.StructType:
+							fm.Structs++
+						case *ast.InterfaceType:
+							fm.Interfaces++
+						}
+					}
+				}
+			case token.CONST:
+				for _, spec := range x.Specs {
+					if vs, ok := spec.(*ast.ValueSpec); ok {
+						fm.Constants += len(vs.Names)
+					}
+				}
+			case token.VAR:
+				for _, spec := range x.Specs {
+					if vs, ok := spec.(*ast.ValueSpec); ok {
+						fm.Variables += len(vs.Names)
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	return fm, nil
+}
+
+// fileMetricsToStarlark converts FileMetrics to a Starlark struct.
+func fileMetricsToStarlark(fm FileMetrics) starlark.Value {
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"path":           starlark.String(fm.Path),
+		"loc":            starlark.MakeInt(fm.LOC),
+		"sloc":           starlark.MakeInt(fm.SLOC),
+		"comments":       starlark.MakeInt(fm.Comments),
+		"blanks":         starlark.MakeInt(fm.Blanks),
+		"functions":      starlark.MakeInt(fm.Functions),
+		"methods":        starlark.MakeInt(fm.Methods),
+		"structs":        starlark.MakeInt(fm.Structs),
+		"interfaces":     starlark.MakeInt(fm.Interfaces),
+		"types":          starlark.MakeInt(fm.Types),
+		"constants":      starlark.MakeInt(fm.Constants),
+		"variables":      starlark.MakeInt(fm.Variables),
+		"imports":        starlark.MakeInt(fm.Imports),
+		"test_functions": starlark.MakeInt(fm.TestFunctions),
+	})
+}
+
+// =============================================================================
+// DEPENDENCY ANALYSIS
+// =============================================================================
+
+// FileDeps holds dependency information for a file.
+type FileDeps struct {
+	Path         string
+	Package      string
+	Imports      []ImportInfo
+	InternalDeps []string // Same module imports
+	ExternalDeps []string // Third-party imports
+	StdlibDeps   []string // Standard library imports
+}
+
+// ImportInfo holds information about a single import.
+type ImportInfo struct {
+	Path  string
+	Alias string
+	Line  int
+}
+
+// goDeps analyzes import dependencies for Go source.
+//
+// Args:
+//   - path: Path to a Go file or directory
+//
+// Returns:
+//   - A struct with dependency information
+func goDeps(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.deps", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.deps: %w", err)
+	}
+
+	// Try to detect module path from go.mod
+	modulePath := detectModulePath(path)
+
+	var allFiles []starlark.Value
+	allImports := make(map[string]bool)
+	allInternal := make(map[string]bool)
+	allExternal := make(map[string]bool)
+	allStdlib := make(map[string]bool)
+
+	for _, file := range files {
+		fd, err := analyzeFileDeps(file, modulePath)
+		if err != nil {
+			continue
+		}
+
+		allFiles = append(allFiles, fileDepsToStarlark(fd))
+
+		for _, imp := range fd.Imports {
+			allImports[imp.Path] = true
+		}
+		for _, dep := range fd.InternalDeps {
+			allInternal[dep] = true
+		}
+		for _, dep := range fd.ExternalDeps {
+			allExternal[dep] = true
+		}
+		for _, dep := range fd.StdlibDeps {
+			allStdlib[dep] = true
+		}
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"files":          starlark.NewList(allFiles),
+		"module_path":    starlark.String(modulePath),
+		"all_imports":    mapKeysToStarlarkList(allImports),
+		"internal_deps":  mapKeysToStarlarkList(allInternal),
+		"external_deps":  mapKeysToStarlarkList(allExternal),
+		"stdlib_deps":    mapKeysToStarlarkList(allStdlib),
+		"internal_count": starlark.MakeInt(len(allInternal)),
+		"external_count": starlark.MakeInt(len(allExternal)),
+		"stdlib_count":   starlark.MakeInt(len(allStdlib)),
+	}), nil
+}
+
+// analyzeFileDeps analyzes dependencies for a single file.
+func analyzeFileDeps(path, modulePath string) (FileDeps, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+	if err != nil {
+		return FileDeps{}, err
+	}
+
+	fd := FileDeps{
+		Path:    path,
+		Package: node.Name.Name,
+	}
+
+	for _, imp := range node.Imports {
+		importPath := strings.Trim(imp.Path.Value, `"`)
+		line := fset.Position(imp.Pos()).Line
+
+		alias := ""
+		if imp.Name != nil {
+			alias = imp.Name.Name
+		}
+
+		fd.Imports = append(fd.Imports, ImportInfo{
+			Path:  importPath,
+			Alias: alias,
+			Line:  line,
+		})
+
+		// Classify import
+		if isStdlib(importPath) {
+			fd.StdlibDeps = append(fd.StdlibDeps, importPath)
+		} else if modulePath != "" && strings.HasPrefix(importPath, modulePath) {
+			fd.InternalDeps = append(fd.InternalDeps, importPath)
+		} else {
+			fd.ExternalDeps = append(fd.ExternalDeps, importPath)
+		}
+	}
+
+	return fd, nil
+}
+
+// detectModulePath tries to find the Go module path from go.mod.
+func detectModulePath(startPath string) string {
+	dir := startPath
+	info, err := os.Stat(dir)
+	if err == nil && !info.IsDir() {
+		dir = filepath.Dir(dir)
+	}
+
+	// Walk up looking for go.mod
+	for {
+		modPath := filepath.Join(dir, "go.mod")
+		if content, err := os.ReadFile(modPath); err == nil {
+			lines := strings.Split(string(content), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "module ") {
+					return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+				}
+			}
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return ""
+}
+
+// isStdlib checks if an import path is a standard library package.
+func isStdlib(importPath string) bool {
+	// Standard library packages don't contain dots (except internal packages)
+	if !strings.Contains(importPath, ".") {
+		return true
+	}
+	// Also check for golang.org/x which are quasi-stdlib
+	if strings.HasPrefix(importPath, "golang.org/x/") {
+		return false // Treat as external, they need to be imported
+	}
+	return false
+}
+
+// fileDepsToStarlark converts FileDeps to a Starlark struct.
+func fileDepsToStarlark(fd FileDeps) starlark.Value {
+	var imports []starlark.Value
+	for _, imp := range fd.Imports {
+		imports = append(imports, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"path":  starlark.String(imp.Path),
+			"alias": starlark.String(imp.Alias),
+			"line":  starlark.MakeInt(imp.Line),
+		}))
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"path":          starlark.String(fd.Path),
+		"package":       starlark.String(fd.Package),
+		"imports":       starlark.NewList(imports),
+		"internal_deps": stringsToStarlarkList(fd.InternalDeps),
+		"external_deps": stringsToStarlarkList(fd.ExternalDeps),
+		"stdlib_deps":   stringsToStarlarkList(fd.StdlibDeps),
+	})
+}
+
+// =============================================================================
+// HELPERS
+// =============================================================================
+
+// collectGoFiles returns all Go files in a path (file or directory).
+func collectGoFiles(path string) ([]string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+
+	if !info.IsDir() {
+		return []string{path}, nil
+	}
+
+	var files []string
+	err = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// Skip vendor and testdata directories
+		if d.IsDir() && (d.Name() == "vendor" || d.Name() == "testdata" || d.Name() == ".git") {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".go") && !strings.HasSuffix(d.Name(), "_test.go") {
+			files = append(files, p)
+		}
+		return nil
+	})
+
+	return files, err
+}
+
+// stringsToStarlarkList converts a string slice to a Starlark list.
+func stringsToStarlarkList(ss []string) starlark.Value {
+	var list []starlark.Value
+	for _, s := range ss {
+		list = append(list, starlark.String(s))
+	}
+	return starlark.NewList(list)
+}
+
+// mapKeysToStarlarkList converts map keys to a Starlark list.
+func mapKeysToStarlarkList(m map[string]bool) starlark.Value {
+	var list []starlark.Value
+	for k := range m {
+		list = append(list, starlark.String(k))
+	}
+	return starlark.NewList(list)
 }
 
 // =============================================================================
