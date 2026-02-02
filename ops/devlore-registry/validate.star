@@ -138,7 +138,7 @@ def run(ctx):
 
 # Register the command
 command(
-    name = "registry.validate",
+    name = "devlore-registry.validate",
     help = "Validate YAML files against JSON schemas in devlore-registry",
     flags = [
         {"name": "path", "help": "Path to devlore-registry", "default": "."},

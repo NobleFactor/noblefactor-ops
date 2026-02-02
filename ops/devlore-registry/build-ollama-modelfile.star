@@ -1,20 +1,15 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 #
-# modelfile.star - Generate Ollama Modelfiles from knowledge domains
+# build-ollama-modelfile.star - Generate Ollama Modelfiles from knowledge domains
 #
 # This operation assembles knowledge assets (prompts, signatures, schemas,
 # examples) into an Ollama Modelfile with a comprehensive SYSTEM prompt.
 #
-# Commands:
-#   modelfile.generate - Generate Modelfile content
-#   modelfile.create   - Generate and create model in Ollama
-#   modelfile.list     - List available knowledge domains
-#
 # Usage:
-#   nf-ops modelfile.generate --domain migration --model qwen3:8b
-#   nf-ops modelfile.create --domain migration --name devlore-migrate
-#   nf-ops modelfile.list --path /path/to/devlore-registry
+#   star devlore build-ollama-modelfile --domain migration --model qwen3:8b
+#   star devlore build-ollama-modelfile --domain migration --create --name devlore-migrate
+#   star devlore build-ollama-modelfile --list
 
 # Default base model for Modelfiles
 DEFAULT_MODEL = "qwen3:8b"
@@ -148,117 +143,59 @@ def _find_registry(explicit_path):
     return ""
 
 
+def _list_knowledge_domains(registry):
+    """List all knowledge domains in the registry."""
+    knowledge_path = fs.join(registry, "knowledge")
+    if not fs.is_dir(knowledge_path):
+        return []
+
+    domains = []
+    for entry in fs.list_dir(knowledge_path):
+        if entry.is_dir and not entry.name.startswith("."):
+            domains.append(entry.name)
+    return sorted(domains)
+
+
+def _build_domain(registry, domain, model):
+    """Build Modelfile for a single domain."""
+    knowledge_path = fs.join(registry, "knowledge", domain)
+    if not fs.is_dir(knowledge_path):
+        fail("Knowledge domain not found: " + domain)
+
+    content = build_modelfile(knowledge_path, domain, model)
+    output_path = "Modelfile." + domain
+
+    fs.write(output_path, content)
+    success("Generated: " + output_path)
+
+    # Show stats
+    lines = content.count("\n")
+    note("  Model: " + model)
+    note("  Lines: " + str(lines))
+
+
 # =============================================================================
 # COMMANDS
 # =============================================================================
 
-def run_generate(ctx):
+def run_main(ctx):
     """Generate Modelfile from knowledge domain."""
-    domain = ctx.args.get("domain", "migration")
+    registry_path = ctx.args.get("registry_path", "")
+    domain = ctx.args.get("domain", "all")
     model = ctx.args.get("model", DEFAULT_MODEL)
-    output = ctx.args.get("output", "")
-    registry_path = ctx.args.get("path", "")
 
     registry = _find_registry(registry_path)
     if not registry:
-        fail("Cannot find devlore-registry. Use --path to specify location.")
+        fail("Cannot find devlore-registry. Use --registry_path to specify location.")
 
-    knowledge_path = fs.join(registry, "knowledge", domain)
-    if not fs.is_dir(knowledge_path):
-        fail("Knowledge domain not found: " + domain)
-
-    content = build_modelfile(knowledge_path, domain, model)
-
-    if output:
-        fs.write(output, content)
-        success("Generated: " + output)
-
-        # Show stats
-        lines = content.count("\n")
-        note("  Model: " + model)
-        note("  Domain: " + domain)
-        note("  Lines: " + str(lines))
+    # Determine which domains to build
+    if domain == "all":
+        domains = ["migration", "onboarding"]
     else:
-        print(content)
+        domains = [domain]
 
-
-def run_create(ctx):
-    """Generate Modelfile and provide create instructions."""
-    domain = ctx.args.get("domain", "migration")
-    model = ctx.args.get("model", DEFAULT_MODEL)
-    name = ctx.args.get("name", "")
-    registry_path = ctx.args.get("path", "")
-
-    if not name:
-        name = "devlore-" + domain
-
-    registry = _find_registry(registry_path)
-    if not registry:
-        fail("Cannot find devlore-registry. Use --path to specify location.")
-
-    knowledge_path = fs.join(registry, "knowledge", domain)
-    if not fs.is_dir(knowledge_path):
-        fail("Knowledge domain not found: " + domain)
-
-    # Generate Modelfile content
-    content = build_modelfile(knowledge_path, domain, model)
-
-    # Write Modelfile
-    modelfile_path = name + ".Modelfile"
-    fs.write(modelfile_path, content)
-    success("Wrote Modelfile: " + modelfile_path)
-
-    # Show stats
-    lines = content.count("\n")
-    note("  Base model: " + model)
-    note("  Domain: " + domain)
-    note("  Lines: " + str(lines))
-
-    # Provide instructions
-    print("")
-    note("To create the Ollama model, run:")
-    print("  ollama create " + name + " -f " + modelfile_path)
-    print("")
-    note("To use the model:")
-    print("  ollama run " + name)
-
-
-def run_list(ctx):
-    """List available knowledge domains."""
-    registry_path = ctx.args.get("path", "")
-
-    registry = _find_registry(registry_path)
-    if not registry:
-        fail("Cannot find devlore-registry. Use --path to specify location.")
-
-    knowledge_dir = fs.join(registry, "knowledge")
-    if not fs.is_dir(knowledge_dir):
-        fail("knowledge/ directory not found at " + knowledge_dir)
-
-    note("Available domains in " + registry + ":")
-    print("")
-
-    for entry in fs.list_dir(knowledge_dir):
-        if not entry.is_dir:
-            continue
-
-        domain_path = entry.path
-
-        # Count assets
-        asset_counts = []
-        for asset_type, _, ext in SYSTEM_ASSET_ORDER:
-            asset_dir = fs.join(domain_path, asset_type)
-            files = _list_asset_files(asset_dir, ext)
-            if files:
-                asset_counts.append(asset_type + ":" + str(len(files)))
-
-        if asset_counts:
-            print("  " + entry.name)
-            print("    " + ", ".join(asset_counts))
-        else:
-            print("  " + entry.name + " (empty)")
-
-    print("")
+    for d in domains:
+        _build_domain(registry, d, model)
 
 
 # =============================================================================
@@ -266,34 +203,12 @@ def run_list(ctx):
 # =============================================================================
 
 command(
-    name = "modelfile.generate",
+    name = "devlore-registry.build.modelfile",
     help = "Generate Ollama Modelfile from knowledge domain",
     flags = [
-        {"name": "domain", "help": "Knowledge domain (migration, onboarding)", "default": "migration"},
+        {"name": "domain", "help": "Domain: all, migration, onboarding", "default": "all"},
         {"name": "model", "help": "Base model for Modelfile", "default": DEFAULT_MODEL},
-        {"name": "output", "help": "Output file (default: stdout)", "default": ""},
-        {"name": "path", "help": "Path to devlore-registry", "default": ""},
+        {"name": "registry_path", "help": "Path to devlore-registry (default: ../devlore-registry)", "default": ""},
     ],
-    run = run_generate,
-)
-
-command(
-    name = "modelfile.create",
-    help = "Generate Modelfile and show create instructions",
-    flags = [
-        {"name": "domain", "help": "Knowledge domain (migration, onboarding)", "default": "migration"},
-        {"name": "model", "help": "Base model for Modelfile", "default": DEFAULT_MODEL},
-        {"name": "name", "help": "Model name (default: devlore-<domain>)", "default": ""},
-        {"name": "path", "help": "Path to devlore-registry", "default": ""},
-    ],
-    run = run_create,
-)
-
-command(
-    name = "modelfile.list",
-    help = "List available knowledge domains for Modelfile generation",
-    flags = [
-        {"name": "path", "help": "Path to devlore-registry", "default": ""},
-    ],
-    run = run_list,
+    run = run_main,
 )

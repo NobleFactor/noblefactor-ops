@@ -10,6 +10,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/NobleFactor/noblefactor-ops/internal/cli"
 )
 
 // fsModule returns the fs module with file system operations.
@@ -50,6 +52,10 @@ func fsWrite(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwarg
 	var path, content string
 	if err := starlark.UnpackArgs("fs.write", args, kwargs, "path", &path, "content", &content); err != nil {
 		return nil, err
+	}
+	if DryRun {
+		cli.Note("would write %d bytes to %s", len(content), path)
+		return starlark.None, nil
 	}
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return nil, fmt.Errorf("fs.write: %w", err)
@@ -165,6 +171,10 @@ func fsMkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwarg
 	if err := starlark.UnpackArgs("fs.mkdir", args, kwargs, "path", &path); err != nil {
 		return nil, err
 	}
+	if DryRun {
+		cli.Note("would create directory %s", path)
+		return starlark.None, nil
+	}
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return nil, fmt.Errorf("fs.mkdir: %w", err)
 	}
@@ -176,6 +186,10 @@ func fsRemove(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwar
 	if err := starlark.UnpackArgs("fs.remove", args, kwargs, "path", &path); err != nil {
 		return nil, err
 	}
+	if DryRun {
+		cli.Note("would remove %s", path)
+		return starlark.None, nil
+	}
 	if err := os.Remove(path); err != nil {
 		return nil, fmt.Errorf("fs.remove: %w", err)
 	}
@@ -186,6 +200,10 @@ func fsRemoveAll(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, k
 	var path string
 	if err := starlark.UnpackArgs("fs.remove_all", args, kwargs, "path", &path); err != nil {
 		return nil, err
+	}
+	if DryRun {
+		cli.Note("would remove %s (recursively)", path)
+		return starlark.None, nil
 	}
 	if err := os.RemoveAll(path); err != nil {
 		return nil, fmt.Errorf("fs.remove_all: %w", err)

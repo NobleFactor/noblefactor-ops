@@ -15,10 +15,9 @@
 
 def run(ctx):
     """Main entry point for build-knowledge command."""
-    target = ctx.args.get("target", "all")
+    domain = ctx.args.get("domain", "all")
     source_path = ctx.args.get("source_path", "")
     registry_path = ctx.args.get("registry_path", "")
-    dry_run = ctx.args.get("dry_run", "") == "true"
 
     # Smart defaults: look for sibling directories
     if not source_path:
@@ -41,12 +40,12 @@ def run(ctx):
     if not fs.is_dir(registry_path):
         fail("Registry path not found: " + registry_path)
 
-    # Run requested targets
-    if target == "all" or target == "onboarding":
-        build_onboarding_knowledge(source_path, registry_path, dry_run)
+    # Run requested domains
+    if domain == "all" or domain == "onboarding":
+        build_onboarding_knowledge(source_path, registry_path)
 
-    if target == "all" or target == "migration":
-        build_migration_knowledge(source_path, registry_path, dry_run)
+    if domain == "all" or domain == "migration":
+        build_migration_knowledge(source_path, registry_path)
 
 
 def _find_sibling(name):
@@ -62,7 +61,7 @@ def _find_sibling(name):
 # ONBOARDING KNOWLEDGE (Starlark bindings for lore onboard)
 # =============================================================================
 
-def build_onboarding_knowledge(source_path, registry_path, dry_run):
+def build_onboarding_knowledge(source_path, registry_path):
     """Build onboarding knowledge from Starlark bindings."""
     note("Building onboarding knowledge...")
 
@@ -124,23 +123,16 @@ def build_onboarding_knowledge(source_path, registry_path, dry_run):
     new_reference = generate_reference(binding_tree, bindings)
     reference_content = yaml.encode(new_reference)
 
-    if dry_run:
-        note("  Dry run - would write to: " + reference_path)
-    else:
-        fs.write(reference_path, reference_content)
-        success("  Wrote " + reference_path)
+    fs.write(reference_path, reference_content)
+    success("  Wrote " + reference_path)
 
     # Step 7: Update rules.yaml with new bindings
     if new_bindings and fs.exists(rules_path):
         rules_content = fs.read(rules_path)
         rules = yaml.decode(rules_content)
         updated_rules = update_rules_with_new_bindings(rules, new_bindings)
-
-        if dry_run:
-            note("  Dry run - would update rules.yaml")
-        else:
-            fs.write(rules_path, yaml.encode(updated_rules))
-            success("  Updated " + rules_path)
+        fs.write(rules_path, yaml.encode(updated_rules))
+        success("  Updated " + rules_path)
 
     # Step 8: Validate rules against reference
     if fs.exists(rules_path):
@@ -151,7 +143,7 @@ def build_onboarding_knowledge(source_path, registry_path, dry_run):
 # MIGRATION KNOWLEDGE (Writ migrate patterns for writ migrate)
 # =============================================================================
 
-def build_migration_knowledge(source_path, registry_path, dry_run):
+def build_migration_knowledge(source_path, registry_path):
     """Build migration knowledge from writ migrate source.
 
     This validates that the Go source constants match the registry knowledge:
@@ -243,11 +235,8 @@ def build_migration_knowledge(source_path, registry_path, dry_run):
         note("  Creating new systems-reference.yaml")
 
     if changes_detected:
-        if dry_run:
-            note("  Dry run - would write to: " + systems_ref_path)
-        else:
-            fs.write(systems_ref_path, yaml.encode(systems_ref))
-            success("  Wrote " + systems_ref_path)
+        fs.write(systems_ref_path, yaml.encode(systems_ref))
+        success("  Wrote " + systems_ref_path)
     else:
         success("  No changes to systems-reference.yaml")
 
@@ -650,13 +639,12 @@ def _binding_exists(binding_name, all_bindings):
 
 
 command(
-    name = "devlore.build-knowledge",
+    name = "devlore-registry.build.knowledge",
     help = "Build knowledge base from devlore-cli source",
     flags = [
-        {"name": "target", "help": "Target: all, onboarding, migration", "default": "all"},
+        {"name": "domain", "help": "Domain: all, onboarding, migration", "default": "all"},
         {"name": "source_path", "help": "Path to devlore-cli (default: ../devlore-cli)", "default": ""},
         {"name": "registry_path", "help": "Path to devlore-registry (default: ../devlore-registry)", "default": ""},
-        {"name": "dry_run", "help": "Preview changes without writing", "default": ""},
     ],
     run = run,
 )

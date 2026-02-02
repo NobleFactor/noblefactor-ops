@@ -125,123 +125,165 @@ func parseGoFile(path string) ([]Binding, []Namespace, error) {
 		return nil, nil, err
 	}
 
-	var bindings []Binding
-	var namespaces []Namespace
-
-	// Regex patterns for extracting names from string literals
-	// Pattern 1: NewBuiltin("name", handlerFunc) - named handler
-	// Pattern 2: NewBuiltin("name", func(...) - inline anonymous function
-	newBuiltinRe := regexp.MustCompile(`NewBuiltin\s*\(\s*"([^"]+)"\s*,\s*(?:(\w+\.)?(\w+)\s*\)|func\s*\()`)
-	fromStringDictRe := regexp.MustCompile(`FromStringDict\s*\(\s*starlark\.String\s*\(\s*"([^"]+)"`)
-
 	// Read file content for regex matching (AST doesn't preserve raw string positions well)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
 	}
 	contentStr := string(content)
-	lines := strings.Split(contentStr, "\n")
 
-	// First pass: find all functions that mutate (create execution.Node or modify graph)
+	// Find all functions that mutate (create execution.Node or modify graph)
 	mutatingFuncs := findMutatingFunctions(node, fset, contentStr)
 
-	// Track current context for nested namespaces
-	currentNamespace := ""
+	// Create and run the visitor
+	v := newBindingVisitor(fset, contentStr, mutatingFuncs)
+	ast.Walk(v, node)
 
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.FuncDecl:
-			// Track function context for namespace resolution
-			// Functions like platformStruct(), packageStruct() create sub-namespaces
-			if x.Name != nil {
-				name := x.Name.Name
-				if strings.HasSuffix(name, "Struct") || strings.HasSuffix(name, "Module") {
-					// Extract base namespace from function name
-					baseName := strings.TrimSuffix(strings.TrimSuffix(name, "Struct"), "Module")
-					baseName = camelToSnake(baseName)
-					currentNamespace = baseName
-				}
-			}
+	// Infer additional namespaces from binding names
+	v.inferNamespaces()
 
-		case *ast.CallExpr:
-			line := fset.Position(x.Pos()).Line
-			if line > 0 && line <= len(lines) {
-				lineContent := lines[line-1]
+	return v.bindings, v.namespaces, nil
+}
 
-				// Check for NewBuiltin calls - capture handler function name
-				if matches := newBuiltinRe.FindStringSubmatch(lineContent); len(matches) > 1 {
-					bindingName := matches[1]
-					// Handler name is in matches[3] if it's a named function
-					// If it's an inline func, matches[3] will be empty
-					handlerName := ""
-					if len(matches) > 3 && matches[3] != "" {
-						handlerName = matches[3]
-					}
+// bindingVisitor implements ast.Visitor to extract Starlark bindings.
+type bindingVisitor struct {
+	fset             *token.FileSet
+	lines            []string
+	mutatingFuncs    map[string]bool
+	currentNamespace string
+	newBuiltinRe     *regexp.Regexp
+	fromStringDictRe *regexp.Regexp
+	bindings         []Binding
+	namespaces       []Namespace
+}
 
-					// Check if it's an inline function (no handler name)
-					isInlineFunc := strings.Contains(lineContent, ", func(")
+// newBindingVisitor creates a new binding visitor.
+func newBindingVisitor(fset *token.FileSet, content string, mutatingFuncs map[string]bool) *bindingVisitor {
+	return &bindingVisitor{
+		fset:          fset,
+		lines:         strings.Split(content, "\n"),
+		mutatingFuncs: mutatingFuncs,
+		// Pattern 1: NewBuiltin("name", handlerFunc) - named handler
+		// Pattern 2: NewBuiltin("name", func(...) - inline anonymous function
+		newBuiltinRe:     regexp.MustCompile(`NewBuiltin\s*\(\s*"([^"]+)"\s*,\s*(?:(\w+\.)?(\w+)\s*\)|func\s*\()`),
+		fromStringDictRe: regexp.MustCompile(`FromStringDict\s*\(\s*starlark\.String\s*\(\s*"([^"]+)"`),
+	}
+}
 
-					binding := Binding{
-						Name:     extractMethodName(bindingName),
-						FullName: bindingName,
-						Line:     line,
-						Handler:  handlerName,
-						// Inline functions are assumed non-mutating (system.* queries)
-						// Named handlers check the mutatingFuncs map
-						Mutates: !isInlineFunc && mutatingFuncs[handlerName],
-					}
-					// Determine namespace from full name
-					if idx := strings.LastIndex(bindingName, "."); idx > 0 {
-						binding.Namespace = bindingName[:idx]
-					}
-					bindings = append(bindings, binding)
-				}
+// Visit implements ast.Visitor interface.
+func (v *bindingVisitor) Visit(n ast.Node) ast.Visitor {
+	if n == nil {
+		return nil
+	}
+	switch x := n.(type) {
+	case *ast.FuncDecl:
+		v.visitFuncDecl(x)
+	case *ast.CallExpr:
+		v.visitCallExpr(x)
+	}
+	return v
+}
 
-				// Check for FromStringDict calls (namespace definitions)
-				if matches := fromStringDictRe.FindStringSubmatch(lineContent); len(matches) > 1 {
-					nsName := matches[1]
-					ns := Namespace{
-						Name: nsName,
-						Line: line,
-					}
-					// Determine parent namespace
-					if currentNamespace != "" && currentNamespace != nsName {
-						ns.Parent = currentNamespace
-						ns.Name = currentNamespace + "." + nsName
-					}
-					namespaces = append(namespaces, ns)
-				}
-			}
+// visitFuncDecl tracks function context for namespace resolution.
+func (v *bindingVisitor) visitFuncDecl(fn *ast.FuncDecl) {
+	if fn.Name == nil {
+		return
+	}
+	name := fn.Name.Name
+	// Functions like platformStruct(), packageStruct() create sub-namespaces
+	if strings.HasSuffix(name, "Struct") || strings.HasSuffix(name, "Module") {
+		baseName := strings.TrimSuffix(strings.TrimSuffix(name, "Struct"), "Module")
+		v.currentNamespace = camelToSnake(baseName)
+	}
+}
+
+// visitCallExpr extracts NewBuiltin and FromStringDict calls.
+func (v *bindingVisitor) visitCallExpr(call *ast.CallExpr) {
+	line := v.fset.Position(call.Pos()).Line
+	if line <= 0 || line > len(v.lines) {
+		return
+	}
+	lineContent := v.lines[line-1]
+
+	v.extractBinding(lineContent, line)
+	v.extractNamespace(lineContent, line)
+}
+
+// extractBinding extracts a binding from a NewBuiltin call.
+func (v *bindingVisitor) extractBinding(lineContent string, line int) {
+	matches := v.newBuiltinRe.FindStringSubmatch(lineContent)
+	if len(matches) <= 1 {
+		return
+	}
+
+	bindingName := matches[1]
+	handlerName := ""
+	if len(matches) > 3 && matches[3] != "" {
+		handlerName = matches[3]
+	}
+
+	isInlineFunc := strings.Contains(lineContent, ", func(")
+
+	binding := Binding{
+		Name:     extractMethodName(bindingName),
+		FullName: bindingName,
+		Line:     line,
+		Handler:  handlerName,
+		// Inline functions are assumed non-mutating (system.* queries)
+		// Named handlers check the mutatingFuncs map
+		Mutates: !isInlineFunc && v.mutatingFuncs[handlerName],
+	}
+
+	// Determine namespace from full name
+	if idx := strings.LastIndex(bindingName, "."); idx > 0 {
+		binding.Namespace = bindingName[:idx]
+	}
+
+	v.bindings = append(v.bindings, binding)
+}
+
+// extractNamespace extracts a namespace from a FromStringDict call.
+func (v *bindingVisitor) extractNamespace(lineContent string, line int) {
+	matches := v.fromStringDictRe.FindStringSubmatch(lineContent)
+	if len(matches) <= 1 {
+		return
+	}
+
+	nsName := matches[1]
+	ns := Namespace{
+		Name: nsName,
+		Line: line,
+	}
+
+	// Determine parent namespace
+	if v.currentNamespace != "" && v.currentNamespace != nsName {
+		ns.Parent = v.currentNamespace
+		ns.Name = v.currentNamespace + "." + nsName
+	}
+
+	v.namespaces = append(v.namespaces, ns)
+}
+
+// inferNamespaces adds namespaces inferred from binding names.
+func (v *bindingVisitor) inferNamespaces() {
+	seen := make(map[string]bool)
+	for _, ns := range v.namespaces {
+		seen[ns.Name] = true
+	}
+
+	for _, b := range v.bindings {
+		if b.Namespace == "" {
+			continue
 		}
-		return true
-	})
-
-	// Second pass: infer namespaces from binding names
-	inferredNS := make(map[string]bool)
-	for _, b := range bindings {
-		if b.Namespace != "" {
-			parts := strings.Split(b.Namespace, ".")
-			for i := range parts {
-				ns := strings.Join(parts[:i+1], ".")
-				if !inferredNS[ns] {
-					inferredNS[ns] = true
-					// Check if we already have this namespace
-					found := false
-					for _, existingNS := range namespaces {
-						if existingNS.Name == ns {
-							found = true
-							break
-						}
-					}
-					if !found {
-						namespaces = append(namespaces, Namespace{Name: ns, Line: 0})
-					}
-				}
+		parts := strings.Split(b.Namespace, ".")
+		for i := range parts {
+			ns := strings.Join(parts[:i+1], ".")
+			if !seen[ns] {
+				seen[ns] = true
+				v.namespaces = append(v.namespaces, Namespace{Name: ns, Line: 0})
 			}
 		}
 	}
-
-	return bindings, namespaces, nil
 }
 
 // findMutatingFunctions finds all functions that create execution.Node or modify graph.

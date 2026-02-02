@@ -15,6 +15,11 @@ import (
 	"github.com/NobleFactor/noblefactor-ops/internal/cli"
 )
 
+// DryRun is set by the --dry-run global flag. When true, side-effect
+// bindings (fs.write, fs.mkdir, fs.remove, etc.) log what they would
+// do instead of executing.
+var DryRun bool
+
 // Runtime manages Starlark script execution.
 type Runtime struct {
 	commands map[string]*Command
@@ -134,7 +139,8 @@ func (c *Command) Run(args map[string]string) error {
 	}
 
 	ctx := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"args": argsDict,
+		"args":    argsDict,
+		"dry_run": starlark.Bool(DryRun),
 	})
 
 	// Call the run function

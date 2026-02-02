@@ -37,19 +37,17 @@ BASIC STRUCTURE
     def run(ctx):
         """Main entry point for the operation."""
         path = ctx.args.get("path", ".")
-        dry_run = ctx.args.get("dry_run", "") == "true"
 
         note("Processing: " + path)
-        if not dry_run:
-            fs.write(fs.join(path, "output.txt"), "Hello!")
-            success("Wrote output.txt")
+        # fs.write is dry-run safe - automatically skips when --dry-run is set
+        fs.write(fs.join(path, "output.txt"), "Hello!")
+        success("Wrote output.txt")
 
     command(
         name = "mygroup.my-operation",
         help = "Description shown in help output",
         flags = [
             {"name": "path", "help": "Path to process", "default": "."},
-            {"name": "dry_run", "help": "Preview without changes", "default": ""},
         ],
         run = run,
     )
@@ -65,7 +63,7 @@ AVAILABLE MODULES
 
 fs - File system operations:
   fs.read(path)              Read file contents as string
-  fs.write(path, content)    Write string to file
+  fs.write(path, content)    Write string to file [dry-run safe]
   fs.exists(path)            Check if path exists
   fs.is_dir(path)            Check if path is directory
   fs.is_file(path)           Check if path is file
@@ -75,9 +73,12 @@ fs - File system operations:
   fs.basename(path)          Get filename from path
   fs.dirname(path)           Get directory from path
   fs.glob(pattern)           Find files matching pattern
-  fs.mkdir(path)             Create directory (with parents)
-  fs.remove(path)            Remove file
-  fs.remove_all(path)        Remove file or directory recursively
+  fs.mkdir(path)             Create directory (with parents) [dry-run safe]
+  fs.remove(path)            Remove file [dry-run safe]
+  fs.remove_all(path)        Remove file or directory recursively [dry-run safe]
+
+  Functions marked [dry-run safe] log their intent and skip execution
+  when --dry-run is set.
 
 yaml - YAML encoding/decoding:
   yaml.encode(value)         Convert dict/list to YAML string
@@ -98,6 +99,7 @@ CONTEXT OBJECT
 
 The run function receives a context object with:
   ctx.args                   Dict of flag values (all strings)
+  ctx.dry_run                Bool: true if --dry-run flag is set
 
 FLAG DEFINITION
 
@@ -151,6 +153,9 @@ Generate shell completions with:
   star completion fish > ~/.config/fish/completions/star.fish`,
 	}
 
+	// Global flags
+	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
+
 	// Version command
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "version",
@@ -189,64 +194,6 @@ Generate shell completions with:
 		},
 	})
 	rootCmd.AddCommand(keyCmd)
-
-	// Signing commands
-	signCmd := &cobra.Command{
-		Use:   "sign",
-		Short: "Sign artifacts",
-	}
-	signCmd.AddCommand(&cobra.Command{
-		Use:   "package <path>",
-		Short: "Sign a lore package with release key",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("Lore package signing not yet implemented: %s\n", args[0])
-		},
-	})
-	signCmd.AddCommand(&cobra.Command{
-		Use:   "index",
-		Short: "Generate and sign INDEX.yaml",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Index signing not yet implemented")
-		},
-	})
-	signCmd.AddCommand(&cobra.Command{
-		Use:   "binary <path>",
-		Short: "Sign a release binary",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("Binary signing not yet implemented: %s\n", args[0])
-		},
-	})
-	rootCmd.AddCommand(signCmd)
-
-	// Registry commands
-	registryCmd := &cobra.Command{
-		Use:   "registry",
-		Short: "Registry maintenance operations",
-	}
-	registryCmd.AddCommand(&cobra.Command{
-		Use:   "reindex",
-		Short: "Regenerate INDEX.yaml from lore packages",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Registry reindexing not yet implemented")
-		},
-	})
-	registryCmd.AddCommand(&cobra.Command{
-		Use:   "verify",
-		Short: "Verify all lore package signatures",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Signature verification not yet implemented")
-		},
-	})
-	registryCmd.AddCommand(&cobra.Command{
-		Use:   "audit",
-		Short: "Generate audit trail report",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Audit report not yet implemented")
-		},
-	})
-	rootCmd.AddCommand(registryCmd)
 
 	// Documentation commands
 	docsCmd := &cobra.Command{
