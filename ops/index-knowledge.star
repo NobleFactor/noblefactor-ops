@@ -2,39 +2,55 @@
 #
 # This operation scans the knowledge/ directory in devlore-registry
 # and generates index.yaml files for each domain.
+#
+# Asset types indexed:
+#   - prompts/     → prompts: [{name: ...}]
+#   - schemas/     → schemas: [{name: ...}]
+#   - examples/    → examples: [{name: ...}]
+#   - transforms/  → transforms: [{name: ...}]
+#   - signatures/  → signatures: [{name: ...}]
+#   - slots/       → slots: [{name: ...}]
+#
+# Usage:
+#   nf-ops registry.index-knowledge --path=/path/to/devlore-registry
 
-def build_file_index(domain_path):
-    """Build index of all .md files in a domain."""
+# Asset type subdirectories to index
+ASSET_TYPES = ["prompts", "schemas", "examples", "transforms", "signatures", "slots"]
+
+def list_files(dir_path):
+    """List all files in a directory (non-recursive)."""
     files = []
-    for entry in fs.list_dir(domain_path):
-        if entry.name == "index.yaml":
-            continue
+    if not fs.exists(dir_path):
+        return files
+
+    for entry in fs.list_dir(dir_path):
         if entry.is_dir:
-            # Recurse into subdirectories
-            for subentry in fs.list_dir(entry.path):
-                if subentry.name.endswith(".md"):
-                    rel_path = entry.name + "/" + subentry.name
-                    files.append({
-                        "path": rel_path,
-                        "name": subentry.name.replace(".md", ""),
-                        "category": entry.name,
-                    })
-        elif entry.name.endswith(".md"):
-            files.append({
-                "path": entry.name,
-                "name": entry.name.replace(".md", ""),
-                "category": "root",
-            })
-    return files
+            continue
+        # Skip hidden files
+        if entry.name.startswith("."):
+            continue
+        files.append(entry.name)
+
+    return sorted(files)
+
+def build_asset_entries(dir_path):
+    """Build list of asset entries for a directory."""
+    entries = []
+    for filename in list_files(dir_path):
+        entries.append({"name": filename})
+    return entries
 
 def build_index(domain_name, domain_path):
     """Build the complete index for a domain."""
-    files = build_file_index(domain_path)
-    return {
-        "domain": domain_name,
-        "version": "1",
-        "files": files,
-    }
+    index = {"domain": domain_name}
+
+    for asset_type in ASSET_TYPES:
+        asset_dir = fs.join(domain_path, asset_type)
+        entries = build_asset_entries(asset_dir)
+        if len(entries) > 0:
+            index[asset_type] = entries
+
+    return index
 
 def run(ctx):
     """Main entry point."""
@@ -48,6 +64,7 @@ def run(ctx):
         return
 
     domains_processed = 0
+    total_assets = 0
 
     for entry in fs.list_dir(knowledge_dir):
         if not entry.is_dir:
@@ -56,22 +73,33 @@ def run(ctx):
         domain_name = entry.name
         domain_path = entry.path
 
-        note("Processing domain: " + domain_name)
-
         index = build_index(domain_name, domain_path)
+
+        # Count assets
+        asset_count = 0
+        for asset_type in ASSET_TYPES:
+            if asset_type in index:
+                asset_count = asset_count + len(index[asset_type])
+
+        if asset_count == 0:
+            note("Skipping empty domain: " + domain_name)
+            continue
+
         index_content = yaml.encode(index)
         index_path = fs.join(domain_path, "index.yaml")
 
         if dry_run:
-            note("Would write: " + index_path)
+            note("Would write: " + index_path + " (" + str(asset_count) + " assets)")
             print(index_content)
+            print("---")
         else:
             fs.write(index_path, index_content)
-            success("Wrote: " + index_path)
+            success("Wrote: " + index_path + " (" + str(asset_count) + " assets)")
 
         domains_processed = domains_processed + 1
+        total_assets = total_assets + asset_count
 
-    note("Processed " + str(domains_processed) + " domain(s)")
+    note("Indexed " + str(total_assets) + " assets across " + str(domains_processed) + " domain(s)")
 
 # Register the command
 command(

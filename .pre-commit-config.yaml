@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+#
+# Pre-commit hooks for noblefactor-ops
+#
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+#
+# Requires: go, golangci-lint, shfmt, shellcheck
+#
+# Quality objectives:
+#   Go:    Low complexity, no dead code, clean formatting (.golangci.yaml)
+#   Shell: shfmt formatting, shellcheck static analysis
+
+repos:
+  - repo: local
+    hooks:
+      # === Go hooks ===
+      - id: go-mod-tidy
+        name: Tidy Go modules
+        entry: bash -c 'go mod tidy && git diff --exit-code go.mod go.sum'
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: go-fmt
+        name: Format Go code
+        entry: gofmt -l -w .
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: go-vet
+        name: Vet Go code
+        entry: go vet ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: golangci-lint
+        name: Lint Go code (complexity, dead code, style)
+        entry: golangci-lint run --config .golangci.yaml
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      # === Shell hooks ===
+      - id: shfmt
+        name: Format shell scripts (shfmt)
+        entry: shfmt -d -i 4 -ci
+        language: system
+        types: [shell]
+
+      - id: shellcheck
+        name: Lint shell scripts (shellcheck)
+        entry: shellcheck -x --severity=warning
+        language: system
+        types: [shell]
