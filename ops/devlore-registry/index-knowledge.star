@@ -103,7 +103,7 @@ def run(ctx):
 
 # Register the command
 command(
-    name = "registry.index-knowledge",
+    name = "devlore-registry.index.knowledge",
     help = "Generate index.yaml for knowledge domains in devlore-registry",
     flags = [
         {"name": "path", "help": "Path to devlore-registry", "default": "."},
