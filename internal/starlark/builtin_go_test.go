@@ -504,3 +504,116 @@ func parseForTesting(t *testing.T, path string) (*token.FileSet, *ast.File, stri
 
 	return fset, node, string(content)
 }
+
+// =============================================================================
+// EXECUTION OPS TESTS
+// =============================================================================
+
+func TestParseOpsFile(t *testing.T) {
+	// Pattern derived from devlore-cli/internal/execution/ops.go
+	content := `package execution
+
+type CopyOp struct {
+	Source string
+	Target string
+}
+
+func (o *CopyOp) Name() string         { return "copy" }
+func (o *CopyOp) Execute() error       { return nil }
+
+type ExpandOp struct {
+	Template string
+	Target   string
+}
+
+func (o *ExpandOp) Name() string         { return "expand" }
+func (o *ExpandOp) Execute() error       { return nil }
+
+type RenameOp struct {
+	Source string
+	Target string
+}
+
+func (o *RenameOp) Name() string         { return "rename" }
+
+type BackupOp struct {
+	Path string
+}
+
+func (o *BackupOp) Name() string         { return "backup" }
+
+// Helper doesn't have Op suffix - should be ignored
+type Helper struct{}
+
+func (h *Helper) Name() string { return "ignored" }
+
+// SomeHelper is not an Op type
+type SomeHelper struct{}
+
+func (s *SomeHelper) DoStuff() string { return "stuff" }
+`
+	tmpFile := createTempGoFile(t, content)
+	defer os.Remove(tmpFile)
+
+	ops, err := parseOpsFile(tmpFile)
+	if err != nil {
+		t.Fatalf("parseOpsFile failed: %v", err)
+	}
+
+	// Should find 4 ops: copy, expand, rename, backup (sorted alphabetically)
+	if len(ops) != 4 {
+		t.Errorf("expected 4 operations, got %d", len(ops))
+		for _, op := range ops {
+			t.Logf("  found: %s (%s)", op.Name, op.TypeName)
+		}
+	}
+
+	expected := map[string]string{
+		"backup": "BackupOp",
+		"copy":   "CopyOp",
+		"expand": "ExpandOp",
+		"rename": "RenameOp",
+	}
+
+	for _, op := range ops {
+		expectedType, ok := expected[op.Name]
+		if !ok {
+			t.Errorf("unexpected operation: %s", op.Name)
+			continue
+		}
+		if op.TypeName != expectedType {
+			t.Errorf("operation %s: expected type %s, got %s", op.Name, expectedType, op.TypeName)
+		}
+		delete(expected, op.Name)
+	}
+
+	for name := range expected {
+		t.Errorf("missing expected operation: %s", name)
+	}
+}
+
+func TestParseOpsFile_RealOps(t *testing.T) {
+	// Test against actual devlore-cli ops.go if available
+	opsPath := "/Users/david-noble/Workspace/NobleFactor/devlore-cli/internal/execution/ops.go"
+	if _, err := os.Stat(opsPath); os.IsNotExist(err) {
+		t.Skip("devlore-cli not available")
+	}
+
+	ops, err := parseOpsFile(opsPath)
+	if err != nil {
+		t.Fatalf("parseOpsFile failed: %v", err)
+	}
+
+	// Should find at least the known operations
+	knownOps := []string{"backup", "copy", "decrypt", "expand", "file-write", "link", "mkdir", "remove", "rename", "unlink", "validate"}
+	found := make(map[string]bool)
+	for _, op := range ops {
+		found[op.Name] = true
+	}
+
+	for _, known := range knownOps {
+		if !found[known] {
+			t.Errorf("missing expected operation: %s", known)
+		}
+	}
+}

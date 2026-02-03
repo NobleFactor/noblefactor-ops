@@ -1,23 +1,23 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 #
-# build-knowledge.star - Build knowledge base from devlore-cli source
+# build-knowledge.star - Build knowledge artifacts from devlore-cli source
 #
 # This is a build step that:
-# 1. Interrogates devlore-cli source code (static analysis)
+# 1. Interrogates devlore-cli source code (static analysis via Go AST)
 # 2. Enforces contracts (fails build on violations)
 # 3. Rebuilds knowledge artifacts in devlore-registry
 #
-# Targets:
-#   onboarding - Starlark bindings for lore onboard
-#   migration  - Writ migrate patterns for writ migrate
-#   all        - Both targets
+# Domains:
+#   - onboarding: Starlark API reference for lore package authors
+#   - migration: writ migrate patterns (source systems, encryption, execution ops)
+#   - all: Both domains (default)
 
 def run(ctx):
     """Main entry point for build-knowledge command."""
-    domain = ctx.args.get("domain", "all")
     source_path = ctx.args.get("source_path", "")
     registry_path = ctx.args.get("registry_path", "")
+    domain = ctx.args.get("domain", "all")
 
     # Smart defaults: look for sibling directories
     if not source_path:
@@ -40,7 +40,7 @@ def run(ctx):
     if not fs.is_dir(registry_path):
         fail("Registry path not found: " + registry_path)
 
-    # Run requested domains
+    # Build knowledge for selected domain(s)
     if domain == "all" or domain == "onboarding":
         build_onboarding_knowledge(source_path, registry_path)
 
@@ -58,85 +58,134 @@ def _find_sibling(name):
 
 
 # =============================================================================
-# ONBOARDING KNOWLEDGE (Starlark bindings for lore onboard)
+# ONBOARDING KNOWLEDGE (Starlark API reference for lore package authors)
 # =============================================================================
 
 def build_onboarding_knowledge(source_path, registry_path):
-    """Build onboarding knowledge from Starlark bindings."""
-    note("Building onboarding knowledge...")
+    """Build Starlark API reference from devlore-cli source.
+
+    Uses go.parse_devlore_api() to extract the API from Go source code.
+    Writes the hierarchical API reference to the registry.
+    """
+    note("Building onboarding knowledge (Starlark API)...")
 
     starlark_path = fs.join(source_path, "internal", "starlark")
     if not fs.is_dir(starlark_path):
-        fail("Starlark source not found: " + starlark_path)
+        fail("Starlark package not found: " + starlark_path)
 
-    knowledge_path = fs.join(registry_path, "knowledge", "package-authoring", "bindings")
-    reference_path = fs.join(knowledge_path, "reference.yaml")
-    rules_path = fs.join(knowledge_path, "rules.yaml")
-
-    # Step 1: Parse Go source files
+    # Parse the API using Go AST - returns hierarchical structure
     note("  Scanning " + starlark_path + "...")
-    result = go.parse_starlark_bindings(starlark_path)
+    api = go.parse_devlore_api(starlark_path)
 
-    bindings = list(result.bindings)
-    namespaces = list(result.namespaces)
+    # Count bindings
+    binding_count = _count_bindings(api)
+    violation_count = len(list(api.violations))
 
-    note("  Found " + str(len(bindings)) + " bindings in " + str(len(namespaces)) + " namespaces")
+    note("  Found " + str(binding_count) + " bindings")
 
-    # Step 2: Check for contract violations (fails build)
-    violations = check_binding_contract_violations(bindings)
-    if violations:
+    # Check for contract violations
+    if violation_count > 0:
         error("Contract violations detected:")
-        for v in violations:
-            error("  " + v["binding"] + " (" + v["file"] + ":" + str(v["line"]) + ")")
-            error("    " + v["message"])
+        for v in api.violations:
+            error("  " + v.name + " (" + v.file + ":" + str(v.line) + "): " + v.error)
         fail("Fix contract violations before building knowledge")
 
     success("  No contract violations")
 
-    # Step 3: Organize bindings by namespace
-    binding_tree = organize_bindings(bindings, namespaces)
+    # Convert to dict for YAML serialization
+    api_dict = _api_to_dict(api)
 
-    # Step 4: Load current reference if exists
-    current_bindings = {}
+    # Write to registry
+    reference_path = fs.join(registry_path, "knowledge", "package-authoring", "bindings", "reference.yaml")
+
+    # Compare with existing
+    changes_detected = False
+    new_content = yaml.encode(api_dict)
     if fs.exists(reference_path):
         current_content = fs.read(reference_path)
-        current_ref = yaml.decode(current_content)
-        current_bindings = extract_current_bindings(current_ref)
+        if current_content != new_content:
+            changes_detected = True
+            note("  Changes detected in reference.yaml")
+    else:
+        changes_detected = True
+        note("  Creating new reference.yaml")
 
-    # Step 5: Compare and report diff
-    new_bindings, removed_bindings, unchanged = compare_bindings(binding_tree, current_bindings)
+    if changes_detected:
+        fs.write(reference_path, new_content)
+        success("  Wrote " + reference_path)
+    else:
+        success("  No changes to reference.yaml")
 
-    if new_bindings:
-        success("  New bindings: " + str(len(new_bindings)))
-        for b in new_bindings:
-            note("    + " + b)
 
-    if removed_bindings:
-        warn("  Removed bindings: " + str(len(removed_bindings)))
-        for b in removed_bindings:
-            note("    - " + b)
+def _count_bindings(api):
+    """Count total bindings in the hierarchical API."""
+    count = 0
+    for ns in dir(api.plan):
+        if not ns.startswith("_"):
+            count += len(list(getattr(api.plan, ns)))
+    for ns in dir(api.system):
+        if not ns.startswith("_"):
+            count += len(list(getattr(api.system, ns)))
+    return count
 
-    if not new_bindings and not removed_bindings:
-        success("  No changes detected")
 
-    # Step 6: Generate new reference.yaml
-    new_reference = generate_reference(binding_tree, bindings)
-    reference_content = yaml.encode(new_reference)
+def _api_to_dict(api):
+    """Convert API struct to dict for YAML serialization."""
+    result = {
+        "valid": bool(api.valid),
+        "plan": {},
+        "system": {},
+        "violations": [],
+    }
 
-    fs.write(reference_path, reference_content)
-    success("  Wrote " + reference_path)
+    # Convert plan namespaces
+    for ns in dir(api.plan):
+        if ns.startswith("_"):
+            continue
+        methods = list(getattr(api.plan, ns))
+        result["plan"][ns] = [_method_to_dict(m) for m in methods]
 
-    # Step 7: Update rules.yaml with new bindings
-    if new_bindings and fs.exists(rules_path):
-        rules_content = fs.read(rules_path)
-        rules = yaml.decode(rules_content)
-        updated_rules = update_rules_with_new_bindings(rules, new_bindings)
-        fs.write(rules_path, yaml.encode(updated_rules))
-        success("  Updated " + rules_path)
+    # Convert system namespaces
+    for ns in dir(api.system):
+        if ns.startswith("_"):
+            continue
+        methods = list(getattr(api.system, ns))
+        result["system"][ns] = [_method_to_dict(m) for m in methods]
 
-    # Step 8: Validate rules against reference
-    if fs.exists(rules_path):
-        validate_rules(rules_path, binding_tree)
+    # Convert violations
+    for v in api.violations:
+        result["violations"].append({
+            "name": v.name,
+            "file": v.file,
+            "line": int(v.line),
+            "error": v.error,
+        })
+
+    return result
+
+
+def _method_to_dict(m):
+    """Convert a method struct to dict."""
+    # Convert slot_docs struct to dict
+    slot_docs = {}
+    for slot in m.slots:
+        doc = getattr(m.slot_docs, slot, "")
+        if doc:
+            slot_docs[slot] = doc
+
+    return {
+        "name": m.name,
+        "full_name": m.full_name,
+        "doc": m.doc,
+        "usage": m.usage,
+        "slots": list(m.slots),
+        "slot_docs": slot_docs,
+        "operations": list(m.operations),
+        "output": m.output,
+        "returns": m.returns,
+        "file": m.file,
+        "line": int(m.line),
+    }
 
 
 # =============================================================================
@@ -150,12 +199,17 @@ def build_migration_knowledge(source_path, registry_path):
     - SourceSystem constants should have corresponding signature files
     - EncryptionSystem constants should be documented
     - Platform names should match writ-structure.yaml
+    - Execution operations in schemas match ops.go
     """
     note("Building migration knowledge...")
 
     migrate_path = fs.join(source_path, "internal", "writ", "migrate")
     if not fs.is_dir(migrate_path):
         fail("Migrate source not found: " + migrate_path)
+
+    execution_path = fs.join(source_path, "internal", "execution")
+    if not fs.is_dir(execution_path):
+        fail("Execution source not found: " + execution_path)
 
     knowledge_path = fs.join(registry_path, "knowledge", "migration")
     if not fs.is_dir(knowledge_path):
@@ -174,14 +228,27 @@ def build_migration_knowledge(source_path, registry_path):
     note("  Found " + str(len(encryption_systems)) + " encryption systems")
     note("  Found " + str(len(platforms)) + " platforms")
 
+    # Step 1b: Parse execution operations from ops.go
+    ops_path = fs.join(execution_path, "ops.go")
+    note("  Scanning " + ops_path + "...")
+    ops_result = go.parse_execution_ops(ops_path)
+    execution_ops = list(ops_result.operations)
+    note("  Found " + str(len(execution_ops)) + " execution operations")
+
     # Step 2: Load registry signature files
+    # Only include files that look like actual system signatures (have a 'name' field)
     signatures_path = fs.join(knowledge_path, "signatures")
     registry_systems = []
     if fs.is_dir(signatures_path):
         for entry in fs.list_dir(signatures_path):
             if entry.name.endswith(".yaml"):
-                system_name = entry.name.replace(".yaml", "")
-                registry_systems.append(system_name)
+                sig_path = fs.join(signatures_path, entry.name)
+                content = fs.read(sig_path)
+                sig = yaml.decode(content)
+                # Only consider files with a 'name' field as system signatures
+                if sig.get("name"):
+                    system_name = entry.name.replace(".yaml", "")
+                    registry_systems.append(system_name)
 
     # Step 3: Load writ-structure.yaml for platform validation
     writ_structure_path = fs.join(knowledge_path, "concepts", "writ-structure.yaml")
@@ -242,6 +309,202 @@ def build_migration_knowledge(source_path, registry_path):
 
     # Step 6: Validate all signature files exist for source systems
     validate_signature_coverage(source_systems, signatures_path)
+
+    # Step 7: Generate execution graph schema from Go types
+    generate_execution_schema(source_path, knowledge_path)
+
+
+def generate_execution_schema(source_path, knowledge_path):
+    """Generate engine-graph.json schema from Go struct definitions.
+
+    This ensures the schema is always derived from the actual Go types.
+    """
+    schemas_path = fs.join(knowledge_path, "schemas")
+    if not fs.is_dir(schemas_path):
+        warn("  Schemas path not found: " + schemas_path)
+        return
+
+    # Parse Go execution package for structs and operations
+    execution_path = fs.join(source_path, "internal", "execution")
+    note("  Generating schema from " + execution_path + "...")
+    schema_data = go.parse_execution_schema(execution_path)
+
+    # Build JSON Schema from Go types
+    engine_schema = _build_engine_graph_schema(schema_data)
+
+    # Write schema
+    engine_schema_path = fs.join(schemas_path, "engine-graph.json")
+    new_content = json.encode_indent(engine_schema, "  ")
+
+    changes_detected = False
+    if fs.exists(engine_schema_path):
+        current_content = fs.read(engine_schema_path)
+        if current_content != new_content:
+            changes_detected = True
+            note("  Changes detected in engine-graph.json")
+    else:
+        changes_detected = True
+        note("  Creating new engine-graph.json")
+
+    if changes_detected:
+        fs.write(engine_schema_path, new_content)
+        success("  Wrote " + engine_schema_path)
+    else:
+        success("  No changes to engine-graph.json")
+
+
+def _build_engine_graph_schema(schema_data):
+    """Build JSON Schema from parsed Go struct data.
+
+    Generates a complete JSON Schema for execution graphs based on the
+    Go struct definitions in the execution package.
+    """
+    ops_list = sorted(list(schema_data.operations))
+
+    # Build SlotValue schema from Go struct
+    slot_value_schema = {
+        "type": "object",
+        "description": "A slot value - either immediate or a promise (reference to another node)",
+        "properties": {},
+    }
+    if hasattr(schema_data, "slot_value"):
+        for f in schema_data.slot_value.fields:
+            slot_value_schema["properties"][f.json_name] = _field_to_json_schema(f)
+
+    # Build Node schema from Go struct
+    node_properties = {}
+    node_required = []
+    if hasattr(schema_data, "node"):
+        for f in schema_data.node.fields:
+            # Special handling for operations - add enum
+            if f.json_name == "operations":
+                node_properties["operations"] = {
+                    "type": "array",
+                    "description": "Pipeline of operations to execute",
+                    "items": {
+                        "type": "string",
+                        "enum": ops_list,
+                    },
+                }
+            # Special handling for slots - reference slot_value
+            elif f.json_name == "slots":
+                node_properties["slots"] = {
+                    "type": "object",
+                    "description": "Input slots for this node (name -> value)",
+                    "additionalProperties": {"$ref": "#/$defs/slot_value"},
+                }
+            # Special handling for status - add enum
+            elif f.json_name == "status":
+                statuses = list(schema_data.node_statuss) if hasattr(schema_data, "node_statuss") else ["pending", "completed", "skipped", "failed"]
+                node_properties["status"] = {
+                    "type": "string",
+                    "description": f.description if f.description else "Execution status of this node",
+                    "enum": statuses,
+                }
+            else:
+                node_properties[f.json_name] = _field_to_json_schema(f)
+
+            if f.required and f.json_name not in ["status"]:  # status has default
+                node_required.append(f.json_name)
+
+    # Build Edge schema from Go struct
+    edge_properties = {}
+    edge_required = []
+    if hasattr(schema_data, "edge"):
+        for f in schema_data.edge.fields:
+            edge_properties[f.json_name] = _field_to_json_schema(f)
+            if f.required:
+                edge_required.append(f.json_name)
+
+    # Build complete schema
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://devlore.noblefactor.com/schemas/engine-graph.json",
+        "title": "Execution Graph",
+        "description": "Execution graph derived from devlore-cli execution.Graph Go types",
+        "type": "object",
+        "$defs": {
+            "slot_value": slot_value_schema,
+            "node": {
+                "type": "object",
+                "properties": node_properties,
+                "required": node_required if node_required else ["id", "operations"],
+            },
+            "edge": {
+                "type": "object",
+                "properties": edge_properties,
+                "required": edge_required if edge_required else ["from", "to", "relation"],
+            },
+        },
+        "properties": {
+            "version": {
+                "type": "string",
+                "description": "Graph format version",
+            },
+            "tool": {
+                "type": "string",
+                "description": "Tool that created this graph",
+            },
+            "state": {
+                "type": "string",
+                "description": "Execution state of the graph",
+                "enum": list(schema_data.graph_states) if hasattr(schema_data, "graph_states") else ["pending", "executed", "failed"],
+            },
+            "nodes": {
+                "type": "array",
+                "description": "Operations to execute",
+                "items": {"$ref": "#/$defs/node"},
+            },
+            "edges": {
+                "type": "array",
+                "description": "Dependencies between nodes",
+                "items": {"$ref": "#/$defs/edge"},
+            },
+        },
+        "required": ["nodes"],
+    }
+
+    return schema
+
+
+def _field_to_json_schema(field):
+    """Convert a Go struct field to JSON Schema property."""
+    go_type = field.type
+    schema = {}
+
+    if field.description:
+        schema["description"] = field.description
+
+    # Map Go types to JSON Schema types
+    if go_type == "string":
+        schema["type"] = "string"
+    elif go_type == "int" or go_type == "int64":
+        schema["type"] = "integer"
+    elif go_type == "bool":
+        schema["type"] = "boolean"
+    elif go_type == "float64":
+        schema["type"] = "number"
+    elif go_type.startswith("[]"):
+        schema["type"] = "array"
+        inner_type = go_type[2:]
+        if inner_type == "string":
+            schema["items"] = {"type": "string"}
+        else:
+            schema["items"] = {"type": "object"}
+    elif go_type.startswith("map["):
+        schema["type"] = "object"
+        schema["additionalProperties"] = {"type": "string"}
+    elif go_type == "os.FileMode":
+        schema["type"] = "integer"
+        schema["description"] = (field.description + " " if field.description else "") + "(octal file permissions)"
+    elif go_type == "time.Time":
+        schema["type"] = "string"
+        schema["format"] = "date-time"
+    else:
+        # Custom type - treat as string for now
+        schema["type"] = "string"
+
+    return schema
 
 
 def check_migration_contract_violations(source_systems, encryption_systems, platforms, registry_systems, registry_platforms, registry_platform_aliases):
@@ -371,280 +634,13 @@ def validate_signature_coverage(source_systems, signatures_path):
                 warn("  Signature missing 'markers': " + sig_file)
 
 
-# =============================================================================
-# CONTRACT VIOLATION DETECTION
-# =============================================================================
-
-def check_binding_contract_violations(bindings):
-    """Check all bindings for contract violations.
-
-    Contract:
-      - package.* must be read-only (should NOT mutate)
-      - system.* must be read-only (should NOT mutate)
-      - plan.* must be execution graph builder (SHOULD mutate)
-    """
-    violations = []
-
-    for b in bindings:
-        full_name = b.full_name
-        namespace = b.namespace
-        mutates = b.mutates
-        file = b.file
-        line = int(b.line)
-
-        top_level = namespace.split(".")[0] if namespace else full_name.split(".")[0]
-
-        if top_level == "package":
-            if mutates:
-                violations.append({
-                    "binding": full_name,
-                    "file": file,
-                    "line": line,
-                    "message": "package.* bindings must be read-only but this one mutates",
-                })
-
-        elif top_level == "system":
-            if mutates:
-                violations.append({
-                    "binding": full_name,
-                    "file": file,
-                    "line": line,
-                    "message": "system.* bindings must be read-only but this one mutates",
-                })
-
-        elif top_level == "plan":
-            if not mutates:
-                violations.append({
-                    "binding": full_name,
-                    "file": file,
-                    "line": line,
-                    "message": "plan.* bindings must build execution graph but this one doesn't",
-                })
-
-    return violations
-
-
-# =============================================================================
-# BINDING ORGANIZATION AND COMPARISON
-# =============================================================================
-
-def organize_bindings(bindings, namespaces):
-    """Organize bindings into a tree structure by namespace."""
-    tree = {}
-
-    for b in bindings:
-        full_name = b.full_name
-        namespace = b.namespace
-        name = b.name
-
-        if namespace not in tree:
-            tree[namespace] = {
-                "methods": [],
-                "file": b.file,
-            }
-
-        tree[namespace]["methods"].append({
-            "name": name,
-            "full_name": full_name,
-            "file": b.file,
-            "line": int(b.line),
-        })
-
-    return tree
-
-
-def extract_current_bindings(ref):
-    """Extract binding names from current reference.yaml."""
-    bindings = {}
-
-    if "package" in ref:
-        _extract_namespace_bindings(ref, "package", bindings)
-    if "system" in ref:
-        _extract_namespace_bindings(ref, "system", bindings)
-    if "plan" in ref:
-        _extract_namespace_bindings(ref, "plan", bindings)
-
-    return bindings
-
-
-def _extract_namespace_bindings(ref, ns_name, bindings):
-    """Extract bindings from a namespace in the reference."""
-    ns = ref.get(ns_name, {})
-
-    methods = ns.get("methods", [])
-    for m in methods:
-        if "name" in m:
-            full_name = ns_name + "." + m["name"]
-            bindings[full_name] = m
-
-    namespaces = ns.get("namespaces", {})
-    for sub_name, sub_ns in namespaces.items():
-        sub_methods = sub_ns.get("methods", [])
-        for m in sub_methods:
-            if "name" in m:
-                full_name = ns_name + "." + sub_name + "." + m["name"]
-                bindings[full_name] = m
-
-
-def compare_bindings(new_tree, current_bindings):
-    """Compare new bindings against current reference."""
-    new_set = set()
-    for ns, data in new_tree.items():
-        for m in data["methods"]:
-            new_set.add(m["full_name"])
-
-    current_set = set(current_bindings.keys())
-
-    new_bindings = sorted(list(new_set - current_set))
-    removed_bindings = sorted(list(current_set - new_set))
-    unchanged = sorted(list(new_set & current_set))
-
-    return new_bindings, removed_bindings, unchanged
-
-
-# =============================================================================
-# REFERENCE GENERATION
-# =============================================================================
-
-def generate_reference(binding_tree, bindings):
-    """Generate new reference.yaml content."""
-    ref = {
-        "version": "1.0",
-        "source": "devlore-cli/internal/starlark",
-        "generated": True,
-        "binding_count": len(bindings),
-    }
-
-    for ns, data in sorted(binding_tree.items()):
-        parts = ns.split(".")
-        top_level = parts[0]
-
-        if top_level not in ref:
-            ref[top_level] = {
-                "description": _get_namespace_description(top_level),
-                "namespaces": {},
-                "methods": [],
-            }
-
-        if len(parts) == 1:
-            ref[top_level]["methods"] = data["methods"]
-        else:
-            sub_ns = ".".join(parts[1:])
-            ref[top_level]["namespaces"][sub_ns] = {
-                "description": _get_namespace_description(ns),
-                "methods": data["methods"],
-            }
-
-    return ref
-
-
-def _get_namespace_description(ns):
-    """Get description for a namespace."""
-    descriptions = {
-        "package": "Lore package context - read-only access to package metadata",
-        "system": "Read-only system state queries",
-        "system.platform": "Platform information",
-        "system.package": "Package manager queries",
-        "system.service": "Service/daemon queries",
-        "plan": "Execution graph builder - all mutations go through plan",
-        "plan.package": "Package management operations",
-        "plan.file": "File operations",
-        "fs": "File system operations",
-        "shell": "Shell command execution",
-        "http": "HTTP operations",
-        "archive": "Archive operations",
-        "env": "Environment variable operations",
-        "service": "Service management",
-        "git": "Git operations",
-        "docker": "Docker operations",
-        "log": "Logging functions",
-    }
-    return descriptions.get(ns, "")
-
-
-def update_rules_with_new_bindings(rules, new_bindings):
-    """Add new bindings to rules.yaml as implemented."""
-    binding_coverage = rules.get("binding_coverage", {})
-
-    for binding_name in new_bindings:
-        parts = binding_name.split(".")
-        if len(parts) >= 2:
-            category = parts[0]
-            method = parts[-1]
-
-            if category not in binding_coverage:
-                binding_coverage[category] = {}
-
-            if method not in binding_coverage[category]:
-                binding_coverage[category][method] = {
-                    "binding": binding_name,
-                    "status": "implemented",
-                    "replaces": [],
-                }
-
-    rules["binding_coverage"] = binding_coverage
-    return rules
-
-
-def validate_rules(rules_path, binding_tree):
-    """Validate that rules.yaml only references existing bindings."""
-    rules_content = fs.read(rules_path)
-    rules = yaml.decode(rules_content)
-
-    all_bindings = set()
-    for ns, data in binding_tree.items():
-        for m in data["methods"]:
-            all_bindings.add(m["full_name"])
-
-    antipatterns = rules.get("shell_antipatterns", [])
-    warnings = []
-
-    for ap in antipatterns:
-        correct = ap.get("correct_binding", "")
-        if correct and not _binding_exists(correct, all_bindings):
-            proposed = ap.get("proposed_binding", {})
-            if not proposed:
-                warnings.append("Rule references missing binding: " + correct)
-
-    coverage = rules.get("binding_coverage", {})
-    for category, methods in coverage.items():
-        for method_name, method_data in methods.items():
-            binding = ""
-            status = ""
-            if type(method_data) == "dict":
-                binding = method_data.get("binding", "")
-                status = method_data.get("status", "")
-            if binding and status == "implemented" and not _binding_exists(binding, all_bindings):
-                warnings.append("Coverage claims implemented but not found: " + binding)
-
-    if warnings:
-        for w in warnings:
-            warn("    " + w)
-    else:
-        success("  All rule references are valid")
-
-
-def _binding_exists(binding_name, all_bindings):
-    """Check if a binding exists, handling wildcards."""
-    if binding_name in all_bindings:
-        return True
-
-    if "*" in binding_name:
-        prefix = binding_name.replace("*", "")
-        for b in all_bindings:
-            if b.startswith(prefix):
-                return True
-
-    return False
-
-
 command(
     name = "devlore-registry.build.knowledge",
-    help = "Build knowledge base from devlore-cli source",
+    help = "Build knowledge artifacts from devlore-cli source",
     flags = [
-        {"name": "domain", "help": "Domain: all, onboarding, migration", "default": "all"},
         {"name": "source_path", "help": "Path to devlore-cli (default: ../devlore-cli)", "default": ""},
         {"name": "registry_path", "help": "Path to devlore-registry (default: ../devlore-registry)", "default": ""},
+        {"name": "domain", "help": "Knowledge domain: all, onboarding, or migration", "default": "all"},
     ],
     run = run,
 )

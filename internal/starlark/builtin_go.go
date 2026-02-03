@@ -24,6 +24,9 @@ func goModule() *starlarkstruct.Module {
 		Members: starlark.StringDict{
 			"parse_starlark_bindings": starlark.NewBuiltin("go.parse_starlark_bindings", goParseStarlarkBindings),
 			"parse_migrate_knowledge": starlark.NewBuiltin("go.parse_migrate_knowledge", goParseMigrateKnowledge),
+			"parse_execution_ops":     starlark.NewBuiltin("go.parse_execution_ops", goParseExecutionOps),
+			"parse_execution_schema":  starlark.NewBuiltin("go.parse_execution_schema", goParseExecutionSchema),
+			"parse_devlore_api":       starlark.NewBuiltin("go.parse_devlore_api", goParseDevloreAPI),
 			"metrics":                 starlark.NewBuiltin("go.metrics", goMetrics),
 			"deps":                    starlark.NewBuiltin("go.deps", goDeps),
 		},
@@ -1129,5 +1132,1112 @@ func typeConstToStarlark(tc TypeConstant) starlark.Value {
 		"type_name": starlark.String(tc.TypeName),
 		"file":      starlark.String(tc.File),
 		"line":      starlark.MakeInt(tc.Line),
+	})
+}
+
+// =============================================================================
+// EXECUTION OPERATIONS PARSING
+// =============================================================================
+
+// ExecutionOp represents an execution operation extracted from Go source.
+type ExecutionOp struct {
+	Name     string // Operation name (e.g., "copy", "expand", "rename")
+	TypeName string // Go type name (e.g., "CopyOp", "ExpandOp")
+	Line     int    // Line number where Name() is defined
+	File     string // Source file
+}
+
+// goParseExecutionOps parses Go source files in the execution directory
+// and extracts operation names from Op types.
+//
+// It looks for patterns like:
+//
+//	func (o *CopyOp) Name() string { return "copy" }
+//
+// Args:
+//   - path: Path to the execution directory or ops.go file
+//
+// Returns:
+//   - A struct with:
+//   - operations: List of {name, type_name, file, line}
+func goParseExecutionOps(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.parse_execution_ops", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.parse_execution_ops: %w", err)
+	}
+
+	var files []string
+	if info.IsDir() {
+		// Look for ops.go in directory
+		opsPath := filepath.Join(path, "ops.go")
+		if _, err := os.Stat(opsPath); err == nil {
+			files = append(files, opsPath)
+		}
+		// Also check for any other files with Op types
+		entries, err := os.ReadDir(path)
+		if err != nil {
+			return nil, fmt.Errorf("go.parse_execution_ops: reading dir: %w", err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") &&
+				!strings.HasSuffix(entry.Name(), "_test.go") &&
+				entry.Name() != "ops.go" {
+				files = append(files, filepath.Join(path, entry.Name()))
+			}
+		}
+	} else {
+		files = []string{path}
+	}
+
+	var ops []ExecutionOp
+	seen := make(map[string]bool)
+
+	for _, file := range files {
+		fileOps, err := parseOpsFile(file)
+		if err != nil {
+			continue // Skip files that fail to parse
+		}
+		for _, op := range fileOps {
+			if !seen[op.Name] {
+				seen[op.Name] = true
+				ops = append(ops, op)
+			}
+		}
+	}
+
+	// Sort operations by name for consistent output
+	sortOps(ops)
+
+	// Convert to Starlark
+	var opsList []starlark.Value
+	for _, op := range ops {
+		opsList = append(opsList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"name":      starlark.String(op.Name),
+			"type_name": starlark.String(op.TypeName),
+			"file":      starlark.String(op.File),
+			"line":      starlark.MakeInt(op.Line),
+		}))
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"operations": starlark.NewList(opsList),
+		"count":      starlark.MakeInt(len(ops)),
+	}), nil
+}
+
+// parseOpsFile parses a Go file and extracts execution operations.
+// It looks for methods like: func (o *XxxOp) Name() string { return "xxx" }
+func parseOpsFile(path string) ([]ExecutionOp, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+
+	filename := filepath.Base(path)
+	var ops []ExecutionOp
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok {
+			return true
+		}
+
+		// Must be a method (have a receiver)
+		if fn.Recv == nil || len(fn.Recv.List) == 0 {
+			return true
+		}
+
+		// Must be named "Name"
+		if fn.Name == nil || fn.Name.Name != "Name" {
+			return true
+		}
+
+		// Get receiver type name (e.g., "*CopyOp" -> "CopyOp")
+		recvType := ""
+		switch t := fn.Recv.List[0].Type.(type) {
+		case *ast.StarExpr:
+			if ident, ok := t.X.(*ast.Ident); ok {
+				recvType = ident.Name
+			}
+		case *ast.Ident:
+			recvType = t.Name
+		}
+
+		// Must be an Op type
+		if recvType == "" || !strings.HasSuffix(recvType, "Op") {
+			return true
+		}
+
+		// Must return string
+		if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
+			return true
+		}
+		if ident, ok := fn.Type.Results.List[0].Type.(*ast.Ident); !ok || ident.Name != "string" {
+			return true
+		}
+
+		// Extract the return value
+		opName := extractReturnString(fn.Body)
+		if opName == "" {
+			return true
+		}
+
+		ops = append(ops, ExecutionOp{
+			Name:     opName,
+			TypeName: recvType,
+			Line:     fset.Position(fn.Pos()).Line,
+			File:     filename,
+		})
+
+		return true
+	})
+
+	return ops, nil
+}
+
+// extractReturnString extracts the string literal from a simple return statement.
+// Handles: return "value"
+func extractReturnString(body *ast.BlockStmt) string {
+	if body == nil || len(body.List) == 0 {
+		return ""
+	}
+
+	// Look for return statement
+	for _, stmt := range body.List {
+		ret, ok := stmt.(*ast.ReturnStmt)
+		if !ok || len(ret.Results) != 1 {
+			continue
+		}
+
+		// Get string literal
+		lit, ok := ret.Results[0].(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			continue
+		}
+
+		// Unquote the string
+		return strings.Trim(lit.Value, `"`)
+	}
+
+	return ""
+}
+
+// sortOps sorts operations alphabetically by name.
+func sortOps(ops []ExecutionOp) {
+	for i := 0; i < len(ops)-1; i++ {
+		for j := i + 1; j < len(ops); j++ {
+			if ops[i].Name > ops[j].Name {
+				ops[i], ops[j] = ops[j], ops[i]
+			}
+		}
+	}
+}
+
+// =============================================================================
+// DEVLORE API PARSING
+// =============================================================================
+
+// PlanBinding represents a Starlark plan binding with its slots and output.
+type PlanBinding struct {
+	Name       string            // Full binding name (e.g., "plan.file.configure")
+	Slots      []string          // Slot names (can be filled with promise or immediate)
+	SlotDocs   map[string]string // Slot documentation (slot name -> description)
+	Operations []string          // Graph operations (e.g., ["render", "copy"])
+	Output     string            // Output type: "promise" or "none"
+	Doc        string            // Description from doc comment
+	Usage      string            // Usage example from doc comment
+	Returns    string            // Returns description from doc comment
+	File       string            // Source file
+	Line       int               // Line number
+}
+
+// goParseDevloreAPI parses Go source files in devlore-cli's starlark package
+// and extracts the plan API: bindings, slots, and output types.
+//
+// It looks for:
+//   - NewBuiltin("plan.xxx.yyy", ...) to find binding names
+//   - FillSlot(node, graph, "slotName", ...) to find slot names
+//   - NewOutput(...) returns to detect promise output
+//
+// Args:
+//   - path: Path to the devlore-cli starlark directory (e.g., "internal/starlark")
+//
+// Returns:
+//   - A struct with:
+//   - bindings: List of {name, slots, output, file, line}
+//   - namespaces: List of namespace strings
+func goParseDevloreAPI(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.parse_devlore_api", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.parse_devlore_api: %w", err)
+	}
+
+	var files []string
+	if info.IsDir() {
+		// Collect all .go files in directory (including platform subdirs)
+		err = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() && d.Name() == "testdata" {
+				return filepath.SkipDir
+			}
+			if !d.IsDir() && strings.HasSuffix(d.Name(), ".go") && !strings.HasSuffix(d.Name(), "_test.go") {
+				files = append(files, p)
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("go.parse_devlore_api: walking dir: %w", err)
+		}
+	} else {
+		files = []string{path}
+	}
+
+	var allBindings []PlanBinding
+	seenBindings := make(map[string]bool)
+	namespaces := make(map[string]bool)
+
+	for _, file := range files {
+		bindings, err := parseDevloreAPIFile(file)
+		if err != nil {
+			continue // Skip files that fail to parse
+		}
+
+		for _, b := range bindings {
+			if !seenBindings[b.Name] {
+				seenBindings[b.Name] = true
+				allBindings = append(allBindings, b)
+
+				// Extract namespace from binding name
+				if idx := strings.LastIndex(b.Name, "."); idx > 0 {
+					ns := b.Name[:idx]
+					namespaces[ns] = true
+					// Also add parent namespaces
+					for {
+						if idx := strings.LastIndex(ns, "."); idx > 0 {
+							ns = ns[:idx]
+							namespaces[ns] = true
+						} else {
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Sort bindings by name
+	sortPlanBindings(allBindings)
+
+	// Build hierarchical structure: context → namespace → methods
+	// This is THE canonical representation of the Starlark API
+	plan := make(map[string][]starlark.Value)   // plan.file → [...methods]
+	system := make(map[string][]starlark.Value) // system.file → [...methods]
+	var violations []starlark.Value
+
+	for _, b := range allBindings {
+		// Check for violations
+		if strings.HasPrefix(b.Output, "VIOLATION:") {
+			violations = append(violations, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"name":  starlark.String(b.Name),
+				"file":  starlark.String(b.File),
+				"line":  starlark.MakeInt(b.Line),
+				"error": starlark.String("uses StringDict instead of Attr receiver"),
+			}))
+			continue
+		}
+
+		// Parse binding name: context.namespace.method or context.method
+		parts := strings.Split(b.Name, ".")
+		if len(parts) < 2 {
+			continue
+		}
+
+		context := parts[0] // "plan" or "system"
+		var namespace, methodName string
+		if len(parts) == 2 {
+			namespace = "(root)"
+			methodName = parts[1]
+		} else {
+			namespace = parts[1]
+			methodName = parts[len(parts)-1]
+		}
+
+		// Build method entry
+		method := bindingToHierarchicalStarlark(b, methodName)
+
+		// Add to appropriate context
+		switch context {
+		case "plan":
+			plan[namespace] = append(plan[namespace], method)
+		case "system":
+			system[namespace] = append(system[namespace], method)
+		}
+	}
+
+	// Convert maps to Starlark dicts
+	planDict := starlark.StringDict{}
+	for ns, methods := range plan {
+		planDict[ns] = starlark.NewList(methods)
+	}
+
+	systemDict := starlark.StringDict{}
+	for ns, methods := range system {
+		systemDict[ns] = starlark.NewList(methods)
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"valid":      starlark.Bool(len(violations) == 0),
+		"plan":       starlarkstruct.FromStringDict(starlarkstruct.Default, planDict),
+		"system":     starlarkstruct.FromStringDict(starlarkstruct.Default, systemDict),
+		"violations": starlark.NewList(violations),
+	}), nil
+}
+
+// bindingToHierarchicalStarlark converts a PlanBinding to a Starlark struct for hierarchical output.
+func bindingToHierarchicalStarlark(b PlanBinding, methodName string) starlark.Value {
+	var slotsList []starlark.Value
+	for _, s := range b.Slots {
+		slotsList = append(slotsList, starlark.String(s))
+	}
+
+	var opsList []starlark.Value
+	for _, op := range b.Operations {
+		opsList = append(opsList, starlark.String(op))
+	}
+
+	slotDocsDict := starlark.StringDict{}
+	for slotName, slotDoc := range b.SlotDocs {
+		slotDocsDict[slotName] = starlark.String(slotDoc)
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"name":       starlark.String(methodName),
+		"full_name":  starlark.String(b.Name),
+		"doc":        starlark.String(b.Doc),
+		"usage":      starlark.String(b.Usage),
+		"slots":      starlark.NewList(slotsList),
+		"slot_docs":  starlarkstruct.FromStringDict(starlarkstruct.Default, slotDocsDict),
+		"operations": starlark.NewList(opsList),
+		"output":     starlark.String(b.Output),
+		"returns":    starlark.String(b.Returns),
+		"file":       starlark.String(b.File),
+		"line":       starlark.MakeInt(b.Line),
+	})
+}
+
+// parseDevloreAPIFile parses a single Go file and extracts plan bindings using AST.
+// It also detects violations where bindings are registered via StringDict instead of Attr methods.
+func parseDevloreAPIFile(path string) ([]PlanBinding, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return nil, err
+	}
+
+	filename := filepath.Base(path)
+	var bindings []PlanBinding
+	seen := make(map[string]bool)
+
+	// Find bindings via Attr methods (the CORRECT pattern)
+	attrBindings := findAttrBindings(node, fset)
+	for bindingName, methodName := range attrBindings {
+		if !isAPIBinding(bindingName) {
+			continue
+		}
+		if seen[bindingName] {
+			continue
+		}
+
+		binding := extractBindingFromMethod(node, fset, methodName, bindingName, filename)
+		if binding != nil {
+			seen[bindingName] = true
+			bindings = append(bindings, *binding)
+		}
+	}
+
+	// Detect StringDict violations (the WRONG pattern)
+	violations := findStringDictViolations(node, fset, filename)
+	for _, v := range violations {
+		if !isAPIBinding(v.Name) {
+			continue
+		}
+		if seen[v.Name] {
+			continue
+		}
+		// Mark as violation - this binding uses the wrong pattern
+		bindings = append(bindings, PlanBinding{
+			Name:       v.Name,
+			Slots:      nil,
+			Operations: nil,
+			Output:     "VIOLATION: uses StringDict instead of Attr receiver",
+			File:       filename,
+			Line:       v.Line,
+		})
+		seen[v.Name] = true
+	}
+
+	return bindings, nil
+}
+
+// StringDictViolation represents a binding incorrectly registered via StringDict.
+type StringDictViolation struct {
+	Name string
+	Line int
+}
+
+// findStringDictViolations finds plan.* bindings incorrectly registered via StringDict.
+// These are CONTRACT VIOLATIONS - all plan bindings must use Attr receiver methods.
+func findStringDictViolations(node *ast.File, fset *token.FileSet, filename string) []StringDictViolation {
+	var violations []StringDictViolation
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		// Look for composite literals (map/struct creation)
+		comp, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+
+		// Check if this is a starlark.StringDict
+		sel, ok := comp.Type.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "StringDict" {
+			return true
+		}
+
+		// Walk through the map entries
+		for _, elt := range comp.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+
+			// The value should be a NewBuiltin call
+			call, ok := kv.Value.(*ast.CallExpr)
+			if !ok {
+				continue
+			}
+
+			// Check if this is a NewBuiltin call
+			callSel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || callSel.Sel.Name != "NewBuiltin" {
+				continue
+			}
+
+			// Extract binding name (first argument)
+			if len(call.Args) < 2 {
+				continue
+			}
+
+			bindingLit, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || bindingLit.Kind != token.STRING {
+				continue
+			}
+			bindingName := strings.Trim(bindingLit.Value, `"`)
+
+			violations = append(violations, StringDictViolation{
+				Name: bindingName,
+				Line: fset.Position(call.Pos()).Line,
+			})
+		}
+
+		return true
+	})
+
+	return violations
+}
+
+// findAttrBindings finds all NewBuiltin calls in Attr methods and returns a map
+// of binding name -> handler method name.
+func findAttrBindings(node *ast.File, fset *token.FileSet) map[string]string {
+	bindings := make(map[string]string)
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Name == nil || fn.Name.Name != "Attr" {
+			return true
+		}
+
+		// Walk the Attr method body looking for NewBuiltin calls
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+
+			// Check if this is a NewBuiltin call
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "NewBuiltin" {
+				return true
+			}
+
+			// Extract binding name (first argument)
+			if len(call.Args) < 2 {
+				return true
+			}
+
+			bindingLit, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || bindingLit.Kind != token.STRING {
+				return true
+			}
+			bindingName := strings.Trim(bindingLit.Value, `"`)
+
+			// Extract handler method name (second argument)
+			// Pattern: f.methodName or s.methodName
+			handlerSel, ok := call.Args[1].(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			methodName := handlerSel.Sel.Name
+
+			bindings[bindingName] = methodName
+			return true
+		})
+
+		return true
+	})
+
+	return bindings
+}
+
+// extractBindingFromMethod extracts binding info from a handler method using AST.
+func extractBindingFromMethod(node *ast.File, fset *token.FileSet, methodName, bindingName, filename string) *PlanBinding {
+	var binding *PlanBinding
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Body == nil || fn.Name == nil || fn.Name.Name != methodName {
+			return true
+		}
+
+		// Found the method - extract info
+		slots := extractSlotsFromAST(fn.Body)
+		operations := extractOperationsFromAST(fn.Body)
+		output := extractOutputFromAST(fn.Body)
+
+		// Extract documentation from doc comment
+		doc, usage, slotDocs, returns := parseDocComment(fn.Doc)
+
+		binding = &PlanBinding{
+			Name:       bindingName,
+			Slots:      slots,
+			SlotDocs:   slotDocs,
+			Operations: operations,
+			Output:     output,
+			Doc:        doc,
+			Usage:      usage,
+			Returns:    returns,
+			File:       filename,
+			Line:       fset.Position(fn.Pos()).Line,
+		}
+
+		return false // Found it, stop searching
+	})
+
+	return binding
+}
+
+// parseDocComment parses a Go doc comment and extracts structured documentation.
+// Expected format:
+//
+//	// description line(s)
+//	// Usage: plan.namespace.method(args)
+//	//
+//	// Slots:
+//	//   - slot_name: description
+//	//
+//	// Returns: description
+func parseDocComment(doc *ast.CommentGroup) (description, usage string, slotDocs map[string]string, returns string) {
+	slotDocs = make(map[string]string)
+
+	if doc == nil {
+		return
+	}
+
+	// Get the full doc text
+	text := doc.Text()
+	lines := strings.Split(text, "\n")
+
+	var descLines []string
+	inSlots := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Check for Usage:
+		if strings.HasPrefix(line, "Usage:") {
+			usage = strings.TrimSpace(strings.TrimPrefix(line, "Usage:"))
+			inSlots = false
+			continue
+		}
+
+		// Check for Slots:
+		if strings.HasPrefix(line, "Slots:") {
+			inSlots = true
+			continue
+		}
+
+		// Check for Returns:
+		if strings.HasPrefix(line, "Returns:") {
+			returns = strings.TrimSpace(strings.TrimPrefix(line, "Returns:"))
+			inSlots = false
+			continue
+		}
+
+		// Parse slot documentation
+		if inSlots && strings.HasPrefix(line, "- ") {
+			// Format: "- slot_name: description"
+			slotLine := strings.TrimPrefix(line, "- ")
+			if colonIdx := strings.Index(slotLine, ":"); colonIdx > 0 {
+				slotName := strings.TrimSpace(slotLine[:colonIdx])
+				slotDesc := strings.TrimSpace(slotLine[colonIdx+1:])
+				slotDocs[slotName] = slotDesc
+			}
+			continue
+		}
+
+		// Empty line ends slots section
+		if inSlots && line == "" {
+			inSlots = false
+			continue
+		}
+
+		// Accumulate description lines (before any section)
+		if usage == "" && !inSlots && returns == "" && line != "" {
+			descLines = append(descLines, line)
+		}
+	}
+
+	description = strings.Join(descLines, " ")
+	return
+}
+
+// extractSlotsFromAST extracts slot names from FillSlot calls using AST.
+func extractSlotsFromAST(body *ast.BlockStmt) []string {
+	var slots []string
+	seen := make(map[string]bool)
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		// Check if this is a FillSlot call
+		ident, ok := call.Fun.(*ast.Ident)
+		if !ok || ident.Name != "FillSlot" {
+			return true
+		}
+
+		// FillSlot(node, graph, "slotName", value) - third argument is slot name
+		if len(call.Args) < 4 {
+			return true
+		}
+
+		slotLit, ok := call.Args[2].(*ast.BasicLit)
+		if !ok || slotLit.Kind != token.STRING {
+			return true
+		}
+
+		slotName := strings.Trim(slotLit.Value, `"`)
+		if !seen[slotName] {
+			seen[slotName] = true
+			slots = append(slots, slotName)
+		}
+
+		return true
+	})
+
+	return slots
+}
+
+// extractOperationsFromAST extracts operations from execution.Node literals using AST.
+func extractOperationsFromAST(body *ast.BlockStmt) []string {
+	var operations []string
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		// Look for composite literals (struct creation)
+		comp, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+
+		// Check if this is an execution.Node or &execution.Node
+		isExecutionNode := false
+		switch t := comp.Type.(type) {
+		case *ast.SelectorExpr:
+			// execution.Node
+			if ident, ok := t.X.(*ast.Ident); ok && ident.Name == "execution" && t.Sel.Name == "Node" {
+				isExecutionNode = true
+			}
+		}
+
+		if !isExecutionNode {
+			return true
+		}
+
+		// Find the Operations field
+		for _, elt := range comp.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != "Operations" {
+				continue
+			}
+
+			// Extract string values from the slice literal
+			compLit, ok := kv.Value.(*ast.CompositeLit)
+			if !ok {
+				continue
+			}
+
+			for _, elem := range compLit.Elts {
+				lit, ok := elem.(*ast.BasicLit)
+				if ok && lit.Kind == token.STRING {
+					operations = append(operations, strings.Trim(lit.Value, `"`))
+				}
+			}
+		}
+
+		return true
+	})
+
+	return operations
+}
+
+// extractOutputFromAST detects if the method returns a promise (NewOutput).
+func extractOutputFromAST(body *ast.BlockStmt) string {
+	output := "none"
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		// Check if this is a NewOutput call
+		ident, ok := call.Fun.(*ast.Ident)
+		if ok && ident.Name == "NewOutput" {
+			output = "promise"
+			return false // Found it
+		}
+
+		return true
+	})
+
+	return output
+}
+
+// isAPIBinding returns true if the binding name is part of the devlore API.
+func isAPIBinding(name string) bool {
+	return strings.HasPrefix(name, "plan.") || strings.HasPrefix(name, "system.")
+}
+
+// sortPlanBindings sorts bindings alphabetically by name.
+func sortPlanBindings(bindings []PlanBinding) {
+	for i := 0; i < len(bindings)-1; i++ {
+		for j := i + 1; j < len(bindings); j++ {
+			if bindings[i].Name > bindings[j].Name {
+				bindings[i], bindings[j] = bindings[j], bindings[i]
+			}
+		}
+	}
+}
+
+// =============================================================================
+// EXECUTION SCHEMA PARSING
+// =============================================================================
+
+// StructField represents a field extracted from a Go struct.
+type StructField struct {
+	Name        string // Go field name
+	JSONName    string // JSON field name from tag
+	Type        string // Go type
+	Required    bool   // Not omitempty
+	Description string // From comment
+}
+
+// StructDef represents a Go struct definition.
+type StructDef struct {
+	Name   string        // Struct name
+	Fields []StructField // Fields
+}
+
+// ConstValue represents a const value extracted from Go.
+type ConstValue struct {
+	Name  string
+	Value string
+}
+
+// goParseExecutionSchema parses Go source files in the execution package
+// and extracts struct definitions for JSON schema generation.
+//
+// Args:
+//   - path: Path to the execution directory (e.g., "internal/execution")
+//
+// Returns:
+//   - A struct with:
+//   - node: Node struct definition
+//   - slot_value: SlotValue struct definition
+//   - edge: Edge struct definition
+//   - graph_states: GraphState enum values
+//   - node_statuses: NodeStatus enum values
+//   - operations: List of operation names (from ops.go)
+func goParseExecutionSchema(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.parse_execution_schema", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	// Parse graph.go for struct definitions
+	graphPath := filepath.Join(path, "graph.go")
+	structs, consts, err := parseStructDefs(graphPath)
+	if err != nil {
+		return nil, fmt.Errorf("go.parse_execution_schema: parsing graph.go: %w", err)
+	}
+
+	// Parse operations from ops*.go
+	var ops []ExecutionOp
+	seen := make(map[string]bool)
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.parse_execution_schema: reading dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "ops") && strings.HasSuffix(entry.Name(), ".go") &&
+			!strings.HasSuffix(entry.Name(), "_test.go") {
+			fileOps, err := parseOpsFile(filepath.Join(path, entry.Name()))
+			if err != nil {
+				continue
+			}
+			for _, op := range fileOps {
+				if !seen[op.Name] {
+					seen[op.Name] = true
+					ops = append(ops, op)
+				}
+			}
+		}
+	}
+	sortOps(ops)
+
+	// Convert to Starlark values
+	result := starlark.StringDict{}
+
+	// Add struct definitions
+	for name, def := range structs {
+		result[toSnakeCase(name)] = structDefToStarlark(def)
+	}
+
+	// Add const enums
+	for typeName, values := range consts {
+		var enumList []starlark.Value
+		for _, v := range values {
+			enumList = append(enumList, starlark.String(v.Value))
+		}
+		result[toSnakeCase(typeName)+"s"] = starlark.NewList(enumList)
+	}
+
+	// Add operations
+	var opsList []starlark.Value
+	for _, op := range ops {
+		opsList = append(opsList, starlark.String(op.Name))
+	}
+	result["operations"] = starlark.NewList(opsList)
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, result), nil
+}
+
+// parseStructDefs parses a Go file and extracts struct and const definitions.
+func parseStructDefs(path string) (map[string]StructDef, map[string][]ConstValue, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	structs := make(map[string]StructDef)
+	consts := make(map[string][]ConstValue)
+
+	// Track current const type for iota-style declarations
+	var currentConstType string
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.GenDecl:
+			if x.Tok == token.TYPE {
+				// Type declaration
+				for _, spec := range x.Specs {
+					typeSpec, ok := spec.(*ast.TypeSpec)
+					if !ok {
+						continue
+					}
+
+					structType, ok := typeSpec.Type.(*ast.StructType)
+					if !ok {
+						continue
+					}
+
+					def := StructDef{Name: typeSpec.Name.Name}
+					for _, field := range structType.Fields.List {
+						if len(field.Names) == 0 {
+							continue // Embedded field
+						}
+
+						sf := StructField{
+							Name: field.Names[0].Name,
+							Type: typeToString(field.Type),
+						}
+
+						// Parse struct tag for JSON info
+						if field.Tag != nil {
+							tag := strings.Trim(field.Tag.Value, "`")
+							sf.JSONName, sf.Required = parseJSONTag(tag)
+						}
+
+						// Get description from comment
+						if field.Comment != nil {
+							sf.Description = strings.TrimSpace(field.Comment.Text())
+						} else if field.Doc != nil {
+							sf.Description = strings.TrimSpace(field.Doc.Text())
+						}
+
+						// Skip fields with json:"-"
+						if sf.JSONName == "-" {
+							continue
+						}
+
+						def.Fields = append(def.Fields, sf)
+					}
+
+					structs[def.Name] = def
+				}
+			} else if x.Tok == token.CONST {
+				// Const declaration
+				for _, spec := range x.Specs {
+					valueSpec, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+
+					// Check if this declares a type
+					if valueSpec.Type != nil {
+						if ident, ok := valueSpec.Type.(*ast.Ident); ok {
+							currentConstType = ident.Name
+						}
+					}
+
+					// Extract const values
+					for i, name := range valueSpec.Names {
+						if currentConstType == "" {
+							continue
+						}
+
+						var value string
+						if i < len(valueSpec.Values) {
+							if lit, ok := valueSpec.Values[i].(*ast.BasicLit); ok {
+								value = strings.Trim(lit.Value, `"`)
+							}
+						}
+
+						if value != "" {
+							consts[currentConstType] = append(consts[currentConstType], ConstValue{
+								Name:  name.Name,
+								Value: value,
+							})
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	return structs, consts, nil
+}
+
+// typeToString converts an AST type to a string representation.
+func typeToString(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return typeToString(t.X) + "." + t.Sel.Name
+	case *ast.StarExpr:
+		return "*" + typeToString(t.X)
+	case *ast.ArrayType:
+		return "[]" + typeToString(t.Elt)
+	case *ast.MapType:
+		return "map[" + typeToString(t.Key) + "]" + typeToString(t.Value)
+	default:
+		return "unknown"
+	}
+}
+
+// parseJSONTag extracts the JSON field name and whether it's required.
+func parseJSONTag(tag string) (name string, required bool) {
+	// Find json:"..." in the tag
+	jsonRe := regexp.MustCompile(`json:"([^"]*)"`)
+	match := jsonRe.FindStringSubmatch(tag)
+	if match == nil {
+		return "", false
+	}
+
+	parts := strings.Split(match[1], ",")
+	name = parts[0]
+	required = true
+
+	for _, part := range parts[1:] {
+		if part == "omitempty" {
+			required = false
+		}
+	}
+
+	return name, required
+}
+
+// toSnakeCase converts CamelCase to snake_case.
+func toSnakeCase(s string) string {
+	var result strings.Builder
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result.WriteRune('_')
+		}
+		result.WriteRune(r)
+	}
+	return strings.ToLower(result.String())
+}
+
+// structDefToStarlark converts a StructDef to a Starlark struct.
+func structDefToStarlark(def StructDef) starlark.Value {
+	var fieldsList []starlark.Value
+	for _, f := range def.Fields {
+		fieldsList = append(fieldsList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"name":        starlark.String(f.Name),
+			"json_name":   starlark.String(f.JSONName),
+			"type":        starlark.String(f.Type),
+			"required":    starlark.Bool(f.Required),
+			"description": starlark.String(f.Description),
+		}))
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"name":   starlark.String(def.Name),
+		"fields": starlark.NewList(fieldsList),
 	})
 }
