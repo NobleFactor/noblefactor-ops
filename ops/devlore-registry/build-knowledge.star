@@ -310,71 +310,201 @@ def build_migration_knowledge(source_path, registry_path):
     # Step 6: Validate all signature files exist for source systems
     validate_signature_coverage(source_systems, signatures_path)
 
-    # Step 7: Update schema files with execution operations from source
-    update_execution_ops_schema(execution_ops, knowledge_path)
+    # Step 7: Generate execution graph schema from Go types
+    generate_execution_schema(source_path, knowledge_path)
 
 
-def update_execution_ops_schema(execution_ops, knowledge_path):
-    """Update schema files with execution operations extracted from Go source.
+def generate_execution_schema(source_path, knowledge_path):
+    """Generate engine-graph.json schema from Go struct definitions.
 
-    This ensures the schema enum always matches the actual engine implementation.
+    This ensures the schema is always derived from the actual Go types.
     """
     schemas_path = fs.join(knowledge_path, "schemas")
     if not fs.is_dir(schemas_path):
         warn("  Schemas path not found: " + schemas_path)
         return
 
-    # Sort operations alphabetically for consistent output
-    # execution_ops is a list of structs with .name field
-    ops_list = sorted([op.name for op in execution_ops])
+    # Parse Go execution package for structs and operations
+    execution_path = fs.join(source_path, "internal", "execution")
+    note("  Generating schema from " + execution_path + "...")
+    schema_data = go.parse_execution_schema(execution_path)
 
-    # Update engine-graph.json
+    # Build JSON Schema from Go types
+    engine_schema = _build_engine_graph_schema(schema_data)
+
+    # Write schema
     engine_schema_path = fs.join(schemas_path, "engine-graph.json")
+    new_content = json.encode_indent(engine_schema, "  ")
+
+    changes_detected = False
     if fs.exists(engine_schema_path):
-        content = fs.read(engine_schema_path)
-        schema = json.decode(content)
+        current_content = fs.read(engine_schema_path)
+        if current_content != new_content:
+            changes_detected = True
+            note("  Changes detected in engine-graph.json")
+    else:
+        changes_detected = True
+        note("  Creating new engine-graph.json")
 
-        # Navigate to operations enum: $defs.node.properties.operations.items.enum
-        node_def = schema.get("$defs", {}).get("node", {})
-        ops_prop = node_def.get("properties", {}).get("operations", {})
-        items = ops_prop.get("items", {})
+    if changes_detected:
+        fs.write(engine_schema_path, new_content)
+        success("  Wrote " + engine_schema_path)
+    else:
+        success("  No changes to engine-graph.json")
 
-        current_enum = items.get("enum", [])
-        if sorted(current_enum) != ops_list:
-            note("  Updating engine-graph.json operations enum")
-            note("    From: " + ", ".join(sorted(current_enum)))
-            note("    To:   " + ", ".join(ops_list))
-            items["enum"] = ops_list
-            fs.write(engine_schema_path, json.encode_indent(schema, "  "))
-            success("  Wrote " + engine_schema_path)
-        else:
-            success("  engine-graph.json operations enum is up to date")
 
-    # Update migration-plan.json (if it has an operations enum)
-    migration_schema_path = fs.join(schemas_path, "migration-plan.json")
-    if fs.exists(migration_schema_path):
-        content = fs.read(migration_schema_path)
-        schema = json.decode(content)
+def _build_engine_graph_schema(schema_data):
+    """Build JSON Schema from parsed Go struct data.
 
-        # Navigate to op enum: $defs.node.properties.op.enum
-        node_def = schema.get("$defs", {}).get("node", {})
-        op_prop = node_def.get("properties", {}).get("op", {})
+    Generates a complete JSON Schema for execution graphs based on the
+    Go struct definitions in the execution package.
+    """
+    ops_list = sorted(list(schema_data.operations))
 
-        current_enum = op_prop.get("enum", [])
-        if current_enum:
-            # migration-plan.json may have a subset of operations (just the ones used in migration)
-            # We validate that all its ops exist in the engine, but don't add engine-only ops
-            missing_ops = [op for op in current_enum if op not in ops_list]
-            if missing_ops:
-                warn("  migration-plan.json has invalid operations: " + ", ".join(missing_ops))
-                warn("    Valid operations: " + ", ".join(ops_list))
-                # Update to only include valid ops
-                valid_ops = sorted([op for op in current_enum if op in ops_list])
-                op_prop["enum"] = valid_ops
-                fs.write(migration_schema_path, json.encode_indent(schema, "  "))
-                success("  Wrote " + migration_schema_path)
+    # Build SlotValue schema from Go struct
+    slot_value_schema = {
+        "type": "object",
+        "description": "A slot value - either immediate or a promise (reference to another node)",
+        "properties": {},
+    }
+    if hasattr(schema_data, "slot_value"):
+        for f in schema_data.slot_value.fields:
+            slot_value_schema["properties"][f.json_name] = _field_to_json_schema(f)
+
+    # Build Node schema from Go struct
+    node_properties = {}
+    node_required = []
+    if hasattr(schema_data, "node"):
+        for f in schema_data.node.fields:
+            # Special handling for operations - add enum
+            if f.json_name == "operations":
+                node_properties["operations"] = {
+                    "type": "array",
+                    "description": "Pipeline of operations to execute",
+                    "items": {
+                        "type": "string",
+                        "enum": ops_list,
+                    },
+                }
+            # Special handling for slots - reference slot_value
+            elif f.json_name == "slots":
+                node_properties["slots"] = {
+                    "type": "object",
+                    "description": "Input slots for this node (name -> value)",
+                    "additionalProperties": {"$ref": "#/$defs/slot_value"},
+                }
+            # Special handling for status - add enum
+            elif f.json_name == "status":
+                statuses = list(schema_data.node_statuss) if hasattr(schema_data, "node_statuss") else ["pending", "completed", "skipped", "failed"]
+                node_properties["status"] = {
+                    "type": "string",
+                    "description": f.description if f.description else "Execution status of this node",
+                    "enum": statuses,
+                }
             else:
-                success("  migration-plan.json operations are valid")
+                node_properties[f.json_name] = _field_to_json_schema(f)
+
+            if f.required and f.json_name not in ["status"]:  # status has default
+                node_required.append(f.json_name)
+
+    # Build Edge schema from Go struct
+    edge_properties = {}
+    edge_required = []
+    if hasattr(schema_data, "edge"):
+        for f in schema_data.edge.fields:
+            edge_properties[f.json_name] = _field_to_json_schema(f)
+            if f.required:
+                edge_required.append(f.json_name)
+
+    # Build complete schema
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://devlore.noblefactor.com/schemas/engine-graph.json",
+        "title": "Execution Graph",
+        "description": "Execution graph derived from devlore-cli execution.Graph Go types",
+        "type": "object",
+        "$defs": {
+            "slot_value": slot_value_schema,
+            "node": {
+                "type": "object",
+                "properties": node_properties,
+                "required": node_required if node_required else ["id", "operations"],
+            },
+            "edge": {
+                "type": "object",
+                "properties": edge_properties,
+                "required": edge_required if edge_required else ["from", "to", "relation"],
+            },
+        },
+        "properties": {
+            "version": {
+                "type": "string",
+                "description": "Graph format version",
+            },
+            "tool": {
+                "type": "string",
+                "description": "Tool that created this graph",
+            },
+            "state": {
+                "type": "string",
+                "description": "Execution state of the graph",
+                "enum": list(schema_data.graph_states) if hasattr(schema_data, "graph_states") else ["pending", "executed", "failed"],
+            },
+            "nodes": {
+                "type": "array",
+                "description": "Operations to execute",
+                "items": {"$ref": "#/$defs/node"},
+            },
+            "edges": {
+                "type": "array",
+                "description": "Dependencies between nodes",
+                "items": {"$ref": "#/$defs/edge"},
+            },
+        },
+        "required": ["nodes"],
+    }
+
+    return schema
+
+
+def _field_to_json_schema(field):
+    """Convert a Go struct field to JSON Schema property."""
+    go_type = field.type
+    schema = {}
+
+    if field.description:
+        schema["description"] = field.description
+
+    # Map Go types to JSON Schema types
+    if go_type == "string":
+        schema["type"] = "string"
+    elif go_type == "int" or go_type == "int64":
+        schema["type"] = "integer"
+    elif go_type == "bool":
+        schema["type"] = "boolean"
+    elif go_type == "float64":
+        schema["type"] = "number"
+    elif go_type.startswith("[]"):
+        schema["type"] = "array"
+        inner_type = go_type[2:]
+        if inner_type == "string":
+            schema["items"] = {"type": "string"}
+        else:
+            schema["items"] = {"type": "object"}
+    elif go_type.startswith("map["):
+        schema["type"] = "object"
+        schema["additionalProperties"] = {"type": "string"}
+    elif go_type == "os.FileMode":
+        schema["type"] = "integer"
+        schema["description"] = (field.description + " " if field.description else "") + "(octal file permissions)"
+    elif go_type == "time.Time":
+        schema["type"] = "string"
+        schema["format"] = "date-time"
+    else:
+        # Custom type - treat as string for now
+        schema["type"] = "string"
+
+    return schema
 
 
 def check_migration_contract_violations(source_systems, encryption_systems, platforms, registry_systems, registry_platforms, registry_platform_aliases):

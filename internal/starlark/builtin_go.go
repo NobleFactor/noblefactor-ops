@@ -25,6 +25,7 @@ func goModule() *starlarkstruct.Module {
 			"parse_starlark_bindings": starlark.NewBuiltin("go.parse_starlark_bindings", goParseStarlarkBindings),
 			"parse_migrate_knowledge": starlark.NewBuiltin("go.parse_migrate_knowledge", goParseMigrateKnowledge),
 			"parse_execution_ops":     starlark.NewBuiltin("go.parse_execution_ops", goParseExecutionOps),
+			"parse_execution_schema":  starlark.NewBuiltin("go.parse_execution_schema", goParseExecutionSchema),
 			"parse_devlore_api":       starlark.NewBuiltin("go.parse_devlore_api", goParseDevloreAPI),
 			"metrics":                 starlark.NewBuiltin("go.metrics", goMetrics),
 			"deps":                    starlark.NewBuiltin("go.deps", goDeps),
@@ -1955,4 +1956,288 @@ func sortPlanBindings(bindings []PlanBinding) {
 			}
 		}
 	}
+}
+
+// =============================================================================
+// EXECUTION SCHEMA PARSING
+// =============================================================================
+
+// StructField represents a field extracted from a Go struct.
+type StructField struct {
+	Name        string // Go field name
+	JSONName    string // JSON field name from tag
+	Type        string // Go type
+	Required    bool   // Not omitempty
+	Description string // From comment
+}
+
+// StructDef represents a Go struct definition.
+type StructDef struct {
+	Name   string        // Struct name
+	Fields []StructField // Fields
+}
+
+// ConstValue represents a const value extracted from Go.
+type ConstValue struct {
+	Name  string
+	Value string
+}
+
+// goParseExecutionSchema parses Go source files in the execution package
+// and extracts struct definitions for JSON schema generation.
+//
+// Args:
+//   - path: Path to the execution directory (e.g., "internal/execution")
+//
+// Returns:
+//   - A struct with:
+//   - node: Node struct definition
+//   - slot_value: SlotValue struct definition
+//   - edge: Edge struct definition
+//   - graph_states: GraphState enum values
+//   - node_statuses: NodeStatus enum values
+//   - operations: List of operation names (from ops.go)
+func goParseExecutionSchema(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	if err := starlark.UnpackArgs("go.parse_execution_schema", args, kwargs, "path", &path); err != nil {
+		return nil, err
+	}
+
+	// Parse graph.go for struct definitions
+	graphPath := filepath.Join(path, "graph.go")
+	structs, consts, err := parseStructDefs(graphPath)
+	if err != nil {
+		return nil, fmt.Errorf("go.parse_execution_schema: parsing graph.go: %w", err)
+	}
+
+	// Parse operations from ops*.go
+	var ops []ExecutionOp
+	seen := make(map[string]bool)
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.parse_execution_schema: reading dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "ops") && strings.HasSuffix(entry.Name(), ".go") &&
+			!strings.HasSuffix(entry.Name(), "_test.go") {
+			fileOps, err := parseOpsFile(filepath.Join(path, entry.Name()))
+			if err != nil {
+				continue
+			}
+			for _, op := range fileOps {
+				if !seen[op.Name] {
+					seen[op.Name] = true
+					ops = append(ops, op)
+				}
+			}
+		}
+	}
+	sortOps(ops)
+
+	// Convert to Starlark values
+	result := starlark.StringDict{}
+
+	// Add struct definitions
+	for name, def := range structs {
+		result[toSnakeCase(name)] = structDefToStarlark(def)
+	}
+
+	// Add const enums
+	for typeName, values := range consts {
+		var enumList []starlark.Value
+		for _, v := range values {
+			enumList = append(enumList, starlark.String(v.Value))
+		}
+		result[toSnakeCase(typeName)+"s"] = starlark.NewList(enumList)
+	}
+
+	// Add operations
+	var opsList []starlark.Value
+	for _, op := range ops {
+		opsList = append(opsList, starlark.String(op.Name))
+	}
+	result["operations"] = starlark.NewList(opsList)
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, result), nil
+}
+
+// parseStructDefs parses a Go file and extracts struct and const definitions.
+func parseStructDefs(path string) (map[string]StructDef, map[string][]ConstValue, error) {
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	structs := make(map[string]StructDef)
+	consts := make(map[string][]ConstValue)
+
+	// Track current const type for iota-style declarations
+	var currentConstType string
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.GenDecl:
+			if x.Tok == token.TYPE {
+				// Type declaration
+				for _, spec := range x.Specs {
+					typeSpec, ok := spec.(*ast.TypeSpec)
+					if !ok {
+						continue
+					}
+
+					structType, ok := typeSpec.Type.(*ast.StructType)
+					if !ok {
+						continue
+					}
+
+					def := StructDef{Name: typeSpec.Name.Name}
+					for _, field := range structType.Fields.List {
+						if len(field.Names) == 0 {
+							continue // Embedded field
+						}
+
+						sf := StructField{
+							Name: field.Names[0].Name,
+							Type: typeToString(field.Type),
+						}
+
+						// Parse struct tag for JSON info
+						if field.Tag != nil {
+							tag := strings.Trim(field.Tag.Value, "`")
+							sf.JSONName, sf.Required = parseJSONTag(tag)
+						}
+
+						// Get description from comment
+						if field.Comment != nil {
+							sf.Description = strings.TrimSpace(field.Comment.Text())
+						} else if field.Doc != nil {
+							sf.Description = strings.TrimSpace(field.Doc.Text())
+						}
+
+						// Skip fields with json:"-"
+						if sf.JSONName == "-" {
+							continue
+						}
+
+						def.Fields = append(def.Fields, sf)
+					}
+
+					structs[def.Name] = def
+				}
+			} else if x.Tok == token.CONST {
+				// Const declaration
+				for _, spec := range x.Specs {
+					valueSpec, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+
+					// Check if this declares a type
+					if valueSpec.Type != nil {
+						if ident, ok := valueSpec.Type.(*ast.Ident); ok {
+							currentConstType = ident.Name
+						}
+					}
+
+					// Extract const values
+					for i, name := range valueSpec.Names {
+						if currentConstType == "" {
+							continue
+						}
+
+						var value string
+						if i < len(valueSpec.Values) {
+							if lit, ok := valueSpec.Values[i].(*ast.BasicLit); ok {
+								value = strings.Trim(lit.Value, `"`)
+							}
+						}
+
+						if value != "" {
+							consts[currentConstType] = append(consts[currentConstType], ConstValue{
+								Name:  name.Name,
+								Value: value,
+							})
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	return structs, consts, nil
+}
+
+// typeToString converts an AST type to a string representation.
+func typeToString(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		return typeToString(t.X) + "." + t.Sel.Name
+	case *ast.StarExpr:
+		return "*" + typeToString(t.X)
+	case *ast.ArrayType:
+		return "[]" + typeToString(t.Elt)
+	case *ast.MapType:
+		return "map[" + typeToString(t.Key) + "]" + typeToString(t.Value)
+	default:
+		return "unknown"
+	}
+}
+
+// parseJSONTag extracts the JSON field name and whether it's required.
+func parseJSONTag(tag string) (name string, required bool) {
+	// Find json:"..." in the tag
+	jsonRe := regexp.MustCompile(`json:"([^"]*)"`)
+	match := jsonRe.FindStringSubmatch(tag)
+	if match == nil {
+		return "", false
+	}
+
+	parts := strings.Split(match[1], ",")
+	name = parts[0]
+	required = true
+
+	for _, part := range parts[1:] {
+		if part == "omitempty" {
+			required = false
+		}
+	}
+
+	return name, required
+}
+
+// toSnakeCase converts CamelCase to snake_case.
+func toSnakeCase(s string) string {
+	var result strings.Builder
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result.WriteRune('_')
+		}
+		result.WriteRune(r)
+	}
+	return strings.ToLower(result.String())
+}
+
+// structDefToStarlark converts a StructDef to a Starlark struct.
+func structDefToStarlark(def StructDef) starlark.Value {
+	var fieldsList []starlark.Value
+	for _, f := range def.Fields {
+		fieldsList = append(fieldsList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"name":        starlark.String(f.Name),
+			"json_name":   starlark.String(f.JSONName),
+			"type":        starlark.String(f.Type),
+			"required":    starlark.Bool(f.Required),
+			"description": starlark.String(f.Description),
+		}))
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"name":   starlark.String(def.Name),
+		"fields": starlark.NewList(fieldsList),
+	})
 }
