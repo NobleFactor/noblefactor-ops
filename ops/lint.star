@@ -1,19 +1,43 @@
 # lint.star - Static code analysis commands
 #
 # Provides unified linting commands for Go and shell scripts.
+# On first run, creates default config files and checks for required tools.
 #
 # Usage:
 #   star lint go [--path=./...]       # Run golangci-lint
 #   star lint shell [--path=.]        # Run shellcheck + shfmt
+#   star lint tools                   # Check/show required tool status
+
+def check_tool(name):
+    """Check if a tool is installed and return its status."""
+    result = lint.ensure_tools()
+    for tool in result.tools:
+        if tool.name == name:
+            return tool
+    return None
+
+def ensure_tool_installed(name):
+    """Ensure a tool is installed, fail with install instructions if not."""
+    tool = check_tool(name)
+    if tool and not tool.installed:
+        fail(name + " is not installed\n  Install: " + tool.install_cmd)
+    return tool
 
 def run_go(ctx):
     """Run golangci-lint on Go code."""
     path = ctx.args.get("path", "./...")
     config = ctx.args.get("config", "")
 
+    # Check tool is installed
+    ensure_tool_installed("golangci-lint")
+
     note("Running golangci-lint on " + path)
 
     result = lint.go(path=path, config=config)
+
+    # Note if config was created
+    if result.config_created:
+        success("Created .golangci.yaml with NobleFactor defaults")
 
     # Report issues
     for issue in result.issues:
@@ -35,6 +59,10 @@ def run_shell(ctx):
     path = ctx.args.get("path", ".")
     severity = ctx.args.get("severity", "warning")
     indent = int(ctx.args.get("indent", "4"))
+
+    # Check tools are installed
+    ensure_tool_installed("shellcheck")
+    ensure_tool_installed("shfmt")
 
     note("Running shell lint on " + path)
 
@@ -82,6 +110,27 @@ def run_shell(ctx):
             msg = msg + " " + str(len(fmt_result.files_failed)) + " files need formatting"
         fail(msg)
 
+def run_tools(ctx):
+    """Check status of all required lint tools."""
+    result = lint.ensure_tools()
+
+    note("Checking lint tools...")
+    for tool in result.tools:
+        if tool.installed:
+            success(tool.name + ": " + tool.path)
+        else:
+            error(tool.name + ": not installed")
+            note("  Install: " + tool.install_cmd)
+
+    if result.all_installed:
+        success("All lint tools installed")
+    else:
+        print("")
+        note("Install missing tools with:")
+        for cmd in result.install_cmds:
+            print("  " + cmd)
+        fail("Missing required lint tools")
+
 # Register commands
 command(
     name = "lint.go",
@@ -102,4 +151,11 @@ command(
         {"name": "indent", "help": "Expected indent size for shfmt", "default": "4"},
     ],
     run = run_shell,
+)
+
+command(
+    name = "lint.tools",
+    help = "Check status of required lint tools",
+    flags = [],
+    run = run_tools,
 )
