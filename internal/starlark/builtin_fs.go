@@ -57,7 +57,7 @@ func fsWrite(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwarg
 		cli.Note("would write %d bytes to %s", len(content), path)
 		return starlark.None, nil
 	}
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return nil, fmt.Errorf("fs.write: %w", err)
 	}
 	return starlark.None, nil
@@ -78,8 +78,11 @@ func fsIsDir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwarg
 		return nil, err
 	}
 	info, err := os.Stat(path)
-	if err != nil {
+	if os.IsNotExist(err) {
 		return starlark.Bool(false), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("fs.is_dir: %w", err)
 	}
 	return starlark.Bool(info.IsDir()), nil
 }
@@ -90,8 +93,11 @@ func fsIsFile(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwar
 		return nil, err
 	}
 	info, err := os.Stat(path)
-	if err != nil {
+	if os.IsNotExist(err) {
 		return starlark.Bool(false), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("fs.is_file: %w", err)
 	}
 	return starlark.Bool(!info.IsDir()), nil
 }
@@ -175,7 +181,7 @@ func fsMkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwarg
 		cli.Note("would create directory %s", path)
 		return starlark.None, nil
 	}
-	if err := os.MkdirAll(path, 0755); err != nil {
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		return nil, fmt.Errorf("fs.mkdir: %w", err)
 	}
 	return starlark.None, nil

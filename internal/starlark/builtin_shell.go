@@ -4,6 +4,7 @@
 package starlark
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -34,14 +35,14 @@ func shellModule() *starlarkstruct.Module {
 
 // ShellcheckIssue represents a single shellcheck finding.
 type ShellcheckIssue struct {
-	File       string `json:"file"`
-	Line       int    `json:"line"`
-	EndLine    int    `json:"endLine"`
-	Column     int    `json:"column"`
-	EndColumn  int    `json:"endColumn"`
-	Level      string `json:"level"`   // error, warning, info, style
-	Code       int    `json:"code"`    // SC code (e.g., 2086)
-	Message    string `json:"message"`
+	File      string `json:"file"`
+	Line      int    `json:"line"`
+	EndLine   int    `json:"endLine"`
+	Column    int    `json:"column"`
+	EndColumn int    `json:"endColumn"`
+	Level     string `json:"level"` // error, warning, info, style
+	Code      int    `json:"code"`  // SC code (e.g., 2086)
+	Message   string `json:"message"`
 }
 
 // shellLint runs shellcheck on shell scripts and returns structured issues.
@@ -130,8 +131,14 @@ func shellLint(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwa
 
 // runShellcheck executes shellcheck on a file and returns issues.
 func runShellcheck(path, severity string) ([]ShellcheckIssue, error) {
-	cmd := exec.Command("shellcheck", "-f", "json", "-x", "--severity="+severity, path)
-	output, _ := cmd.Output() // Ignore error - shellcheck exits non-zero when it finds issues
+	cmd := exec.CommandContext(context.Background(), "shellcheck", "-f", "json", "-x", "--severity="+severity, path)
+	// shellcheck exits non-zero when it finds issues, so we capture output
+	// regardless of exit status
+	output, err := cmd.Output()
+	if err != nil && len(output) == 0 {
+		// Real error (not just findings)
+		return nil, nil
+	}
 
 	if len(output) == 0 {
 		return nil, nil
@@ -183,7 +190,7 @@ func shellFormatCheck(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tup
 
 	var failedFiles []starlark.Value
 	for _, file := range files {
-		cmd := exec.Command("shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
+		cmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			// shfmt exits non-zero if file needs formatting
@@ -222,15 +229,15 @@ type ShellVariable struct {
 
 // ShellParseResult holds the parsed structure of a shell script.
 type ShellParseResult struct {
-	Path       string
-	Functions  []ShellFunction
-	Variables  []ShellVariable
-	Commands   []string // Unique external commands called
-	Sources    []string // Sourced files
-	LOC        int
-	SLOC       int
-	Comments   int
-	Blanks     int
+	Path      string
+	Functions []ShellFunction
+	Variables []ShellVariable
+	Commands  []string // Unique external commands called
+	Sources   []string // Sourced files
+	LOC       int
+	SLOC      int
+	Comments  int
+	Blanks    int
 }
 
 // shellParse parses shell scripts and extracts structural information.
@@ -407,11 +414,13 @@ func isValidFunctionName(name string) bool {
 	}
 	for i, c := range name {
 		if i == 0 {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+			// First char must be letter or underscore
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '_' {
 				return false
 			}
 		} else {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			// Subsequent chars can also include digits and hyphen
+			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '-' {
 				return false
 			}
 		}
@@ -603,7 +612,7 @@ func shellComplexity(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tupl
 	}
 
 	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"files":           starlark.NewList(allFiles),
+		"files":            starlark.NewList(allFiles),
 		"total_cyclomatic": starlark.MakeInt(totalCyclo),
 		"total_functions":  starlark.MakeInt(totalFuncs),
 		"avg_cyclomatic":   starlark.Float(avgCyclo),

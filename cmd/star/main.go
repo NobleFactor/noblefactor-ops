@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2025 Noble Factor. All rights reserved.
 
-// star is the Starlark-powered operations tool for DevLore.
+// star is the Starlark-powered operations tool for NobleFactor projects.
 // Operations are defined as .star scripts in the ops/ directory.
 package main
 
@@ -139,7 +139,7 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "star",
 		Short: "Starlark-powered operations tool",
-		Long: `star is the Starlark-powered operations tool for DevLore.
+		Long: `star is the Starlark-powered operations tool for NobleFactor projects.
 
 Operations are defined as .star scripts in the ops/ directory.
 Each script can register commands using the command() function.
@@ -210,7 +210,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			outDir := args[0]
-			if err := os.MkdirAll(outDir, 0755); err != nil {
+			if err := os.MkdirAll(outDir, 0o755); err != nil {
 				return fmt.Errorf("creating output directory: %w", err)
 			}
 			header := &doc.GenManHeader{
@@ -233,7 +233,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			outDir := args[0]
-			if err := os.MkdirAll(outDir, 0755); err != nil {
+			if err := os.MkdirAll(outDir, 0o755); err != nil {
 				return fmt.Errorf("creating output directory: %w", err)
 			}
 			if err := doc.GenMarkdownTree(rootCmd, outDir); err != nil {
@@ -329,7 +329,7 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 	parts := strings.Split(cmd.Name, ".")
 
 	// Build the command path
-	var parent *cobra.Command = rootCmd
+	parent := rootCmd
 	for i := 0; i < len(parts)-1; i++ {
 		// Find or create parent command
 		found := false
@@ -360,8 +360,10 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 			// Collect flag values
 			flagValues := make(map[string]string)
 			for _, flag := range cmd.Flags {
-				val, _ := c.Flags().GetString(flag.Name)
-				flagValues[flag.Name] = val
+				val, err := c.Flags().GetString(flag.Name)
+				if err == nil {
+					flagValues[flag.Name] = val
+				}
 			}
 			return cmd.Run(flagValues)
 		},
@@ -371,7 +373,10 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 	for _, flag := range cmd.Flags {
 		cobraCmd.Flags().String(flag.Name, flag.Default, flag.Help)
 		if flag.Required {
-			_ = cobraCmd.MarkFlagRequired(flag.Name)
+			if err := cobraCmd.MarkFlagRequired(flag.Name); err != nil {
+				// Flag was just added, this can't fail
+				panic(fmt.Sprintf("failed to mark flag %q as required: %v", flag.Name, err))
+			}
 		}
 	}
 

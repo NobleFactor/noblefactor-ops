@@ -28,20 +28,21 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Install lint tools
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+          go install mvdan.cc/sh/v3/cmd/shfmt@latest
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          golangci-lint version
+
       - name: Lint Go
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
+        run: go run ./cmd/star lint go
 
       - name: Test
         run: go test ./... -timeout 60s
 
-      - name: Shell lint
-        run: |
-          find . -name "*.sh" -type f | head -1 | grep -q . && {
-            go install mvdan.cc/sh/v3/cmd/shfmt@latest
-            shfmt -d -i 4 -ci $(find . -name "*.sh" -type f)
-          } || echo "No shell scripts found"
+      - name: Lint Shell
+        run: go run ./cmd/star lint shell
 
       - name: Code metrics
         run: |

@@ -5,6 +5,7 @@ package starlark
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -69,9 +70,10 @@ func schemaValidate(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple
 
 	// Invalid - extract error messages
 	var errorList []starlark.Value
-	if ve, ok := validationErr.(*jsonschema.ValidationError); ok {
-		errors := flattenValidationErrors(ve)
-		for _, e := range errors {
+	var ve *jsonschema.ValidationError
+	if errors.As(validationErr, &ve) {
+		validationErrors := flattenValidationErrors(ve)
+		for _, e := range validationErrors {
 			errorList = append(errorList, starlark.String(e))
 		}
 	} else {
@@ -83,7 +85,7 @@ func schemaValidate(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple
 
 // flattenValidationErrors extracts all error messages from a ValidationError tree.
 func flattenValidationErrors(ve *jsonschema.ValidationError) []string {
-	var errors []string
+	var errMsgs []string
 
 	// Build location string
 	location := ve.InstanceLocation
@@ -93,13 +95,13 @@ func flattenValidationErrors(ve *jsonschema.ValidationError) []string {
 
 	// Add this error's message if it has one
 	if ve.Message != "" {
-		errors = append(errors, fmt.Sprintf("%s: %s", location, ve.Message))
+		errMsgs = append(errMsgs, fmt.Sprintf("%s: %s", location, ve.Message))
 	}
 
 	// Recurse into causes
 	for _, cause := range ve.Causes {
-		errors = append(errors, flattenValidationErrors(cause)...)
+		errMsgs = append(errMsgs, flattenValidationErrors(cause)...)
 	}
 
-	return errors
+	return errMsgs
 }

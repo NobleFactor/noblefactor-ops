@@ -123,7 +123,8 @@ func parseStarlarkFile(path string) (StarlarkParseResult, error) {
 	}
 
 	// Parse with syntax package
-	f, err := syntax.Parse(path, content, 0)
+	opts := syntax.FileOptions{}
+	f, err := opts.Parse(path, content, 0)
 	if err != nil {
 		return StarlarkParseResult{}, err
 	}
@@ -151,8 +152,12 @@ func parseStarlarkFile(path string) (StarlarkParseResult, error) {
 			result.Functions = append(result.Functions, fn)
 
 		case *syntax.LoadStmt:
+			moduleStr, ok := s.Module.Value.(string)
+			if !ok {
+				continue
+			}
 			load := StarlarkLoad{
-				Module: s.Module.Value.(string),
+				Module: moduleStr,
 				Line:   int(s.Module.TokenPos.Line),
 			}
 			for _, binding := range s.From {
@@ -198,10 +203,11 @@ func extractStarlarkFunction(def *syntax.DefStmt) StarlarkFunction {
 			}
 		case *syntax.UnaryExpr:
 			if ident, ok := p.X.(*syntax.Ident); ok {
-				if p.Op == syntax.STAR {
+				switch p.Op {
+				case syntax.STAR:
 					fn.HasVarargs = true
 					fn.Params = append(fn.Params, "*"+ident.Name)
-				} else if p.Op == syntax.STARSTAR {
+				case syntax.STARSTAR:
 					fn.HasKwargs = true
 					fn.Params = append(fn.Params, "**"+ident.Name)
 				}
@@ -389,7 +395,7 @@ func starlarkComplexity(_ *starlark.Thread, _ *starlark.Builtin, args starlark.T
 	}
 
 	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"files":           starlark.NewList(allFiles),
+		"files":            starlark.NewList(allFiles),
 		"total_cyclomatic": starlark.MakeInt(totalCyclo),
 		"total_cognitive":  starlark.MakeInt(totalCognit),
 		"total_functions":  starlark.MakeInt(totalFuncs),
@@ -410,7 +416,8 @@ func analyzeStarlarkComplexity(path string) (starlark.Value, []StarlarkFunctionC
 		return starlark.None, nil
 	}
 
-	f, err := syntax.Parse(path, content, 0)
+	opts := syntax.FileOptions{}
+	f, err := opts.Parse(path, content, 0)
 	if err != nil {
 		return starlark.None, nil
 	}
@@ -474,7 +481,7 @@ func calculateStarlarkFunctionComplexity(def *syntax.DefStmt) StarlarkFunctionCo
 }
 
 // walkStmts recursively walks statements calculating complexity.
-func walkStmts(stmts []syntax.Stmt, nesting int, cyclo, cognit *int, maxNesting *int) {
+func walkStmts(stmts []syntax.Stmt, nesting int, cyclo, cognit, maxNesting *int) {
 	if nesting > *maxNesting {
 		*maxNesting = nesting
 	}
@@ -485,7 +492,7 @@ func walkStmts(stmts []syntax.Stmt, nesting int, cyclo, cognit *int, maxNesting 
 }
 
 // walkStmt processes a single statement for complexity.
-func walkStmt(stmt syntax.Stmt, nesting int, cyclo, cognit *int, maxNesting *int) {
+func walkStmt(stmt syntax.Stmt, nesting int, cyclo, cognit, maxNesting *int) {
 	switch s := stmt.(type) {
 	case *syntax.IfStmt:
 		*cyclo++
@@ -576,12 +583,13 @@ func walkExpr(expr syntax.Expr, cyclo, cognit *int) {
 		*cognit++
 		walkExpr(e.Body, cyclo, cognit)
 		for _, clause := range e.Clauses {
-			if fc, ok := clause.(*syntax.ForClause); ok {
-				walkExpr(fc.X, cyclo, cognit)
-			} else if ic, ok := clause.(*syntax.IfClause); ok {
+			switch c := clause.(type) {
+			case *syntax.ForClause:
+				walkExpr(c.X, cyclo, cognit)
+			case *syntax.IfClause:
 				*cyclo++
 				*cognit++
-				walkExpr(ic.Cond, cyclo, cognit)
+				walkExpr(c.Cond, cyclo, cognit)
 			}
 		}
 

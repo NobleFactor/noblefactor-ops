@@ -82,8 +82,10 @@ func starlarkToGo(v starlark.Value) interface{} {
 	case *starlarkstruct.Struct:
 		m := make(map[string]interface{})
 		for _, name := range x.AttrNames() {
-			val, _ := x.Attr(name)
-			m[name] = starlarkToGo(val)
+			val, err := x.Attr(name)
+			if err == nil {
+				m[name] = starlarkToGo(val)
+			}
 		}
 		return m
 	default:
@@ -115,14 +117,18 @@ func goToStarlark(v interface{}) starlark.Value {
 	case map[string]interface{}:
 		d := starlark.NewDict(len(x))
 		for k, v := range x {
-			_ = d.SetKey(starlark.String(k), goToStarlark(v))
+			if err := d.SetKey(starlark.String(k), goToStarlark(v)); err != nil {
+				continue // Skip keys that fail to set
+			}
 		}
 		return d
 	case map[interface{}]interface{}:
 		d := starlark.NewDict(len(x))
 		for k, v := range x {
 			kStr := fmt.Sprintf("%v", k)
-			_ = d.SetKey(starlark.String(kStr), goToStarlark(v))
+			if err := d.SetKey(starlark.String(kStr), goToStarlark(v)); err != nil {
+				continue // Skip keys that fail to set
+			}
 		}
 		return d
 	default:
