@@ -72,6 +72,7 @@ func (r *Runtime) Load(path string) error {
 	// Build predeclared environment
 	predeclared := starlark.StringDict{
 		"fs":             fsModule(),
+		"json":           jsonModule(),
 		"yaml":           yamlModule(),
 		"schema":         schemaModule(),
 		"go":             goModule(),
