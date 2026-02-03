@@ -135,10 +135,8 @@ func (b *Bindings) packageRemove(thread *starlark.Thread, fn *starlark.Builtin, 
 	found := findBinding(bindings, "plan.package.install")
 	if found == nil {
 		t.Error("expected to find binding 'plan.package.install'")
-	} else {
-		if found.Namespace != "plan.package" {
-			t.Errorf("expected Namespace 'plan.package', got %q", found.Namespace)
-		}
+	} else if found.Namespace != "plan.package" {
+		t.Errorf("expected Namespace 'plan.package', got %q", found.Namespace)
 	}
 
 	// Should infer both "plan" and "plan.package" namespaces
@@ -249,10 +247,8 @@ func (p *planBindings) shellBuiltin(thread *starlark.Thread, fn *starlark.Builti
 	found := findBinding(bindings, "plan.shell")
 	if found == nil {
 		t.Error("expected to find binding 'plan.shell'")
-	} else {
-		if !found.Mutates {
-			t.Error("expected shellBuiltin to be marked as mutating (creates execution.Node)")
-		}
+	} else if !found.Mutates {
+		t.Error("expected shellBuiltin to be marked as mutating (creates execution.Node)")
 	}
 }
 
@@ -293,10 +289,8 @@ func (s *StarlarkPlanBindings) packageInstallBuiltin(_ *starlark.Thread, _ *star
 	found := findBinding(bindings, "plan.install")
 	if found == nil {
 		t.Error("expected to find binding 'plan.install'")
-	} else {
-		if !found.Mutates {
-			t.Error("expected packageInstallBuiltin to be marked as mutating (calls s.PackageInstall)")
-		}
+	} else if !found.Mutates {
+		t.Error("expected packageInstallBuiltin to be marked as mutating (calls s.PackageInstall)")
 	}
 }
 
@@ -473,7 +467,7 @@ func createTempGoFile(t *testing.T, content string) string {
 	t.Helper()
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.go")
-	if err := os.WriteFile(tmpFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	return tmpFile
@@ -605,7 +599,8 @@ func TestParseOpsFile_RealOps(t *testing.T) {
 	}
 
 	// Should find at least the known operations
-	knownOps := []string{"backup", "copy", "decrypt", "expand", "file-write", "link", "mkdir", "remove", "rename", "unlink", "validate"}
+	// Note: Operations are defined in devlore-cli's internal/execution/ops.go
+	knownOps := []string{"backup", "copy", "decrypt", "link", "move", "remove", "render", "unlink", "validate", "write"}
 	found := make(map[string]bool)
 	for _, op := range ops {
 		found[op.Name] = true

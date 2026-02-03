@@ -4,6 +4,7 @@
 // Copied from devlore-cli/internal/cli/output.go
 // Keep in sync periodically.
 
+// Package cli provides CLI utilities for output formatting and user interaction.
 package cli
 
 import (
@@ -25,6 +26,7 @@ import (
 // Exit Codes (BSD sysexits.h)
 // =============================================================================
 
+// Exit codes following BSD sysexits.h conventions.
 const (
 	ExitOK          = 0  // Success
 	ExitError       = 1  // Generic error
@@ -150,8 +152,10 @@ func renderJSON(w io.Writer, data interface{}) error {
 func renderYAML(w io.Writer, data interface{}) error {
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
-	defer func() { _ = enc.Close() }()
-	return enc.Encode(data)
+	if err := enc.Encode(data); err != nil {
+		return err
+	}
+	return enc.Close()
 }
 
 func renderTable(w io.Writer, data interface{}) error {
@@ -171,14 +175,18 @@ func renderTable(w io.Writer, data interface{}) error {
 	for i, f := range fields {
 		headers[i] = strings.ToUpper(f)
 	}
-	_, _ = fmt.Fprintln(tw, strings.Join(headers, "\t"))
+	if _, err := fmt.Fprintln(tw, strings.Join(headers, "\t")); err != nil {
+		return err
+	}
 
 	for _, item := range items {
 		values := make([]string, len(fields))
 		for i, f := range fields {
 			values[i] = formatFieldValue(getFieldValue(item, f))
 		}
-		_, _ = fmt.Fprintln(tw, strings.Join(values, "\t"))
+		if _, err := fmt.Fprintln(tw, strings.Join(values, "\t")); err != nil {
+			return err
+		}
 	}
 
 	return tw.Flush()
@@ -195,7 +203,9 @@ func renderTemplate(w io.Writer, data interface{}, tmplStr string) error {
 		if err := tmpl.Execute(w, item); err != nil {
 			return fmt.Errorf("template execution: %w", err)
 		}
-		_, _ = fmt.Fprintln(w)
+		if _, err := fmt.Fprintln(w); err != nil {
+			return fmt.Errorf("writing newline: %w", err)
+		}
 	}
 	return nil
 }

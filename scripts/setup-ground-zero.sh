@@ -36,7 +36,10 @@ fi
 info() { echo -e "${BLUE}info:${NC} $*"; }
 success() { echo -e "${GREEN}success:${NC} $*"; }
 warn() { echo -e "${YELLOW}warning:${NC} $*"; }
-error() { echo -e "${RED}error:${NC} $*" >&2; exit 1; }
+error() {
+    echo -e "${RED}error:${NC} $*" >&2
+    exit 1
+}
 phase() { echo -e "\n${CYAN}=== $* ===${NC}\n"; }
 
 # Parse arguments
@@ -50,14 +53,35 @@ DRY_RUN=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --name) PROJECT_NAME="$2"; shift 2 ;;
-        --domain) CUSTOM_DOMAIN="$2"; shift 2 ;;
-        --repo) GITHUB_REPO="$2"; shift 2 ;;
-        --default-branch) DEFAULT_BRANCH="$2"; shift 2 ;;
-        --skip-azure) SKIP_AZURE=true; shift ;;
-        --skip-github) SKIP_GITHUB=true; shift ;;
-        --dry-run) DRY_RUN=true; shift ;;
-        --help|-h)
+        --name)
+            PROJECT_NAME="$2"
+            shift 2
+            ;;
+        --domain)
+            CUSTOM_DOMAIN="$2"
+            shift 2
+            ;;
+        --repo)
+            GITHUB_REPO="$2"
+            shift 2
+            ;;
+        --default-branch)
+            DEFAULT_BRANCH="$2"
+            shift 2
+            ;;
+        --skip-azure)
+            SKIP_AZURE=true
+            shift
+            ;;
+        --skip-github)
+            SKIP_GITHUB=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --help | -h)
             cat <<EOF
 Ground Zero Setup - Complete DevLore infrastructure provisioning
 
@@ -183,15 +207,19 @@ if [[ "$SKIP_AZURE" != "true" ]]; then
     else
         # Capture output for secret extraction
         AZURE_OUTPUT=$(mktemp)
-        trap "rm -f $AZURE_OUTPUT" EXIT
+        trap 'rm -f "$AZURE_OUTPUT"' EXIT
 
         "$SCRIPT_DIR/setup-azure-swa.sh" --name "$PROJECT_NAME" --domain "$CUSTOM_DOMAIN" | tee "$AZURE_OUTPUT"
 
         # Extract secrets from output for GitHub configuration
-        export AZURE_STATIC_WEB_APPS_API_TOKEN=$(grep -A1 "AZURE_STATIC_WEB_APPS_API_TOKEN:" "$AZURE_OUTPUT" | tail -1 | tr -d '[:space:]')
-        export AZURE_CREDENTIALS=$(grep -A1 "AZURE_CREDENTIALS:" "$AZURE_OUTPUT" | tail -1)
-        export AAD_CLIENT_ID=$(grep -A1 "AAD_CLIENT_ID:" "$AZURE_OUTPUT" | tail -1 | tr -d '[:space:]')
-        export AAD_CLIENT_SECRET=$(grep -A1 "AAD_CLIENT_SECRET:" "$AZURE_OUTPUT" | tail -1 | tr -d '[:space:]')
+        AZURE_STATIC_WEB_APPS_API_TOKEN=$(grep -A1 "AZURE_STATIC_WEB_APPS_API_TOKEN:" "$AZURE_OUTPUT" | tail -1 | tr -d '[:space:]')
+        export AZURE_STATIC_WEB_APPS_API_TOKEN
+        AZURE_CREDENTIALS=$(grep -A1 "AZURE_CREDENTIALS:" "$AZURE_OUTPUT" | tail -1)
+        export AZURE_CREDENTIALS
+        AAD_CLIENT_ID=$(grep -A1 "AAD_CLIENT_ID:" "$AZURE_OUTPUT" | tail -1 | tr -d '[:space:]')
+        export AAD_CLIENT_ID
+        AAD_CLIENT_SECRET=$(grep -A1 "AAD_CLIENT_SECRET:" "$AZURE_OUTPUT" | tail -1 | tr -d '[:space:]')
+        export AAD_CLIENT_SECRET
     fi
 else
     warn "Skipping Azure setup (--skip-azure)"

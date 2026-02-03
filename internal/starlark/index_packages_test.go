@@ -16,7 +16,7 @@ func TestIndexPackages(t *testing.T) {
 	// Create temp directory for test registry
 	tmpDir := t.TempDir()
 	packagesDir := filepath.Join(tmpDir, "packages")
-	if err := os.MkdirAll(packagesDir, 0755); err != nil {
+	if err := os.MkdirAll(packagesDir, 0o755); err != nil {
 		t.Fatalf("create packages dir: %v", err)
 	}
 
@@ -127,20 +127,20 @@ signatures:
 	// Create fixture directories and files
 	for _, f := range fixtures {
 		pkgDir := filepath.Join(packagesDir, f.name)
-		if err := os.MkdirAll(pkgDir, 0755); err != nil {
+		if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 			t.Fatalf("create package dir %s: %v", f.name, err)
 		}
 
 		// Write lifecycle.yaml
 		lifecyclePath := filepath.Join(pkgDir, "lifecycle.yaml")
-		if err := os.WriteFile(lifecyclePath, []byte(f.lifecycle), 0644); err != nil {
+		if err := os.WriteFile(lifecyclePath, []byte(f.lifecycle), 0o644); err != nil {
 			t.Fatalf("write lifecycle.yaml for %s: %v", f.name, err)
 		}
 
 		// Create variant directories
 		for _, variant := range f.variants {
 			variantDir := filepath.Join(pkgDir, variant)
-			if err := os.MkdirAll(variantDir, 0755); err != nil {
+			if err := os.MkdirAll(variantDir, 0o755); err != nil {
 				t.Fatalf("create variant dir %s/%s: %v", f.name, variant, err)
 			}
 		}
@@ -148,7 +148,7 @@ signatures:
 		// Create README if needed
 		if f.hasReadme {
 			readmePath := filepath.Join(pkgDir, "README.md")
-			if err := os.WriteFile(readmePath, []byte("# "+f.name), 0644); err != nil {
+			if err := os.WriteFile(readmePath, []byte("# "+f.name), 0o644); err != nil {
 				t.Fatalf("write README.md for %s: %v", f.name, err)
 			}
 		}
@@ -296,13 +296,13 @@ signatures:
 func TestIndexPackagesEmptySignatures(t *testing.T) {
 	tmpDir := t.TempDir()
 	packagesDir := filepath.Join(tmpDir, "packages")
-	if err := os.MkdirAll(packagesDir, 0755); err != nil {
+	if err := os.MkdirAll(packagesDir, 0o755); err != nil {
 		t.Fatalf("create packages dir: %v", err)
 	}
 
 	// Package with no signatures
 	pkgDir := filepath.Join(packagesDir, "custom-tool")
-	if err := os.MkdirAll(pkgDir, 0755); err != nil {
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 		t.Fatalf("create package dir: %v", err)
 	}
 
@@ -312,7 +312,7 @@ description: A custom tool with no package manager signatures
 platforms:
   - Darwin
 `
-	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycle), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pkgDir, "lifecycle.yaml"), []byte(lifecycle), 0o644); err != nil {
 		t.Fatalf("write lifecycle.yaml: %v", err)
 	}
 
@@ -355,13 +355,13 @@ platforms:
 func TestIndexPackagesSkipInvalid(t *testing.T) {
 	tmpDir := t.TempDir()
 	packagesDir := filepath.Join(tmpDir, "packages")
-	if err := os.MkdirAll(packagesDir, 0755); err != nil {
+	if err := os.MkdirAll(packagesDir, 0o755); err != nil {
 		t.Fatalf("create packages dir: %v", err)
 	}
 
 	// Valid package
 	validDir := filepath.Join(packagesDir, "valid-pkg")
-	if err := os.MkdirAll(validDir, 0755); err != nil {
+	if err := os.MkdirAll(validDir, 0o755); err != nil {
 		t.Fatalf("create valid dir: %v", err)
 	}
 	validLifecycle := `name: valid-pkg
@@ -370,13 +370,13 @@ description: A valid package
 platforms:
   - Darwin
 `
-	if err := os.WriteFile(filepath.Join(validDir, "lifecycle.yaml"), []byte(validLifecycle), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(validDir, "lifecycle.yaml"), []byte(validLifecycle), 0o644); err != nil {
 		t.Fatalf("write valid lifecycle: %v", err)
 	}
 
 	// Directory without lifecycle.yaml (should be skipped)
 	noLifecycleDir := filepath.Join(packagesDir, "no-lifecycle")
-	if err := os.MkdirAll(noLifecycleDir, 0755); err != nil {
+	if err := os.MkdirAll(noLifecycleDir, 0o755); err != nil {
 		t.Fatalf("create no-lifecycle dir: %v", err)
 	}
 
@@ -420,13 +420,13 @@ platforms:
 func TestIndexPackagesConflictingSignatures(t *testing.T) {
 	tmpDir := t.TempDir()
 	packagesDir := filepath.Join(tmpDir, "packages")
-	if err := os.MkdirAll(packagesDir, 0755); err != nil {
+	if err := os.MkdirAll(packagesDir, 0o755); err != nil {
 		t.Fatalf("create packages dir: %v", err)
 	}
 
 	// Two packages that both claim "python" in apt
 	pkg1Dir := filepath.Join(packagesDir, "python3")
-	if err := os.MkdirAll(pkg1Dir, 0755); err != nil {
+	if err := os.MkdirAll(pkg1Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pkg1Dir, "lifecycle.yaml"), []byte(`name: python3
@@ -436,12 +436,12 @@ platforms: [Linux]
 signatures:
   apt:
     - python3
-`), 0644); err != nil {
+`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	pkg2Dir := filepath.Join(packagesDir, "python-legacy")
-	if err := os.MkdirAll(pkg2Dir, 0755); err != nil {
+	if err := os.MkdirAll(pkg2Dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(pkg2Dir, "lifecycle.yaml"), []byte(`name: python-legacy
@@ -451,7 +451,7 @@ platforms: [Linux]
 signatures:
   apt:
     - python3
-`), 0644); err != nil {
+`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -508,7 +508,7 @@ func getRepoRoot(t *testing.T) string {
 
 // containsString checks if s contains substr.
 func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr))
+	return len(s) >= len(substr) && (s == substr || s != "" && containsAt(s, substr))
 }
 
 func containsAt(s, substr string) bool {

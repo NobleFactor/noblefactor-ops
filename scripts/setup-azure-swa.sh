@@ -36,16 +36,25 @@ fi
 info() { echo -e "${BLUE}info:${NC} $*"; }
 success() { echo -e "${GREEN}success:${NC} $*"; }
 warn() { echo -e "${YELLOW}warning:${NC} $*"; }
-error() { echo -e "${RED}error:${NC} $*" >&2; exit 1; }
+error() {
+    echo -e "${RED}error:${NC} $*" >&2
+    exit 1
+}
 
 # Parse arguments
 APP_NAME=""
 CUSTOM_DOMAIN=""
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --name) APP_NAME="$2"; shift 2 ;;
-        --domain) CUSTOM_DOMAIN="$2"; shift 2 ;;
-        --help|-h)
+        --name)
+            APP_NAME="$2"
+            shift 2
+            ;;
+        --domain)
+            CUSTOM_DOMAIN="$2"
+            shift 2
+            ;;
+        --help | -h)
             echo "Usage: $0 --name <app-name> --domain <custom-domain>"
             echo ""
             echo "Options:"
@@ -139,8 +148,8 @@ else
     APP_ID=$(az ad app create \
         --display-name "$ENTRA_APP_NAME" \
         --web-redirect-uris \
-            "https://${SWA_HOSTNAME}/.auth/login/aad/callback" \
-            "https://${CUSTOM_DOMAIN}/.auth/login/aad/callback" \
+        "https://${SWA_HOSTNAME}/.auth/login/aad/callback" \
+        "https://${CUSTOM_DOMAIN}/.auth/login/aad/callback" \
         --sign-in-audience AzureADMyOrg \
         --query appId -o tsv)
     success "Created Entra ID app: $APP_ID"

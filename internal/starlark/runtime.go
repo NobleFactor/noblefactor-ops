@@ -5,12 +5,14 @@
 package starlark
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/cli"
 )
@@ -50,7 +52,10 @@ func (r *Runtime) LoadAll() error {
 		}
 
 		// Load the star file
-		relPath, _ := filepath.Rel(r.opsDir, path)
+		relPath, relErr := filepath.Rel(r.opsDir, path)
+		if relErr != nil {
+			relPath = path // Fall back to absolute path
+		}
 		if err := r.Load(path); err != nil {
 			return fmt.Errorf("loading %s: %w", relPath, err)
 		}
@@ -77,6 +82,7 @@ func (r *Runtime) Load(path string) error {
 		"schema":         schemaModule(),
 		"go":             goModule(),
 		"shell":          shellModule(),
+		"lint":           lintModule(),
 		"starlark_parse": starlarkParseModule(),
 		"command":        starlark.NewBuiltin("command", collector.commandBuiltin),
 		// Output functions in global namespace
@@ -87,8 +93,15 @@ func (r *Runtime) Load(path string) error {
 		"fail":    starlark.NewBuiltin("fail", failBuiltin),
 	}
 
-	// Execute the script
-	globals, err := starlark.ExecFile(thread, path, nil, predeclared)
+	// Execute the script with extended dialect options
+	fileOpts := syntax.FileOptions{
+		Set:             true, // Enable set() built-in
+		While:           true, // Enable while loops
+		TopLevelControl: true, // Enable top-level if/for/while
+		GlobalReassign:  true, // Enable reassignment to top-level names
+		Recursion:       true, // Enable recursive functions
+	}
+	globals, err := starlark.ExecFileOptions(&fileOpts, thread, path, nil, predeclared)
 	if err != nil {
 		return fmt.Errorf("exec %s: %w", path, err)
 	}
@@ -136,7 +149,9 @@ func (c *Command) Run(args map[string]string) error {
 	// Build context dict
 	argsDict := starlark.NewDict(len(args))
 	for k, v := range args {
-		_ = argsDict.SetKey(starlark.String(k), starlark.String(v))
+		if err := argsDict.SetKey(starlark.String(k), starlark.String(v)); err != nil {
+			return fmt.Errorf("setting arg %q: %w", k, err)
+		}
 	}
 
 	ctx := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
@@ -147,7 +162,8 @@ func (c *Command) Run(args map[string]string) error {
 	// Call the run function
 	_, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{ctx}, nil)
 	if err != nil {
-		if evalErr, ok := err.(*starlark.EvalError); ok {
+		var evalErr *starlark.EvalError
+		if errors.As(err, &evalErr) {
 			return fmt.Errorf("%s", evalErr.Backtrace())
 		}
 		return err
@@ -205,22 +221,22 @@ func (c *commandCollector) commandBuiltin(_ *starlark.Thread, _ *starlark.Builti
 func parseFlag(d *starlark.Dict) (Flag, error) {
 	var flag Flag
 
-	if v, found, _ := d.Get(starlark.String("name")); found {
+	if v, found, err := d.Get(starlark.String("name")); err == nil && found {
 		if s, ok := v.(starlark.String); ok {
 			flag.Name = string(s)
 		}
 	}
-	if v, found, _ := d.Get(starlark.String("help")); found {
+	if v, found, err := d.Get(starlark.String("help")); err == nil && found {
 		if s, ok := v.(starlark.String); ok {
 			flag.Help = string(s)
 		}
 	}
-	if v, found, _ := d.Get(starlark.String("default")); found {
+	if v, found, err := d.Get(starlark.String("default")); err == nil && found {
 		if s, ok := v.(starlark.String); ok {
 			flag.Default = string(s)
 		}
 	}
-	if v, found, _ := d.Get(starlark.String("required")); found {
+	if v, found, err := d.Get(starlark.String("required")); err == nil && found {
 		if b, ok := v.(starlark.Bool); ok {
 			flag.Required = bool(b)
 		}

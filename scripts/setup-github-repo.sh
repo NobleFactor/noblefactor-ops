@@ -36,7 +36,10 @@ fi
 info() { echo -e "${BLUE}info:${NC} $*"; }
 success() { echo -e "${GREEN}success:${NC} $*"; }
 warn() { echo -e "${YELLOW}warning:${NC} $*"; }
-error() { echo -e "${RED}error:${NC} $*" >&2; exit 1; }
+error() {
+    echo -e "${RED}error:${NC} $*" >&2
+    exit 1
+}
 
 # Parse arguments
 REPO=""
@@ -46,11 +49,23 @@ SKIP_PROTECTION=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --repo) REPO="$2"; shift 2 ;;
-        --default-branch) DEFAULT_BRANCH="$2"; shift 2 ;;
-        --skip-secrets) SKIP_SECRETS=true; shift ;;
-        --skip-protection) SKIP_PROTECTION=true; shift ;;
-        --help|-h)
+        --repo)
+            REPO="$2"
+            shift 2
+            ;;
+        --default-branch)
+            DEFAULT_BRANCH="$2"
+            shift 2
+            ;;
+        --skip-secrets)
+            SKIP_SECRETS=true
+            shift
+            ;;
+        --skip-protection)
+            SKIP_PROTECTION=true
+            shift
+            ;;
+        --help | -h)
             echo "Usage: $0 --repo <owner/repo> [options]"
             echo ""
             echo "Options:"

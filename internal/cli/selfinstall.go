@@ -163,7 +163,7 @@ func installBinary(root, name string) (string, error) {
 	binDir := filepath.Join(root, "bin")
 	targetPath := filepath.Join(binDir, name)
 
-	if err := os.MkdirAll(binDir, 0755); err != nil {
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", binDir, err)
 	}
 
@@ -175,7 +175,7 @@ func installBinary(root, name string) (string, error) {
 		return "", err
 	}
 
-	if err := os.Chmod(targetPath, 0755); err != nil {
+	if err := os.Chmod(targetPath, 0o755); err != nil {
 		return "", fmt.Errorf("failed to make executable: %w", err)
 	}
 
@@ -192,7 +192,7 @@ func installOpsDir(root, name string) (string, error) {
 
 	// Target directory: <root>/share/<name>/ops/
 	targetOpsDir := filepath.Join(root, "share", name, "ops")
-	if err := os.MkdirAll(targetOpsDir, 0755); err != nil {
+	if err := os.MkdirAll(targetOpsDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create ops directory: %w", err)
 	}
 
@@ -240,7 +240,7 @@ func findOpsDir() string {
 
 // installManPagesTo generates and installs man pages.
 func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([]string, error) {
-	if err := os.MkdirAll(path, 0755); err != nil {
+	if err := os.MkdirAll(path, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create directory %s: %w", path, err)
 	}
 
@@ -299,7 +299,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 		}
 
 		dir := filepath.Join(root, relPath)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return paths, fmt.Errorf("failed to create %s completion directory: %w", shellName, err)
 		}
 
