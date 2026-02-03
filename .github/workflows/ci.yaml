@@ -30,9 +30,10 @@ jobs:
 
       - name: Install lint tools
         run: |
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
           go install mvdan.cc/sh/v3/cmd/shfmt@latest
           sudo apt-get update && sudo apt-get install -y shellcheck
+          golangci-lint version
 
       - name: Lint Go
         run: go run ./cmd/star lint go

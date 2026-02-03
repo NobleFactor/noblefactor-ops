@@ -190,7 +190,7 @@ var requiredTools = []ToolInfo{
 	{
 		Name:       "golangci-lint",
 		Binary:     "golangci-lint",
-		InstallCmd: "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest",
+		InstallCmd: "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin",
 	},
 	{
 		Name:       "shellcheck",
