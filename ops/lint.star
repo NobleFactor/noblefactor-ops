@@ -27,19 +27,36 @@ def run_go(ctx):
     """Run golangci-lint on Go code."""
     path = ctx.args.get("path", "./...")
     config = ctx.args.get("config", "")
+    skip_mod_tidy = ctx.args.get("skip_mod_tidy", "false") == "true"
 
     # Check tool is installed
     ensure_tool_installed("golangci-lint")
 
-    note("Running golangci-lint on " + path)
+    note("Running Go lint checks on " + path)
 
-    result = lint.go(path=path, config=config)
+    # Run go mod tidy check first (unless skipped)
+    if not skip_mod_tidy:
+        note("Checking go.mod tidy...")
+
+    result = lint.go(path=path, config=config, skip_mod_tidy=skip_mod_tidy)
+
+    # Report mod tidy status
+    if not skip_mod_tidy:
+        if result.mod_tidy_passed:
+            success("go.mod is tidy")
+        else:
+            error("go.mod is not tidy")
+            if result.mod_tidy_details:
+                for line in result.mod_tidy_details.split("\n"):
+                    if line:
+                        note("  " + line)
 
     # Note if config was created
     if result.config_created:
         success("Created .golangci.yaml with NobleFactor defaults")
 
-    # Report issues
+    # Report golangci-lint issues
+    note("Running golangci-lint...")
     for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + ":" + str(issue.column)
         msg = msg + " " + issue.linter + ": " + issue.message
@@ -49,10 +66,21 @@ def run_go(ctx):
             warn(msg)
 
     # Summary
-    if result.passed:
-        success("No lint issues found")
+    if result.lint_passed:
+        success("No golangci-lint issues found")
     else:
-        fail("Found " + str(result.total_count) + " lint issues (" + str(result.error_count) + " errors, " + str(result.warning_count) + " warnings)")
+        warn("Found " + str(result.total_count) + " lint issues (" + str(result.error_count) + " errors, " + str(result.warning_count) + " warnings)")
+
+    # Final pass/fail
+    if result.passed:
+        success("All Go lint checks passed")
+    else:
+        msgs = []
+        if not result.mod_tidy_passed:
+            msgs.append("go.mod not tidy")
+        if not result.lint_passed:
+            msgs.append(str(result.total_count) + " lint issues")
+        fail("Go lint failed: " + ", ".join(msgs))
 
 def run_shell(ctx):
     """Run shellcheck and shfmt on shell scripts."""
@@ -134,10 +162,11 @@ def run_tools(ctx):
 # Register commands
 command(
     name = "lint.go",
-    help = "Run golangci-lint on Go code",
+    help = "Run Go lint checks (go mod tidy + golangci-lint)",
     flags = [
         {"name": "path", "help": "Path to lint (default: ./...)", "default": "./..."},
         {"name": "config", "help": "Path to golangci-lint config file", "default": ""},
+        {"name": "skip_mod_tidy", "help": "Skip go mod tidy check", "default": "false"},
     ],
     run = run_go,
 )

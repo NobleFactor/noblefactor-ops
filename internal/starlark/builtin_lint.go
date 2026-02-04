@@ -314,30 +314,61 @@ type GolangCILintPosition struct {
 	Column   int    `json:"Column"`
 }
 
+// checkModTidy runs 'go mod tidy' and checks if go.mod/go.sum are modified.
+// Returns (passed, details) where passed is true if modules are tidy.
+func checkModTidy() (bool, string) {
+	// Run go mod tidy
+	tidyCmd := exec.Command("go", "mod", "tidy")
+	if output, err := tidyCmd.CombinedOutput(); err != nil {
+		return false, fmt.Sprintf("go mod tidy failed: %s\n%s", err, string(output))
+	}
+
+	// Check if go.mod or go.sum were modified
+	diffCmd := exec.Command("git", "diff", "--exit-code", "go.mod", "go.sum")
+	if output, err := diffCmd.CombinedOutput(); err != nil {
+		// Files were modified - not tidy
+		return false, fmt.Sprintf("go.mod or go.sum not tidy:\n%s", string(output))
+	}
+
+	return true, ""
+}
+
 // lintGo runs golangci-lint on Go code and returns structured issues.
 //
 // On first run, creates .golangci.yaml with NobleFactor defaults if missing.
 // Also checks that golangci-lint is installed.
+// Additionally runs 'go mod tidy' check to ensure modules are clean.
 //
 // Args:
 //   - path: Path to lint (default: "./...")
 //   - config: Path to config file (optional, uses .golangci.yaml by default)
+//   - skip_mod_tidy: Skip the go mod tidy check (default: false)
 //
 // Returns:
 //   - A struct with:
 //   - issues: List of issues found
 //   - error_count, warning_count
-//   - passed: True if no errors/warnings
+//   - passed: True if no errors/warnings and mod tidy passed
 //   - total_count: Total number of issues
 //   - config_created: True if .golangci.yaml was created
+//   - mod_tidy_passed: True if go.mod/go.sum are tidy
+//   - mod_tidy_details: Details if mod tidy failed
 func lintGo(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, config string
-	if err := starlark.UnpackArgs("lint.go", args, kwargs, "path?", &path, "config?", &config); err != nil {
+	var skipModTidy bool
+	if err := starlark.UnpackArgs("lint.go", args, kwargs, "path?", &path, "config?", &config, "skip_mod_tidy?", &skipModTidy); err != nil {
 		return nil, err
 	}
 
 	if path == "" {
 		path = "./..."
+	}
+
+	// Check go mod tidy first (unless skipped)
+	modTidyPassed := true
+	modTidyDetails := ""
+	if !skipModTidy {
+		modTidyPassed, modTidyDetails = checkModTidy()
 	}
 
 	// Check if golangci-lint is available
@@ -430,14 +461,18 @@ func lintGo(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs
 		}))
 	}
 
-	passed := errors == 0 && warnings == 0
+	lintPassed := errors == 0 && warnings == 0
+	passed := lintPassed && modTidyPassed
 
 	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"issues":         starlark.NewList(issueList),
-		"error_count":    starlark.MakeInt(errors),
-		"warning_count":  starlark.MakeInt(warnings),
-		"total_count":    starlark.MakeInt(len(issues)),
-		"passed":         starlark.Bool(passed),
-		"config_created": starlark.Bool(configCreated),
+		"issues":           starlark.NewList(issueList),
+		"error_count":      starlark.MakeInt(errors),
+		"warning_count":    starlark.MakeInt(warnings),
+		"total_count":      starlark.MakeInt(len(issues)),
+		"passed":           starlark.Bool(passed),
+		"lint_passed":      starlark.Bool(lintPassed),
+		"config_created":   starlark.Bool(configCreated),
+		"mod_tidy_passed":  starlark.Bool(modTidyPassed),
+		"mod_tidy_details": starlark.String(modTidyDetails),
 	}), nil
 }
