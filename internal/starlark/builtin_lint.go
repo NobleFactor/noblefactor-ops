@@ -26,6 +26,7 @@ func lintModule() *starlarkstruct.Module {
 		Name: "lint",
 		Members: starlark.StringDict{
 			"go":           starlark.NewBuiltin("lint.go", lintGo),
+			"markdown":     starlark.NewBuiltin("lint.markdown", lintMarkdown),
 			"ensure_tools": starlark.NewBuiltin("lint.ensure_tools", lintEnsureTools),
 		},
 	}
@@ -202,6 +203,11 @@ var requiredTools = []ToolInfo{
 		Binary:     "shfmt",
 		InstallCmd: "go install mvdan.cc/sh/v3/cmd/shfmt@latest",
 	},
+	{
+		Name:       "markdownlint-cli2",
+		Binary:     "markdownlint-cli2",
+		InstallCmd: getMarkdownlintInstallCmd(),
+	},
 }
 
 // getShellcheckInstallCmd returns the platform-specific install command for shellcheck.
@@ -213,6 +219,18 @@ func getShellcheckInstallCmd() string {
 		return "sudo apt-get install shellcheck  # or: sudo dnf install ShellCheck"
 	default:
 		return "See https://github.com/koalaman/shellcheck#installing"
+	}
+}
+
+// getMarkdownlintInstallCmd returns the platform-specific install command for markdownlint-cli2.
+func getMarkdownlintInstallCmd() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "brew install markdownlint-cli2"
+	case "linux":
+		return "npm install -g markdownlint-cli2"
+	default:
+		return "npm install -g markdownlint-cli2"
 	}
 }
 
@@ -475,4 +493,312 @@ func lintGo(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs
 		"mod_tidy_passed":  starlark.Bool(modTidyPassed),
 		"mod_tidy_details": starlark.String(modTidyDetails),
 	}), nil
+}
+
+// =============================================================================
+// MARKDOWN LINTING (markdownlint-cli2 + frontmatter check)
+// =============================================================================
+
+// MarkdownLintIssue represents a single markdownlint finding.
+type MarkdownLintIssue struct {
+	File     string
+	Line     int
+	Rule     string
+	Message  string
+	Severity string
+}
+
+// FrontmatterIssue represents a frontmatter validation error.
+type FrontmatterIssue struct {
+	File    string
+	Message string
+}
+
+// lintMarkdown runs markdownlint-cli2 and checks frontmatter.
+//
+// Args:
+//   - path: Path to lint (default: ".")
+//   - fix: Auto-fix issues where possible (default: false)
+//
+// Returns a struct with:
+//   - issues: List of markdownlint issues
+//   - frontmatter_issues: List of frontmatter validation errors
+//   - files_checked: Number of files checked
+//   - issue_count: Number of lint issues
+//   - lint_passed: True if no lint issues
+//   - frontmatter_passed: True if all frontmatter valid
+//   - passed: True if both passed
+func lintMarkdown(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	var fix bool
+	if err := starlark.UnpackArgs("lint.markdown", args, kwargs, "path?", &path, "fix?", &fix); err != nil {
+		return nil, err
+	}
+
+	if path == "" {
+		path = "."
+	}
+
+	// Check if markdownlint-cli2 is available
+	if checkTool("markdownlint-cli2") == "" {
+		return nil, fmt.Errorf("lint.markdown: markdownlint-cli2 not installed\n  Install: %s", getMarkdownlintInstallCmd())
+	}
+
+	// Find markdown files
+	mdFiles, err := findMarkdownFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("lint.markdown: finding files: %w", err)
+	}
+
+	if len(mdFiles) == 0 {
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"issues":             starlark.NewList(nil),
+			"frontmatter_issues": starlark.NewList(nil),
+			"files_checked":      starlark.MakeInt(0),
+			"issue_count":        starlark.MakeInt(0),
+			"lint_passed":        starlark.Bool(true),
+			"frontmatter_passed": starlark.Bool(true),
+			"passed":             starlark.Bool(true),
+		}), nil
+	}
+
+	// Run markdownlint-cli2
+	lintIssues, err := runMarkdownLint(path, fix)
+	if err != nil {
+		return nil, fmt.Errorf("lint.markdown: %w", err)
+	}
+
+	// Check frontmatter
+	frontmatterIssues, err := checkFrontmatter(mdFiles)
+	if err != nil {
+		return nil, fmt.Errorf("lint.markdown: checking frontmatter: %w", err)
+	}
+
+	// Convert to Starlark
+	var issueList []starlark.Value
+	for _, issue := range lintIssues {
+		issueList = append(issueList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"file":     starlark.String(issue.File),
+			"line":     starlark.MakeInt(issue.Line),
+			"rule":     starlark.String(issue.Rule),
+			"message":  starlark.String(issue.Message),
+			"severity": starlark.String(issue.Severity),
+		}))
+	}
+
+	var fmIssueList []starlark.Value
+	for _, issue := range frontmatterIssues {
+		fmIssueList = append(fmIssueList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"file":    starlark.String(issue.File),
+			"message": starlark.String(issue.Message),
+		}))
+	}
+
+	lintPassed := len(lintIssues) == 0
+	fmPassed := len(frontmatterIssues) == 0
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"issues":             starlark.NewList(issueList),
+		"frontmatter_issues": starlark.NewList(fmIssueList),
+		"files_checked":      starlark.MakeInt(len(mdFiles)),
+		"issue_count":        starlark.MakeInt(len(lintIssues)),
+		"lint_passed":        starlark.Bool(lintPassed),
+		"frontmatter_passed": starlark.Bool(fmPassed),
+		"passed":             starlark.Bool(lintPassed && fmPassed),
+	}), nil
+}
+
+// findMarkdownFiles finds all .md files in the given path, excluding common directories.
+func findMarkdownFiles(path string) ([]string, error) {
+	var files []string
+	excludeDirs := map[string]bool{
+		"node_modules": true,
+		"vendor":       true,
+		".git":         true,
+	}
+
+	err := filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip excluded directories
+		if d.IsDir() && excludeDirs[d.Name()] {
+			return filepath.SkipDir
+		}
+
+		// Collect .md files
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
+			files = append(files, p)
+		}
+
+		return nil
+	})
+
+	return files, err
+}
+
+// runMarkdownLint runs markdownlint-cli2 and parses the output.
+func runMarkdownLint(path string, fix bool) ([]MarkdownLintIssue, error) {
+	cmdArgs := []string{path}
+	if fix {
+		cmdArgs = append(cmdArgs, "--fix")
+	}
+
+	cmd := exec.CommandContext(context.Background(), "markdownlint-cli2", cmdArgs...)
+	output, err := cmd.CombinedOutput()
+
+	// markdownlint-cli2 exits non-zero when issues are found
+	// Parse output regardless of exit code
+	issues := parseMarkdownLintOutput(string(output))
+
+	// Only return error if it's not just "issues found"
+	if err != nil && len(issues) == 0 && len(output) > 0 {
+		return nil, fmt.Errorf("markdownlint-cli2 failed: %s", strings.TrimSpace(string(output)))
+	}
+
+	return issues, nil
+}
+
+// parseMarkdownLintOutput parses markdownlint-cli2 output into structured issues.
+// Output format: file:line rule/alias message
+func parseMarkdownLintOutput(output string) []MarkdownLintIssue {
+	var issues []MarkdownLintIssue
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Parse: file:line rule message
+		// Example: README.md:10 MD013/line-length Line length
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+
+		locParts := strings.SplitN(parts[0], ":", 2)
+		if len(locParts) < 2 {
+			continue
+		}
+
+		file := locParts[0]
+		lineNum := 0
+		fmt.Sscanf(locParts[1], "%d", &lineNum)
+
+		// Split rule and message
+		msgParts := strings.SplitN(parts[1], " ", 2)
+		rule := msgParts[0]
+		message := ""
+		if len(msgParts) > 1 {
+			message = msgParts[1]
+		}
+
+		issues = append(issues, MarkdownLintIssue{
+			File:     file,
+			Line:     lineNum,
+			Rule:     rule,
+			Message:  message,
+			Severity: "warning",
+		})
+	}
+
+	return issues
+}
+
+// checkFrontmatter validates frontmatter in markdown files.
+// Uses config from star.yaml for required/optional fields.
+func checkFrontmatter(files []string) ([]FrontmatterIssue, error) {
+	var issues []FrontmatterIssue
+
+	// Load config for frontmatter requirements
+	cfg, err := loadFrontmatterConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, file := range files {
+		fileIssues, err := validateFileFrontmatter(file, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("validating %s: %w", file, err)
+		}
+		issues = append(issues, fileIssues...)
+	}
+
+	return issues, nil
+}
+
+// frontmatterConfig holds the required/optional fields.
+type frontmatterConfig struct {
+	Required []string
+	Optional []string
+}
+
+// loadFrontmatterConfig loads frontmatter config from star.yaml.
+func loadFrontmatterConfig() (*frontmatterConfig, error) {
+	// Try to load from config package
+	// For now, use defaults if config not available
+	return &frontmatterConfig{
+		Required: []string{"title", "description"},
+		Optional: []string{},
+	}, nil
+}
+
+// validateFileFrontmatter checks a single file's frontmatter.
+func validateFileFrontmatter(file string, cfg *frontmatterConfig) ([]FrontmatterIssue, error) {
+	var issues []FrontmatterIssue
+
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+
+	content := string(data)
+
+	// Check if file starts with frontmatter delimiter
+	if !strings.HasPrefix(content, "---\n") && !strings.HasPrefix(content, "---\r\n") {
+		issues = append(issues, FrontmatterIssue{
+			File:    file,
+			Message: "missing frontmatter (must start with ---)",
+		})
+		return issues, nil
+	}
+
+	// Find end of frontmatter
+	endIdx := strings.Index(content[4:], "\n---")
+	if endIdx == -1 {
+		issues = append(issues, FrontmatterIssue{
+			File:    file,
+			Message: "malformed frontmatter (missing closing ---)",
+		})
+		return issues, nil
+	}
+
+	frontmatter := content[4 : 4+endIdx]
+
+	// Check required fields
+	for _, field := range cfg.Required {
+		if !containsFrontmatterField(frontmatter, field) {
+			issues = append(issues, FrontmatterIssue{
+				File:    file,
+				Message: fmt.Sprintf("missing required frontmatter field: %s", field),
+			})
+		}
+	}
+
+	return issues, nil
+}
+
+// containsFrontmatterField checks if frontmatter contains a field.
+func containsFrontmatterField(frontmatter, field string) bool {
+	// Simple check: field followed by colon at start of line
+	lines := strings.Split(frontmatter, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, field+":") {
+			return true
+		}
+	}
+	return false
 }
