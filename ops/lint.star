@@ -8,7 +8,6 @@
 #   star lint go [--path=./...]       # Run golangci-lint
 #   star lint shell [--path=.]        # Run shellcheck + shfmt
 #   star lint markdown [--path=.]     # Run markdownlint + frontmatter check
-#   star lint sync                    # Sync tool configs from star.yaml
 #   star lint tools                   # Check/show required tool status
 
 def check_tool(name):
@@ -162,21 +161,6 @@ def run_tools(ctx):
             print("  " + cmd)
         fail("Missing required lint tools")
 
-def run_sync(ctx):
-    """Sync tool-specific config files from star.yaml."""
-    result = config.sync()
-
-    if result.files_generated == 0:
-        note("No tool configs to sync (no config sections in star.yaml)")
-        return
-
-    if result.golangci_lint:
-        success("Generated " + result.golangci_lint)
-    if result.markdown_lint:
-        success("Generated " + result.markdown_lint)
-
-    success("Synced " + str(result.files_generated) + " config file(s)")
-
 def run_markdown(ctx):
     """Run markdownlint and frontmatter check on markdown files."""
     path = ctx.args.get("path", ".")
@@ -248,13 +232,6 @@ command(
     help = "Check status of required lint tools",
     flags = [],
     run = run_tools,
-)
-
-command(
-    name = "lint.sync",
-    help = "Sync tool configs (.golangci.yaml, etc.) from star.yaml",
-    flags = [],
-    run = run_sync,
 )
 
 command(

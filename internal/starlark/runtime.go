@@ -84,6 +84,7 @@ func (r *Runtime) Load(path string) error {
 		"shell":          shellModule(),
 		"lint":           lintModule(),
 		"config":         configModule(),
+		"setup":          setupModule(),
 		"starlark_parse": starlarkParseModule(),
 		"command":        starlark.NewBuiltin("command", collector.commandBuiltin),
 		// Output functions in global namespace
