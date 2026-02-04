@@ -1,11 +1,14 @@
 # lint.star - Static code analysis commands
 #
-# Provides unified linting commands for Go and shell scripts.
+# Provides unified linting commands for Go, shell, and markdown.
+# Configuration is loaded from star.yaml (see star config show).
 # On first run, creates default config files and checks for required tools.
 #
 # Usage:
 #   star lint go [--path=./...]       # Run golangci-lint
 #   star lint shell [--path=.]        # Run shellcheck + shfmt
+#   star lint markdown [--path=.]     # Run markdownlint + frontmatter check
+#   star lint sync                    # Sync tool configs from star.yaml
 #   star lint tools                   # Check/show required tool status
 
 def check_tool(name):
@@ -131,6 +134,64 @@ def run_tools(ctx):
             print("  " + cmd)
         fail("Missing required lint tools")
 
+def run_sync(ctx):
+    """Sync tool-specific config files from star.yaml."""
+    result = config.sync()
+
+    if result.files_generated == 0:
+        note("No tool configs to sync (no config sections in star.yaml)")
+        return
+
+    if result.golangci_lint:
+        success("Generated " + result.golangci_lint)
+    if result.markdown_lint:
+        success("Generated " + result.markdown_lint)
+
+    success("Synced " + str(result.files_generated) + " config file(s)")
+
+def run_markdown(ctx):
+    """Run markdownlint and frontmatter check on markdown files."""
+    path = ctx.args.get("path", ".")
+    fix = ctx.args.get("fix", "false") == "true"
+
+    # Check tool is installed
+    ensure_tool_installed("markdownlint-cli2")
+
+    note("Running markdown lint on " + path)
+
+    # Sync config if needed
+    config.sync()
+
+    # Run markdownlint
+    result = lint.markdown(path=path, fix=fix)
+
+    # Report markdownlint issues
+    for issue in result.issues:
+        msg = issue.file + ":" + str(issue.line) + " " + issue.rule + ": " + issue.message
+        if issue.severity == "error":
+            error(msg)
+        else:
+            warn(msg)
+
+    # Report frontmatter issues
+    for issue in result.frontmatter_issues:
+        msg = issue.file + ": " + issue.message
+        error(msg)
+
+    # Summary
+    lint_passed = result.lint_passed
+    frontmatter_passed = result.frontmatter_passed
+
+    if lint_passed and frontmatter_passed:
+        success("Markdown lint passed (" + str(result.files_checked) + " files)")
+    else:
+        msg = "Markdown lint failed:"
+        if not lint_passed:
+            msg = msg + " " + str(result.issue_count) + " lint issues"
+        if not frontmatter_passed:
+            msg = msg + " " + str(len(result.frontmatter_issues)) + " frontmatter issues"
+        fail(msg)
+
 # Register commands
 command(
     name = "lint.go",
@@ -158,4 +219,21 @@ command(
     help = "Check status of required lint tools",
     flags = [],
     run = run_tools,
+)
+
+command(
+    name = "lint.sync",
+    help = "Sync tool configs (.golangci.yaml, etc.) from star.yaml",
+    flags = [],
+    run = run_sync,
+)
+
+command(
+    name = "lint.markdown",
+    help = "Run markdownlint and frontmatter check on markdown files",
+    flags = [
+        {"name": "path", "help": "Path to lint (default: .)", "default": "."},
+        {"name": "fix", "help": "Auto-fix issues where possible", "default": "false"},
+    ],
+    run = run_markdown,
 )
