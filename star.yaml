@@ -1,0 +1,31 @@
+# star.yaml - Unified quality gate configuration
+# This file is the single source of truth for all linting and quality checks.
+
+lint:
+  go:
+    path: "./..."
+  shell:
+    path: "."
+    severity: warning
+    indent: 4
+  markdown:
+    path: "."
+    exclude:
+      - "vendor/**"
+      - "node_modules/**"
+    frontmatter:
+      required:
+        - title
+        - description
+
+# Pre-commit hook generation
+# Running `star setup config` generates .pre-commit-config.yaml from this.
+precommit:
+  hooks:
+    - id: star-lint-all
+      name: Star quality gate
+      entry: star lint all --
+      language: system
+      pass_filenames: true
+      types:
+        - file

@@ -17,7 +17,24 @@ import (
 
 // Config is the top-level configuration structure for star commands.
 type Config struct {
-	Lint LintConfig `yaml:"lint"`
+	Lint      LintConfig      `yaml:"lint"`
+	Precommit PrecommitConfig `yaml:"precommit"`
+}
+
+// PrecommitConfig configures .pre-commit-config.yaml generation.
+type PrecommitConfig struct {
+	Hooks []PrecommitHook `yaml:"hooks"`
+}
+
+// PrecommitHook defines a single pre-commit hook.
+type PrecommitHook struct {
+	ID            string   `yaml:"id"`
+	Name          string   `yaml:"name"`
+	Entry         string   `yaml:"entry"`
+	Language      string   `yaml:"language"`
+	PassFilenames bool     `yaml:"pass_filenames"`
+	Types         []string `yaml:"types"`
+	Stages        []string `yaml:"stages"`
 }
 
 // LintConfig contains configuration for all lint commands.

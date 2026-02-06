@@ -11,7 +11,21 @@ func merge(base, overlay *Config) *Config {
 	// Merge lint config
 	result.Lint = mergeLint(base.Lint, overlay.Lint)
 
+	// Merge precommit config
+	result.Precommit = mergePrecommit(base.Precommit, overlay.Precommit)
+
 	return &result
+}
+
+func mergePrecommit(base, overlay PrecommitConfig) PrecommitConfig {
+	result := base
+
+	// Hooks are replaced entirely if overlay has any
+	if len(overlay.Hooks) > 0 {
+		result.Hooks = overlay.Hooks
+	}
+
+	return result
 }
 
 func mergeLint(base, overlay LintConfig) LintConfig {

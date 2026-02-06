@@ -243,3 +243,148 @@ command(
     ],
     run = run_markdown,
 )
+
+def run_all(ctx):
+    """Run all configured linters."""
+    fix = ctx.args.get("fix", "false") == "true"
+
+    # Collect failures - run all linters even if some fail
+    failures = []
+
+    # Run Go lint
+    note("=== Go ===")
+    go_result = run_go_silent(fix)
+    if not go_result:
+        failures.append("go")
+
+    # Run Shell lint
+    note("=== Shell ===")
+    shell_result = run_shell_silent()
+    if not shell_result:
+        failures.append("shell")
+
+    # Run Markdown lint
+    note("=== Markdown ===")
+    md_result = run_markdown_silent(fix)
+    if not md_result:
+        failures.append("markdown")
+
+    # Summary
+    if len(failures) == 0:
+        success("All linters passed")
+    else:
+        fail("Linters failed: " + ", ".join(failures))
+
+def run_go_silent(fix):
+    """Run Go lint, return True if passed."""
+    tool = check_tool("golangci-lint")
+    if tool and not tool.installed:
+        error("golangci-lint is not installed")
+        note("  Install: " + tool.install_cmd)
+        return False
+
+    result = lint.go(path="./...", config="", skip_mod_tidy=False)
+
+    # Report mod tidy status
+    if result.mod_tidy_passed:
+        success("go.mod is tidy")
+    else:
+        error("go.mod is not tidy")
+        if result.mod_tidy_details:
+            for line in result.mod_tidy_details.split("\n"):
+                if line:
+                    note("  " + line)
+
+    # Report golangci-lint issues
+    for issue in result.issues:
+        msg = issue.file + ":" + str(issue.line) + ":" + str(issue.column)
+        msg = msg + " " + issue.linter + ": " + issue.message
+        if issue.severity == "error":
+            error(msg)
+        else:
+            warn(msg)
+
+    if result.passed:
+        success("Go lint passed")
+        return True
+    else:
+        error("Go lint failed")
+        return False
+
+def run_shell_silent():
+    """Run Shell lint, return True if passed."""
+    sc_tool = check_tool("shellcheck")
+    shfmt_tool = check_tool("shfmt")
+
+    if sc_tool and not sc_tool.installed:
+        error("shellcheck is not installed")
+        note("  Install: " + sc_tool.install_cmd)
+        return False
+    if shfmt_tool and not shfmt_tool.installed:
+        error("shfmt is not installed")
+        note("  Install: " + shfmt_tool.install_cmd)
+        return False
+
+    # Run shellcheck
+    lint_result = shell.lint(path=".", severity="warning")
+    for issue in lint_result.issues:
+        msg = issue.file + ":" + str(issue.line) + ":" + str(issue.column)
+        msg = msg + " SC" + str(issue.code) + ": " + issue.message
+        if issue.level == "error":
+            error(msg)
+        elif issue.level == "warning":
+            warn(msg)
+        else:
+            note(msg)
+
+    # Run shfmt
+    fmt_result = shell.format_check(path=".", indent=4)
+    for file_info in fmt_result.files_failed:
+        warn(file_info.file + " needs formatting")
+
+    if lint_result.passed and fmt_result.passed:
+        success("Shell lint passed")
+        return True
+    else:
+        error("Shell lint failed")
+        return False
+
+def run_markdown_silent(fix):
+    """Run Markdown lint, return True if passed."""
+    tool = check_tool("markdownlint-cli2")
+    if tool and not tool.installed:
+        error("markdownlint-cli2 is not installed")
+        note("  Install: " + tool.install_cmd)
+        return False
+
+    # Sync config if needed
+    config.sync()
+
+    result = lint.markdown(path=".", fix=fix)
+
+    # Report issues
+    for issue in result.issues:
+        msg = issue.file + ":" + str(issue.line) + " " + issue.rule + ": " + issue.message
+        if issue.severity == "error":
+            error(msg)
+        else:
+            warn(msg)
+
+    for issue in result.frontmatter_issues:
+        error(issue.file + ": " + issue.message)
+
+    if result.lint_passed and result.frontmatter_passed:
+        success("Markdown lint passed")
+        return True
+    else:
+        error("Markdown lint failed")
+        return False
+
+command(
+    name = "lint.all",
+    help = "Run all configured linters",
+    flags = [
+        {"name": "fix", "help": "Auto-fix issues where possible", "default": "false"},
+    ],
+    run = run_all,
+)
