@@ -27,18 +27,15 @@ def run_setup(ctx):
     for cfg in config_result.configs_synced:
         success("Synced " + cfg)
 
-    # Install pre-commit hooks
-    hooks_result = setup.precommit_install()
+    # Install native git hooks
+    hooks_result = setup.install_hook(name="pre-commit")
     if hooks_result.success:
         if hooks_result.already_installed:
-            note("Pre-commit hooks already installed")
+            note("Git hooks already installed")
         else:
-            success("Installed pre-commit hooks")
+            success("Installed pre-commit hook")
     else:
-        if "No .pre-commit-config.yaml" in hooks_result.message:
-            note("No .pre-commit-config.yaml found (skipping hooks)")
-        else:
-            warn(hooks_result.message)
+        warn(hooks_result.message)
 
     # Final status
     if tools_result.missing_count > 0:
@@ -75,25 +72,15 @@ def run_tools(ctx):
         fail(str(result.missing_count) + " tools missing")
 
 def run_hooks(ctx):
-    """Install pre-commit hooks."""
-    # First check status
-    check = setup.precommit_check()
-
-    if not check.config_exists:
-        note("No .pre-commit-config.yaml found in this repository")
-        return
-
-    if not check.precommit_available:
-        fail("pre-commit not installed. Run: star setup tools")
-
-    # Install hooks
-    result = setup.precommit_install()
+    """Install native git hooks."""
+    # Install pre-commit hook
+    result = setup.install_hook(name="pre-commit")
 
     if result.success:
         if result.already_installed:
-            success("Pre-commit hooks already installed")
+            success("Git hooks already installed")
         else:
-            success("Pre-commit hooks installed")
+            success("Installed pre-commit hook")
     else:
         fail(result.message)
 
@@ -123,10 +110,10 @@ def run_check(ctx):
             if not tool.installed:
                 issues.append("Missing tool: " + tool.name)
 
-    # Check pre-commit
-    hooks = setup.precommit_check()
-    if hooks.config_exists and not hooks.installed:
-        issues.append("Pre-commit hooks not installed")
+    # Check git hooks
+    hooks = setup.check_hook(name="pre-commit")
+    if not hooks.installed:
+        issues.append("Git hooks not installed (run: star setup hooks)")
 
     # Check star.yaml
     # (config.load will check this)
