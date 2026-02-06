@@ -80,20 +80,19 @@ def run_shell_check():
         # Skip silently if tools not installed
         return True
 
-    lint_result = shell.lint(path=".", severity="warning")
-    fmt_result = shell.format_check(path=".", indent=4)
+    result = lint.shell(path=".", severity="warning", indent=4)
 
-    for issue in lint_result.issues:
+    for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + " SC" + str(issue.code) + ": " + issue.message
         if issue.level == "error":
             error(msg)
         else:
             warn(msg)
 
-    for file_info in fmt_result.files_failed:
+    for file_info in result.format_issues:
         warn(file_info.file + " needs formatting - run 'shfmt -w -i 4'")
 
-    return lint_result.passed and fmt_result.passed
+    return result.passed
 
 def run_markdown_check():
     """Run markdown lint checks, return True if passed."""

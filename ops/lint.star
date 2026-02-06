@@ -96,12 +96,11 @@ def run_shell(ctx):
 
     note("Running shell lint on " + path)
 
-    # Run shellcheck
-    note("Running shellcheck...")
-    lint_result = shell.lint(path=path, severity=severity)
+    # Run combined shell lint (shellcheck + shfmt)
+    result = lint.shell(path=path, severity=severity, indent=indent)
 
     # Report shellcheck issues
-    for issue in lint_result.issues:
+    for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + ":" + str(issue.column)
         msg = msg + " SC" + str(issue.code) + ": " + issue.message
         if issue.level == "error":
@@ -111,15 +110,10 @@ def run_shell(ctx):
         else:
             note(msg)
 
-    # Run shfmt
-    note("Running shfmt format check...")
-    fmt_result = shell.format_check(path=path, indent=indent)
-
     # Report formatting issues
-    for file_info in fmt_result.files_failed:
+    for file_info in result.format_issues:
         warn(file_info.file + " needs formatting")
         if file_info.diff:
-            # Show first few lines of diff
             lines = file_info.diff.split("\n")
             for line in lines[:10]:
                 note("  " + line)
@@ -127,17 +121,14 @@ def run_shell(ctx):
                 note("  ... (" + str(len(lines) - 10) + " more lines)")
 
     # Summary
-    shell_passed = lint_result.passed
-    fmt_passed = fmt_result.passed
-
-    if shell_passed and fmt_passed:
-        success("Shell lint passed (" + str(lint_result.total_count) + " issues, " + str(fmt_result.files_checked) + " files formatted)")
+    if result.passed:
+        success("Shell lint passed (" + str(result.files_checked) + " files)")
     else:
         msg = "Shell lint failed:"
-        if not shell_passed:
-            msg = msg + " " + str(lint_result.error_count) + " errors, " + str(lint_result.warning_count) + " warnings"
-        if not fmt_passed:
-            msg = msg + " " + str(len(fmt_result.files_failed)) + " files need formatting"
+        if not result.lint_passed:
+            msg = msg + " " + str(result.error_count) + " errors, " + str(result.warning_count) + " warnings"
+        if not result.format_passed:
+            msg = msg + " " + str(len(result.format_issues)) + " files need formatting"
         fail(msg)
 
 def run_tools(ctx):
@@ -325,9 +316,10 @@ def run_shell_silent():
         note("  Install: " + shfmt_tool.install_cmd)
         return False
 
-    # Run shellcheck
-    lint_result = shell.lint(path=".", severity="warning")
-    for issue in lint_result.issues:
+    # Run combined shell lint
+    result = lint.shell(path=".", severity="warning", indent=4)
+
+    for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + ":" + str(issue.column)
         msg = msg + " SC" + str(issue.code) + ": " + issue.message
         if issue.level == "error":
@@ -337,12 +329,10 @@ def run_shell_silent():
         else:
             note(msg)
 
-    # Run shfmt
-    fmt_result = shell.format_check(path=".", indent=4)
-    for file_info in fmt_result.files_failed:
+    for file_info in result.format_issues:
         warn(file_info.file + " needs formatting")
 
-    if lint_result.passed and fmt_result.passed:
+    if result.passed:
         success("Shell lint passed")
         return True
     else:

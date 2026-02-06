@@ -26,6 +26,7 @@ func lintModule() *starlarkstruct.Module {
 		Name: "lint",
 		Members: starlark.StringDict{
 			"go":           starlark.NewBuiltin("lint.go", lintGo),
+			"shell":        starlark.NewBuiltin("lint.shell", lintShell),
 			"markdown":     starlark.NewBuiltin("lint.markdown", lintMarkdown),
 			"ensure_tools": starlark.NewBuiltin("lint.ensure_tools", lintEnsureTools),
 		},
@@ -493,6 +494,145 @@ func lintGo(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs
 		"mod_tidy_passed":  starlark.Bool(modTidyPassed),
 		"mod_tidy_details": starlark.String(modTidyDetails),
 	}), nil
+}
+
+// =============================================================================
+// SHELL LINTING (shellcheck + shfmt)
+// =============================================================================
+
+// lintShell runs shellcheck and shfmt on shell scripts.
+//
+// Args:
+//   - path: Path to lint (default: ".")
+//   - severity: Minimum shellcheck severity (error, warning, info, style). Default: warning
+//   - indent: Expected indent size for shfmt (default: 4)
+//
+// Returns a struct with:
+//   - issues: List of shellcheck issues
+//   - format_issues: List of files needing formatting
+//   - error_count, warning_count
+//   - lint_passed: True if no shellcheck errors/warnings
+//   - format_passed: True if all files properly formatted
+//   - passed: True if both passed
+func lintShell(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path, severity string
+	var indent int
+	if err := starlark.UnpackArgs("lint.shell", args, kwargs, "path?", &path, "severity?", &severity, "indent?", &indent); err != nil {
+		return nil, err
+	}
+
+	if path == "" {
+		path = "."
+	}
+	if severity == "" {
+		severity = "warning"
+	}
+	if indent == 0 {
+		indent = 4
+	}
+
+	// Check if tools are available
+	shellcheckPath := checkTool("shellcheck")
+	shfmtPath := checkTool("shfmt")
+
+	if shellcheckPath == "" {
+		return nil, fmt.Errorf("lint.shell: shellcheck not installed\n  Install: %s", getShellcheckInstallCmd())
+	}
+	if shfmtPath == "" {
+		return nil, fmt.Errorf("lint.shell: shfmt not installed\n  Install: go install mvdan.cc/sh/v3/cmd/shfmt@latest")
+	}
+
+	// Find shell files (uses collectShellFiles from builtin_shell.go)
+	files, err := collectShellFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("lint.shell: %w", err)
+	}
+
+	if len(files) == 0 {
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"issues":         starlark.NewList(nil),
+			"format_issues":  starlark.NewList(nil),
+			"error_count":    starlark.MakeInt(0),
+			"warning_count":  starlark.MakeInt(0),
+			"files_checked":  starlark.MakeInt(0),
+			"lint_passed":    starlark.Bool(true),
+			"format_passed":  starlark.Bool(true),
+			"passed":         starlark.Bool(true),
+		}), nil
+	}
+
+	// Run shellcheck on each file
+	var allIssues []starlark.Value
+	var errors, warnings int
+
+	for _, file := range files {
+		issues, err := runShellcheckForLint(file, severity)
+		if err != nil {
+			continue
+		}
+		for _, issue := range issues {
+			switch issue.Level {
+			case "error":
+				errors++
+			case "warning":
+				warnings++
+			}
+			allIssues = append(allIssues, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"file":    starlark.String(issue.File),
+				"line":    starlark.MakeInt(issue.Line),
+				"column":  starlark.MakeInt(issue.Column),
+				"level":   starlark.String(issue.Level),
+				"code":    starlark.MakeInt(issue.Code),
+				"message": starlark.String(issue.Message),
+			}))
+		}
+	}
+
+	// Run shfmt format check
+	var formatIssues []starlark.Value
+	for _, file := range files {
+		cmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			formatIssues = append(formatIssues, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"file": starlark.String(file),
+				"diff": starlark.String(string(output)),
+			}))
+		}
+	}
+
+	lintPassed := errors == 0 && warnings == 0
+	formatPassed := len(formatIssues) == 0
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"issues":         starlark.NewList(allIssues),
+		"format_issues":  starlark.NewList(formatIssues),
+		"error_count":    starlark.MakeInt(errors),
+		"warning_count":  starlark.MakeInt(warnings),
+		"files_checked":  starlark.MakeInt(len(files)),
+		"lint_passed":    starlark.Bool(lintPassed),
+		"format_passed":  starlark.Bool(formatPassed),
+		"passed":         starlark.Bool(lintPassed && formatPassed),
+	}), nil
+}
+
+// runShellcheckForLint runs shellcheck and returns parsed issues.
+// Uses ShellcheckIssue type from builtin_shell.go.
+func runShellcheckForLint(path, severity string) ([]ShellcheckIssue, error) {
+	cmd := exec.CommandContext(context.Background(), "shellcheck", "-f", "json", "-x", "--severity="+severity, path)
+	output, err := cmd.Output()
+	if err != nil && len(output) == 0 {
+		return nil, nil
+	}
+	if len(output) == 0 {
+		return nil, nil
+	}
+
+	var issues []ShellcheckIssue
+	if err := json.Unmarshal(output, &issues); err != nil {
+		return nil, fmt.Errorf("parsing shellcheck output: %w", err)
+	}
+	return issues, nil
 }
 
 // =============================================================================
