@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # validate.star - Validate YAML files against JSON schemas
 #
 # This operation validates YAML files in devlore-registry against their

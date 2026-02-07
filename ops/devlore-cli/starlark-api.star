@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # api.star - Static analysis tool for devlore-cli Starlark API
 #
 # This tool validates the devlore-cli API contract and generates

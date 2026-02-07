@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # index-packages.star - Generate package indexes for devlore-registry
 #
 # This operation scans the packages/ directory in devlore-registry

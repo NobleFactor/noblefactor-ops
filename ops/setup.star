@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # setup.star - Repository setup commands
 #
 # Ensures a repository is ready for development with all required tools,

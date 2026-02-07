@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2025 Noble Factor. All rights reserved.
+# Copyright Noble Factor. All rights reserved.
+
 #
 # Azure Static Web App Setup Script
 # Creates resource group, SWA, and Entra ID app for authentication

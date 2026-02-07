@@ -1,3 +1,8 @@
+---
+title: "noblefactor-ops"
+description: "Team site for NobleFactor projects - operations tooling for release signing, key management, and cross-repo automation"
+---
+
 # noblefactor-ops
 
 Team site for NobleFactor projects. **This repository is private.**
@@ -59,7 +64,7 @@ See [ADR-040: SSH Key Ceremony](https://github.com/NobleFactor/noblefactor/blob/
 
 ## Project Structure
 
-```
+```text
 noblefactor-ops/
 ├── cmd/
 │   └── nf-ops/main.go        # nf-ops entry point

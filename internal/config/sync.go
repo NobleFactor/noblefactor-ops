@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 package config
 
@@ -82,7 +82,12 @@ func (c *Config) syncGolangciLint() (string, error) {
 func (c *Config) syncMarkdownLint() (string, error) {
 	path := ".markdownlint-cli2.yaml"
 
-	data, err := yaml.Marshal(c.Lint.Markdown.Config)
+	// markdownlint-cli2 expects config under a "config" key
+	wrapper := map[string]interface{}{
+		"config": c.Lint.Markdown.Config,
+	}
+
+	data, err := yaml.Marshal(wrapper)
 	if err != nil {
 		return "", err
 	}

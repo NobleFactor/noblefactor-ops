@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 package starlark
 
@@ -801,7 +801,8 @@ func runMarkdownLint(path string, fix bool) ([]MarkdownLintIssue, error) {
 }
 
 // parseMarkdownLintOutput parses markdownlint-cli2 output into structured issues.
-// Output format: file:line rule/alias message
+// Output format: file:line[:column] [error|warning] rule/alias message
+// Example: docs/README.md:10:1 error MD013/line-length Line length
 func parseMarkdownLintOutput(output string) []MarkdownLintIssue {
 	var issues []MarkdownLintIssue
 
@@ -811,24 +812,48 @@ func parseMarkdownLintOutput(output string) []MarkdownLintIssue {
 			continue
 		}
 
-		// Parse: file:line rule message
+		// Skip header/summary lines from markdownlint-cli2
+		// These look like: "Finding: **/*.md", "Linting: 6 file(s)", "Summary: 0 error(s)"
+		if strings.HasPrefix(line, "Finding:") ||
+			strings.HasPrefix(line, "Linting:") ||
+			strings.HasPrefix(line, "Summary:") ||
+			strings.HasPrefix(line, "markdownlint-cli2") {
+			continue
+		}
+
+		// Parse: file:line[:column] [error|warning] rule message
 		// Example: README.md:10 MD013/line-length Line length
+		// Example: docs/file.md:10:1 error MD060/table-column-style Table column style
 		parts := strings.SplitN(line, " ", 2)
 		if len(parts) < 2 {
 			continue
 		}
 
-		locParts := strings.SplitN(parts[0], ":", 2)
+		locParts := strings.SplitN(parts[0], ":", 3)
 		if len(locParts) < 2 {
 			continue
 		}
 
 		file := locParts[0]
 		lineNum := 0
-		fmt.Sscanf(locParts[1], "%d", &lineNum)
+		n, _ := fmt.Sscanf(locParts[1], "%d", &lineNum)
+		// Skip lines where we couldn't parse a line number (not an issue line)
+		if n == 0 || lineNum == 0 {
+			continue
+		}
 
 		// Split rule and message
-		msgParts := strings.SplitN(parts[1], " ", 2)
+		// May have "error" or "warning" prefix before rule
+		rest := parts[1]
+		severity := "warning"
+		if strings.HasPrefix(rest, "error ") {
+			severity = "error"
+			rest = rest[6:]
+		} else if strings.HasPrefix(rest, "warning ") {
+			rest = rest[8:]
+		}
+
+		msgParts := strings.SplitN(rest, " ", 2)
 		rule := msgParts[0]
 		message := ""
 		if len(msgParts) > 1 {
@@ -840,7 +865,7 @@ func parseMarkdownLintOutput(output string) []MarkdownLintIssue {
 			Line:     lineNum,
 			Rule:     rule,
 			Message:  message,
-			Severity: "warning",
+			Severity: severity,
 		})
 	}
 

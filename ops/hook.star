@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # hook.star - Git hook execution commands
 #
 # These commands are called by git hooks installed via `star setup hooks`.

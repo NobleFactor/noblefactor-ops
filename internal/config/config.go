@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 // Package config provides unified configuration for star commands.
 // Configuration is loaded from a hierarchy of star.yaml files:
@@ -39,9 +39,10 @@ type PrecommitHook struct {
 
 // LintConfig contains configuration for all lint commands.
 type LintConfig struct {
-	Go       GoLintConfig       `yaml:"go"`
-	Shell    ShellLintConfig    `yaml:"shell"`
-	Markdown MarkdownLintConfig `yaml:"markdown"`
+	Go        GoLintConfig        `yaml:"go"`
+	Shell     ShellLintConfig     `yaml:"shell"`
+	Markdown  MarkdownLintConfig  `yaml:"markdown"`
+	Copyright CopyrightLintConfig `yaml:"copyright"`
 }
 
 // GoLintConfig configures star lint go.
@@ -72,6 +73,21 @@ type FrontmatterConfig struct {
 	Optional []string `yaml:"optional"`
 }
 
+// CopyrightLintConfig configures star lint copyright.
+type CopyrightLintConfig struct {
+	Enabled  bool                        `yaml:"enabled"`
+	License  string                      `yaml:"license"`  // SPDX identifier or "auto"
+	Holder   string                      `yaml:"holder"`   // Copyright holder name
+	Patterns map[string]CopyrightPattern `yaml:"patterns"` // lang -> pattern config
+	Exclude  []string                    `yaml:"exclude"`  // Glob patterns to exclude
+}
+
+// CopyrightPattern defines match and replace patterns for copyright headers.
+type CopyrightPattern struct {
+	Match   string `yaml:"match"`   // Regex to match existing headers (permissive)
+	Replace string `yaml:"replace"` // Canonical form to use
+}
+
 // DefaultConfig returns the built-in default configuration.
 func DefaultConfig() *Config {
 	return &Config{
@@ -92,6 +108,26 @@ func DefaultConfig() *Config {
 					Required: []string{"title", "description"},
 					Optional: []string{},
 				},
+			},
+			Copyright: CopyrightLintConfig{
+				Enabled: false, // Disabled by default until configured
+				License: "auto",
+				Holder:  "",
+				Patterns: map[string]CopyrightPattern{
+					"go": {
+						Match:   `// SPDX-License-Identifier: \S+\s*\n// Copyright.*All rights reserved\.`,
+						Replace: "// SPDX-License-Identifier: {license}\n// Copyright {holder}. All rights reserved.",
+					},
+					"star": {
+						Match:   `# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.`,
+						Replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved.",
+					},
+					"shell": {
+						Match:   `# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.`,
+						Replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved.",
+					},
+				},
+				Exclude: []string{"**/testdata/**", "**/vendor/**"},
 			},
 		},
 	}

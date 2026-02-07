@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # index-knowledge.star - Generate index.yaml for knowledge domains
 #
 # This operation scans the knowledge/ directory in devlore-registry

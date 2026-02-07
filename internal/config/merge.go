@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 package config
 
@@ -39,6 +39,9 @@ func mergeLint(base, overlay LintConfig) LintConfig {
 
 	// Merge Markdown config
 	result.Markdown = mergeMarkdown(base.Markdown, overlay.Markdown)
+
+	// Merge Copyright config
+	result.Copyright = mergeCopyright(base.Copyright, overlay.Copyright)
 
 	return result
 }
@@ -103,6 +106,36 @@ func mergeFrontmatter(base, overlay FrontmatterConfig) FrontmatterConfig {
 	}
 	if len(overlay.Optional) > 0 {
 		result.Optional = overlay.Optional
+	}
+
+	return result
+}
+
+func mergeCopyright(base, overlay CopyrightLintConfig) CopyrightLintConfig {
+	result := base
+
+	// Enabled is explicitly set if the overlay has it true
+	// (since we can't distinguish "not set" from "false", we OR them)
+	if overlay.Enabled {
+		result.Enabled = true
+	}
+	if overlay.License != "" {
+		result.License = overlay.License
+	}
+	if overlay.Holder != "" {
+		result.Holder = overlay.Holder
+	}
+	if overlay.Patterns != nil {
+		// Merge patterns map
+		if result.Patterns == nil {
+			result.Patterns = make(map[string]CopyrightPattern)
+		}
+		for k, v := range overlay.Patterns {
+			result.Patterns[k] = v
+		}
+	}
+	if len(overlay.Exclude) > 0 {
+		result.Exclude = overlay.Exclude
 	}
 
 	return result

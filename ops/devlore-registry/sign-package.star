@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # sign-package.star - Sign a lore package with release key
 #
 # This operation signs a lore package (PMM) with the release signing key.

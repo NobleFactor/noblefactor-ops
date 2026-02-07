@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 package starlark
 
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -161,7 +162,17 @@ func fsGlob(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs
 	if err := starlark.UnpackArgs("fs.glob", args, kwargs, "pattern", &pattern); err != nil {
 		return nil, err
 	}
-	matches, err := filepath.Glob(pattern)
+
+	var matches []string
+	var err error
+
+	// Handle patterns with ** for recursive matching
+	if strings.Contains(pattern, "**") {
+		matches, err = recursiveGlob(pattern)
+	} else {
+		matches, err = filepath.Glob(pattern)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("fs.glob: %w", err)
 	}
@@ -170,6 +181,52 @@ func fsGlob(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs
 		items = append(items, starlark.String(m))
 	}
 	return starlark.NewList(items), nil
+}
+
+// recursiveGlob handles patterns with ** for recursive directory matching.
+// For example: "./\*\*/\*.go" matches all .go files recursively.
+func recursiveGlob(pattern string) ([]string, error) {
+	// Split pattern at ** to get base and file pattern
+	parts := strings.SplitN(pattern, "**", 2)
+	if len(parts) != 2 {
+		return filepath.Glob(pattern)
+	}
+
+	base := parts[0]
+	if base == "" {
+		base = "."
+	}
+	base = strings.TrimSuffix(base, "/")
+
+	filePart := strings.TrimPrefix(parts[1], "/")
+	if filePart == "" {
+		filePart = "*"
+	}
+
+	var matches []string
+	err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip inaccessible directories
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		// Check if file matches the pattern after **
+		fileName := filepath.Base(path)
+		matched, matchErr := filepath.Match(filePart, fileName)
+		if matchErr != nil {
+			return matchErr
+		}
+		if matched {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return matches, nil
 }
 
 func fsMkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2025 Noble Factor. All rights reserved.
+# Copyright Noble Factor. All rights reserved.
+
 #
 # Ground Zero Setup - Complete infrastructure setup for a new DevLore project
 # Orchestrates Azure Static Web App and GitHub repository configuration

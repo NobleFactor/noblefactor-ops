@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+# Copyright Noble Factor. All rights reserved.
+
 #
 # build-ollama-modelfile.star - Generate Ollama Modelfiles from knowledge domains
 #

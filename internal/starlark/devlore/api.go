@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 // Package devlore provides Starlark builtins specific to devlore-cli analysis.
 // These functions parse devlore-cli's Go source to extract API information.

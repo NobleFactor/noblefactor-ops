@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
+
 //
 // Copied from devlore-cli/internal/cli/output.go
 // Keep in sync periodically.

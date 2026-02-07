@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 // star is the Starlark-powered operations tool for NobleFactor projects.
 // Operations are defined as .star scripts in the ops/ directory.
