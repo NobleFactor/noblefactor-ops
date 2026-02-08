@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 package starlark
 
@@ -26,6 +26,9 @@ func setupModule() *starlarkstruct.Module {
 			"precommit_install": starlark.NewBuiltin("setup.precommit_install", setupPrecommitInstall),
 			"precommit_check":   starlark.NewBuiltin("setup.precommit_check", setupPrecommitCheck),
 			"init_config":       starlark.NewBuiltin("setup.init_config", setupInitConfig),
+			"install_hook":      starlark.NewBuiltin("setup.install_hook", setupInstallHook),
+			"uninstall_hook":    starlark.NewBuiltin("setup.uninstall_hook", setupUninstallHook),
+			"check_hook":        starlark.NewBuiltin("setup.check_hook", setupCheckHook),
 		},
 	}
 }
@@ -83,16 +86,6 @@ var devTools = []DevTool{
 		Install: map[string]string{
 			"darwin": "brew install markdownlint-cli2",
 			"linux":  "npm install -g markdownlint-cli2",
-		},
-	},
-	{
-		Name:        "pre-commit",
-		Binary:      "pre-commit",
-		Description: "Git pre-commit hook manager",
-		DocsURL:     "https://pre-commit.com/#install",
-		Install: map[string]string{
-			"darwin": "brew install pre-commit",
-			"linux":  "pip install pre-commit",
 		},
 	},
 }
@@ -348,4 +341,203 @@ lint:
 		"star_yaml_path":    starlark.String(starYAMLPath),
 		"configs_synced":    starlark.NewList(configsSynced),
 	}), nil
+}
+
+// =============================================================================
+// NATIVE GIT HOOKS
+// =============================================================================
+
+// nativeHookScript generates the shell script content for a git hook.
+func nativeHookScript(hookName string) string {
+	return fmt.Sprintf(`#!/bin/sh
+# Installed by star - run 'star setup hooks' to reinstall
+exec star hook %s "$@"
+`, hookName)
+}
+
+// setupInstallHook installs a native git hook that calls star.
+// Args:
+//   - name: Hook name (e.g., "pre-commit", "pre-push")
+//
+// Returns a struct with:
+//   - success: True if hook was installed
+//   - message: Status message
+//   - already_installed: True if hook was already a star hook
+func setupInstallHook(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("setup.install_hook", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+
+	// Validate hook name
+	validHooks := map[string]bool{
+		"pre-commit":  true,
+		"pre-push":    true,
+		"commit-msg":  true,
+		"post-commit": true,
+	}
+	if !validHooks[name] {
+		return nil, fmt.Errorf("invalid hook name: %s (valid: pre-commit, pre-push, commit-msg, post-commit)", name)
+	}
+
+	// Check if .git directory exists
+	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"success":           starlark.Bool(false),
+			"message":           starlark.String("Not a git repository (no .git directory)"),
+			"already_installed": starlark.Bool(false),
+		}), nil
+	}
+
+	hookPath := filepath.Join(".git", "hooks", name)
+	hookContent := nativeHookScript(name)
+
+	// Check if hook already exists and is a star hook
+	if data, err := os.ReadFile(hookPath); err == nil {
+		if string(data) == hookContent {
+			return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"success":           starlark.Bool(true),
+				"message":           starlark.String("Star hook already installed"),
+				"already_installed": starlark.Bool(true),
+			}), nil
+		}
+		// Hook exists but is different - check if it's a star hook we can overwrite
+		if !contains(string(data), "Installed by star") {
+			return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"success":           starlark.Bool(false),
+				"message":           starlark.String("Existing hook found (not managed by star). Remove it first or use --force"),
+				"already_installed": starlark.Bool(false),
+			}), nil
+		}
+	}
+
+	// Ensure hooks directory exists
+	hooksDir := filepath.Join(".git", "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating hooks directory: %w", err)
+	}
+
+	if DryRun {
+		cli.Note("[dry-run] would install %s hook", name)
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"success":           starlark.Bool(true),
+			"message":           starlark.String(fmt.Sprintf("[dry-run] would install %s hook", name)),
+			"already_installed": starlark.Bool(false),
+		}), nil
+	}
+
+	// Write the hook script
+	if err := os.WriteFile(hookPath, []byte(hookContent), 0o755); err != nil {
+		return nil, fmt.Errorf("writing hook: %w", err)
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"success":           starlark.Bool(true),
+		"message":           starlark.String(fmt.Sprintf("Installed %s hook", name)),
+		"already_installed": starlark.Bool(false),
+	}), nil
+}
+
+// setupUninstallHook removes a star-managed git hook.
+// Args:
+//   - name: Hook name (e.g., "pre-commit", "pre-push")
+//
+// Returns a struct with:
+//   - success: True if hook was removed
+//   - message: Status message
+func setupUninstallHook(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("setup.uninstall_hook", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+
+	hookPath := filepath.Join(".git", "hooks", name)
+
+	// Check if hook exists
+	data, err := os.ReadFile(hookPath)
+	if os.IsNotExist(err) {
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"success": starlark.Bool(true),
+			"message": starlark.String("Hook not installed"),
+		}), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading hook: %w", err)
+	}
+
+	// Only remove if it's a star hook
+	if !contains(string(data), "Installed by star") {
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"success": starlark.Bool(false),
+			"message": starlark.String("Hook exists but is not managed by star"),
+		}), nil
+	}
+
+	if DryRun {
+		cli.Note("[dry-run] would remove %s hook", name)
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"success": starlark.Bool(true),
+			"message": starlark.String(fmt.Sprintf("[dry-run] would remove %s hook", name)),
+		}), nil
+	}
+
+	if err := os.Remove(hookPath); err != nil {
+		return nil, fmt.Errorf("removing hook: %w", err)
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"success": starlark.Bool(true),
+		"message": starlark.String(fmt.Sprintf("Removed %s hook", name)),
+	}), nil
+}
+
+// setupCheckHook checks if a star-managed git hook is installed.
+// Args:
+//   - name: Hook name (e.g., "pre-commit", "pre-push")
+//
+// Returns a struct with:
+//   - installed: True if star hook is installed
+//   - exists: True if any hook exists at this path
+//   - managed_by_star: True if existing hook was installed by star
+func setupCheckHook(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var name string
+	if err := starlark.UnpackArgs("setup.check_hook", args, kwargs, "name", &name); err != nil {
+		return nil, err
+	}
+
+	hookPath := filepath.Join(".git", "hooks", name)
+
+	data, err := os.ReadFile(hookPath)
+	if os.IsNotExist(err) {
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"installed":       starlark.Bool(false),
+			"exists":          starlark.Bool(false),
+			"managed_by_star": starlark.Bool(false),
+		}), nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading hook: %w", err)
+	}
+
+	managedByStar := contains(string(data), "Installed by star")
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"installed":       starlark.Bool(managedByStar),
+		"exists":          starlark.Bool(true),
+		"managed_by_star": starlark.Bool(managedByStar),
+	}), nil
+}
+
+// contains checks if s contains substr.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstr(s, substr))
+}
+
+func findSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

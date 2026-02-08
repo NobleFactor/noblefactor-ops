@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # sign-index.star - Generate and sign index.yaml
 #
 # This operation generates the package index and signs it with the

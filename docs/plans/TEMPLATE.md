@@ -1,3 +1,8 @@
+---
+title: "Plan Template"
+description: "Template for creating new plan documents"
+---
+
 # Plan: [Title]
 
 <!--
@@ -9,13 +14,15 @@ TEMPLATE INSTRUCTIONS (delete this block when using):
 5. Delete this instruction block
 -->
 
----
+**Frontmatter fields**:
+
+```yaml
 title: [Plan Title]
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/XX
 status: draft | in-progress | complete | abandoned
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
----
+```
 
 ## Summary
 
@@ -32,7 +39,7 @@ One paragraph describing what this plan accomplishes.
 Describe what exists today before this plan is implemented.
 
 | Component | Status | Notes |
-|-----------|--------|-------|
+| --- | --- | --- |
 | Feature A | ✅ Working | |
 | Feature B | ❌ Missing | |
 
@@ -43,13 +50,15 @@ Describe what exists today before this plan is implemented.
 Detailed description of what must be built.
 
 **Configuration**:
+
 ```yaml
 example:
   config: here
 ```
 
 **Commands**:
-```
+
+```bash
 example command --flag
 ```
 
@@ -66,6 +75,7 @@ Detailed description.
 - [ ] Task 3
 
 **Files**:
+
 - `path/to/file.go` - Create
 - `path/to/other.star` - Modify
 
@@ -81,7 +91,7 @@ How existing repos/users migrate to this new approach.
 ## Files to Create/Modify
 
 | File | Action | Purpose |
-|------|--------|---------|
+| --- | --- | --- |
 | `path/to/new.go` | Create | Description |
 | `path/to/existing.go` | Modify | Description |
 
