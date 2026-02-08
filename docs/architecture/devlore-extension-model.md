@@ -95,17 +95,151 @@ Each flag resolves in priority order:
 3. Config file: `lint.copyright.fix`
 4. Default: `false`
 
+## Extension Types
+
+Extensions fall into three categories based on what they provide:
+
+### Binding-Only Extension
+
+Provides primitives for other extensions to use. No CLI command.
+
+```yaml
+extension: copyright
+description: "Copyright header checking primitives"
+
+receivers:
+  - name: copyright
+    type: CopyrightChecker
+    functions: [check, fix, detect_license]
+```
+
+Usage in other extensions:
+
+```python
+# Another extension can use these bindings
+result = copyright.check(paths=files, license="MIT")
+```
+
+### Command-Only Extension
+
+Orchestrates existing bindings. No new Go code.
+
+```yaml
+extension: lint.all
+description: "Run all configured linters"
+
+command:
+  help: "Run all linters"
+```
+
+### Full Extension
+
+Provides both bindings and a command.
+
+```yaml
+extension: lint.copyright
+description: "Check or fix copyright headers"
+
+receivers:
+  - name: copyright
+    type: CopyrightChecker
+
+command:
+  help: "Check or fix copyright headers"
+```
+
+## Extension Distribution
+
+Extensions are distributed as WebAssembly modules for cross-platform compatibility.
+
+### Why WebAssembly?
+
+Wasm solves historical pain points of traditional plugin systems—security risks from third-party code and ABI fragility of native shared libraries.
+
+- **Sandboxed Security**: Extensions run in a secure, isolated environment by default. They cannot access the host's file system, network, or environment variables unless explicitly granted.
+- **Language Agnostic**: Authors can write extensions in their language of choice—Rust, Go, C++, or TypeScript (via AssemblyScript)—and compile to the same `.wasm` format.
+- **Single Artifact**: One `.wasm` file works on all platforms (no per-OS binaries).
+- **Near-Native Performance**: Unlike interpreted scripting languages, Wasm achieves near-native speed for compute-bound operations.
+- **Instant Startups**: Microsecond cold-start latency (vs. Docker containers), critical for CLI tools where every command loads extensions.
+- **No CGO**: Uses wazero, a pure Go Wasm runtime, simplifying builds and distribution.
+
+### Real-World Examples
+
+Other tools using Wasm for CLI plugins:
+
+| Project | Use Case |
+|---------|----------|
+| [sqlc](https://sqlc.dev/) | Go-based SQL compiler with Wasm code generation plugins |
+| [moonrepo](https://moonrepo.dev/) | Build tool with Wasm plugin system for business logic |
+| [wasmCloud](https://wasmcloud.com/) | CLI built entirely around Wasm component plugins |
+| [Zed Editor](https://zed.dev/) | Uses Wasm Component Model for safe, multi-language extensions |
+
+### Built-in vs External Extensions
+
+| Type | Distribution | Bindings | Performance |
+|------|--------------|----------|-------------|
+| Built-in | Compiled into star binary | Go code in internal/starlark/ | Native |
+| External | .wasm file in extension package | Wasm module | Near-native (compute), overhead on host callbacks |
+
+Performance notes:
+- Compute-bound code (parsing, analysis): ~1.1-1.5x native
+- I/O-bound code with host callbacks: additional boundary-crossing overhead
+- Most lint extensions are I/O-bound (file scanning, shell execution)
+
+### Runtime Options
+
+| Runtime | Pros | Cons |
+|---------|------|------|
+| [wazero](https://wazero.io/) | Pure Go, no CGO, simple embedding | Newer, smaller ecosystem |
+| [Wasmtime](https://wasmtime.dev/) | Mature, fast, broad adoption | Requires CGO |
+| [Extism](https://extism.org/) | Universal plugin SDK with PDKs for many languages | Additional abstraction layer |
+
+**Current choice**: wazero for zero-dependency Go builds. Extism may be considered later if multi-language authoring SDKs become a priority.
+
+### Sandboxing Model
+
+Extensions declare required capabilities in extension.yaml:
+
+```yaml
+capabilities:
+  fs:
+    read: ["/workspace"]    # Directories extension can read
+    write: ["/workspace"]   # Directories extension can write
+  host_calls:
+    - shell.run             # Can request host to run commands
+    - http.get              # Can request host to make HTTP calls
+```
+
+Host validates all capability requests. Extensions cannot:
+
+- Access files outside granted directories
+- Spawn processes directly
+- Make network requests directly
+- Access environment variables not explicitly passed
+
+### Host Callback Protocol
+
+For privileged operations, extensions call back to the host:
+
+```
+Extension (Wasm) → Request(shell.run, args) → Host validates → Host executes → Result
+```
+
 ## Extension Components
 
-An extension provides three components:
+An extension provides **zero or more** of these components:
 
-| Component | Language | Purpose |
-|-----------|----------|---------|
-| **Binding Functions** | Go | Low-level primitives exposed to Starlark |
-| **Config Schema** | Starlark | Typed configuration with defaults |
-| **Command** | Starlark | CLI subcommand implementation |
+| Component | Required | Language | Purpose |
+|-----------|----------|----------|---------|
+| **Binding Functions** | Optional | Go | Low-level primitives via receiver API |
+| **Config Schema** | Optional | YAML | Typed configuration with defaults |
+| **Command** | Optional | Starlark | CLI subcommand implementation |
+
+**Minimum requirement:** An extension must provide at least one binding function OR one command.
 
 ## Binding Functions (Go)
+
+All binding functions are defined using the receiver API. A receiver is a Go struct whose exported methods become Starlark module functions. The receiver pattern is the **only** way to expose Go functions to Starlark.
 
 Binding functions provide low-level primitives that Starlark scripts call. They are implemented as methods on a receiver type.
 
