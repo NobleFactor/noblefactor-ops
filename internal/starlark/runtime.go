@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 // Package starlark provides a Starlark runtime for nf-ops commands.
 package starlark
@@ -83,6 +83,7 @@ func (r *Runtime) Load(path string) error {
 		"go":             goModule(),
 		"shell":          shellModule(),
 		"lint":           lintModule(),
+		"copyright":      copyrightModule(),
 		"config":         configModule(),
 		"setup":          setupModule(),
 		"starlark_parse": starlarkParseModule(),

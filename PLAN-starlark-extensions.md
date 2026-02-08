@@ -1,3 +1,8 @@
+---
+title: "Starlark Extension Model for nf-ops"
+description: "Design plan for transforming nf-ops into a git-style extensible operations tool with Starlark scripting"
+---
+
 # Plan: Starlark Extension Model for nf-ops
 
 ## Vision
@@ -6,7 +11,7 @@ Transform `nf-ops` into a git-style extensible operations tool where all
 commands are implemented as Starlark scripts discovered at runtime. A single
 Go driver program provides the runtime, discovery, and built-in modules.
 
-```
+```text
 nf-ops update-site-deploy-token
        └─ finds nf-ops-update-site-deploy-token.star on the extension path
        └─ loads it into the Starlark runtime
@@ -18,7 +23,7 @@ Here, if `nf-ops-foo.star` is on the extension path, `nf-ops foo` runs it.
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        nf-ops (Go binary)                       │
 ├─────────────┬──────────────┬────────────────┬───────────────────┤
@@ -48,7 +53,7 @@ Here, if `nf-ops-foo.star` is on the extension path, `nf-ops foo` runs it.
 Extensions follow PowerShell Verb-Noun naming, lowercased and hyphenated
 for the filename:
 
-```
+```text
 Starlark file:              nf-ops-update-site-deploy-token.star
 Invocation:                 nf-ops update-site-deploy-token
 ```
@@ -123,7 +128,7 @@ before calling `main(ctx)`.
 ### `ctx.os` — System Operations
 
 | Function | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.os.run(cmd, *args)` | Run command, return `Result(code, stdout, stderr)` |
 | `ctx.os.run_ok(cmd, *args)` | Run command, error if non-zero exit |
 | `ctx.os.env(name, default="")` | Get environment variable |
@@ -138,7 +143,7 @@ before calling `main(ctx)`.
 ### `ctx.gh` — GitHub Operations
 
 | Function | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.gh.secret_set(name, value, repo=)` | Set a repository secret |
 | `ctx.gh.secret_list(repo=)` | List secret names |
 | `ctx.gh.pr_create(title, body, base=, repo=)` | Create a pull request |
@@ -151,7 +156,7 @@ before calling `main(ctx)`.
 ### `ctx.http` — HTTP Client
 
 | Function | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.http.get(url, headers=)` | GET request, return `Response` |
 | `ctx.http.post(url, body=, headers=)` | POST request |
 | `ctx.http.status(url, headers=)` | GET and return status code only |
@@ -160,7 +165,7 @@ before calling `main(ctx)`.
 ### `ctx.crypto` — Cryptographic Operations
 
 | Function | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.crypto.ssh_sign(path, key=)` | Sign file with SSH key |
 | `ctx.crypto.ssh_verify(path, sig, key=)` | Verify SSH signature |
 | `ctx.crypto.age_encrypt(data, recipients)` | Encrypt with age |
@@ -171,7 +176,7 @@ before calling `main(ctx)`.
 ### `ctx.yaml` — YAML Operations
 
 | Function | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.yaml.load(text)` | Parse YAML string to dict/list |
 | `ctx.yaml.dump(obj)` | Serialize dict/list to YAML string |
 | `ctx.yaml.load_file(path)` | Parse YAML file |
@@ -180,7 +185,7 @@ before calling `main(ctx)`.
 ### `ctx.ui` — User Interface
 
 | Function | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.ui.note(msg)` | Print informational message |
 | `ctx.ui.success(msg)` | Print success message (✔) |
 | `ctx.ui.warn(msg)` | Print warning message |
@@ -193,7 +198,7 @@ before calling `main(ctx)`.
 ### `ctx.git` — Git Operations
 
 | Function | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.git.run(*args)` | Run git command |
 | `ctx.git.branch()` | Current branch name |
 | `ctx.git.status()` | Working tree status |
@@ -203,7 +208,7 @@ before calling `main(ctx)`.
 ### `ctx` — Context Properties
 
 | Property | Description |
-|----------|-------------|
+| --- | --- |
 | `ctx.args` | Positional arguments after flags |
 | `ctx.flags` | Parsed flag values (from metadata) |
 | `ctx.version` | nf-ops version string |
@@ -214,13 +219,13 @@ before calling `main(ctx)`.
 ### `ctx` — Context Methods
 
 | Method | Description |
-|--------|-------------|
+| --- | --- |
 | `ctx.require(*names)` | Assert commands exist on PATH |
 | `ctx.error(msg)` | Print error and exit (alias for ctx.ui.error) |
 
 ## Go Package Structure
 
-```
+```text
 noblefactor-ops/
 ├── cmd/
 │   └── nf-ops/
@@ -299,7 +304,7 @@ noblefactor-ops/
 The driver handles these before passing to extensions:
 
 | Flag | Description |
-|------|-------------|
+| --- | --- |
 | `--verbose, -v` | Enable verbose output (passed as `ctx.verbose`) |
 | `--dry-run` | Dry-run mode (passed as `ctx.dry_run`) |
 | `--no-color` | Disable colored output |
@@ -384,7 +389,7 @@ def main(ctx):
 
 ## Dependencies to Add
 
-```
+```text
 go.starlark.net v0.0.0-...    # Starlark interpreter (already used in devlore-cli)
 ```
 
@@ -558,7 +563,7 @@ without `?` will cause `UnpackArgs` to return an error if missing.
 ### Type Marshalling
 
 | Starlark Type | Go Type | Conversion |
-|---------------|---------|------------|
+| --- | --- | --- |
 | `String` | `string` | `starlark.AsString(v)` or `string(v.(starlark.String))` |
 | `Int` | `int` | `v.(starlark.Int).Int64()` |
 | `Bool` | `bool` | `bool(v.(starlark.Bool))` |
@@ -745,7 +750,7 @@ func (m *OSModule) AttrNames() []string { ... }
 ### Comparison
 
 | Concern | `starlarkstruct` | `HasAttrs` |
-|---------|-------------------|------------|
+| --- | --- | --- |
 | Lines per module | ~5 (just the dict) | ~20 (interface methods) |
 | State access | Closures | Struct fields |
 | Error messages | Generic | Custom, contextual |
@@ -770,7 +775,7 @@ in Java) is directly consistent with how Google implements Starlark bindings
 across all their tools:
 
 | | Bazel (Java) | nf-ops (Go) |
-|---|---|---|
+| --- | --- | --- |
 | Type declaration | `@StarlarkBuiltin(name = "ctx")` | `func (c *Context) Type() string` |
 | Method exposure | `@StarlarkMethod(name = "run")` | `case "run": return NewBuiltin(...)` |
 | Attribute dispatch | Annotation-driven reflection | `Attr(name)` switch |
@@ -792,7 +797,7 @@ is side effects — creating secrets, signing artifacts, calling APIs, rotating
 keys. This is an intentional and appropriate departure:
 
 | | Bazel (build system) | nf-ops (management tool) |
-|---|---|---|
+| --- | --- | --- |
 | Purpose | Declare build graph | Execute operations |
 | Side effects | Prohibited during eval | The whole point |
 | Hermeticity | Core requirement | Not a goal |

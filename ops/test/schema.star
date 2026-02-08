@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 def run(ctx):
     path = "../devlore-cli/internal/execution"
     note("Parsing execution schema from: " + path)

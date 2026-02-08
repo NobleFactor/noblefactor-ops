@@ -1,0 +1,63 @@
+# star.yaml - Unified quality gate configuration
+# This file is the single source of truth for all linting and quality checks.
+
+lint:
+  go:
+    path: "./..."
+  shell:
+    path: "."
+    severity: warning
+    indent: 4
+  markdown:
+    path: "."
+    exclude:
+      - "vendor/**"
+      - "node_modules/**"
+    frontmatter:
+      required:
+        - title
+        - description
+    config:
+      # Disable rules that conflict with our style
+      MD013: false  # Line length - too restrictive for documentation
+      MD025:        # Single h1 - configure to ignore frontmatter title
+        front_matter_title: ""
+      MD029: false  # Ordered list prefix - we use explicit numbers for reference
+      MD033: false  # Inline HTML - needed for badges and advanced formatting
+      MD041: false  # First line h1 - conflicts with frontmatter
+  copyright:
+    enabled: true
+    license: MIT
+    holder: Noble Factor
+    patterns:
+      go:
+        match: '// SPDX-License-Identifier: \S+\s*\n// Copyright.*All rights reserved\.'
+        replace: |
+          // SPDX-License-Identifier: {license}
+          // Copyright {holder}. All rights reserved.
+      star:
+        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
+        replace: |
+          # SPDX-License-Identifier: {license}
+          # Copyright {holder}. All rights reserved.
+      shell:
+        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
+        replace: |
+          # SPDX-License-Identifier: {license}
+          # Copyright {holder}. All rights reserved.
+    exclude:
+      - "**/testdata/**"
+      - "**/vendor/**"
+      - "**/*_generated.go"
+
+# Pre-commit hook generation
+# Running `star setup config` generates .pre-commit-config.yaml from this.
+precommit:
+  hooks:
+    - id: star-lint-all
+      name: Star quality gate
+      entry: star lint all --
+      language: system
+      pass_filenames: true
+      types:
+        - file

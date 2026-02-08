@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
 # config.star - Configuration management commands
 #
 # Manages star.yaml configuration with hierarchy support:

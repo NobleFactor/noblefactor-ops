@@ -1,3 +1,8 @@
+---
+title: "GitHub Branch Protection Rules"
+description: "Branch protection policy for all NobleFactor repositories"
+---
+
 # GitHub Branch Protection Rules
 
 This document defines the branch protection policy for all NobleFactor repositories.
@@ -5,7 +10,7 @@ This document defines the branch protection policy for all NobleFactor repositor
 ## Protected Repositories
 
 | Repository | Default Branch |
-|------------|----------------|
+| --- | --- |
 | devlore.noblefactor.com | develop |
 | devlore-cli | develop |
 | devlore-registry | develop |
@@ -23,7 +28,7 @@ The following branch patterns are protected in all repositories:
 ## Rules
 
 | Rule | Setting |
-|------|---------|
+| --- | --- |
 | Direct commits | **Blocked for everyone** |
 | Pull requests | **Required** |
 | Merge method | **Squash only** |

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// Copyright Noble Factor. All rights reserved.
 
 // Package config provides unified configuration for star commands.
 // Configuration is loaded from a hierarchy of star.yaml files:
@@ -17,14 +17,32 @@ import (
 
 // Config is the top-level configuration structure for star commands.
 type Config struct {
-	Lint LintConfig `yaml:"lint"`
+	Lint      LintConfig      `yaml:"lint"`
+	Precommit PrecommitConfig `yaml:"precommit"`
+}
+
+// PrecommitConfig configures .pre-commit-config.yaml generation.
+type PrecommitConfig struct {
+	Hooks []PrecommitHook `yaml:"hooks"`
+}
+
+// PrecommitHook defines a single pre-commit hook.
+type PrecommitHook struct {
+	ID            string   `yaml:"id"`
+	Name          string   `yaml:"name"`
+	Entry         string   `yaml:"entry"`
+	Language      string   `yaml:"language"`
+	PassFilenames bool     `yaml:"pass_filenames"`
+	Types         []string `yaml:"types"`
+	Stages        []string `yaml:"stages"`
 }
 
 // LintConfig contains configuration for all lint commands.
 type LintConfig struct {
-	Go       GoLintConfig       `yaml:"go"`
-	Shell    ShellLintConfig    `yaml:"shell"`
-	Markdown MarkdownLintConfig `yaml:"markdown"`
+	Go        GoLintConfig        `yaml:"go"`
+	Shell     ShellLintConfig     `yaml:"shell"`
+	Markdown  MarkdownLintConfig  `yaml:"markdown"`
+	Copyright CopyrightLintConfig `yaml:"copyright"`
 }
 
 // GoLintConfig configures star lint go.
@@ -55,6 +73,21 @@ type FrontmatterConfig struct {
 	Optional []string `yaml:"optional"`
 }
 
+// CopyrightLintConfig configures star lint copyright.
+type CopyrightLintConfig struct {
+	Enabled  bool                        `yaml:"enabled"`
+	License  string                      `yaml:"license"`  // SPDX identifier or "auto"
+	Holder   string                      `yaml:"holder"`   // Copyright holder name
+	Patterns map[string]CopyrightPattern `yaml:"patterns"` // lang -> pattern config
+	Exclude  []string                    `yaml:"exclude"`  // Glob patterns to exclude
+}
+
+// CopyrightPattern defines match and replace patterns for copyright headers.
+type CopyrightPattern struct {
+	Match   string `yaml:"match"`   // Regex to match existing headers (permissive)
+	Replace string `yaml:"replace"` // Canonical form to use
+}
+
 // DefaultConfig returns the built-in default configuration.
 func DefaultConfig() *Config {
 	return &Config{
@@ -75,6 +108,26 @@ func DefaultConfig() *Config {
 					Required: []string{"title", "description"},
 					Optional: []string{},
 				},
+			},
+			Copyright: CopyrightLintConfig{
+				Enabled: false, // Disabled by default until configured
+				License: "auto",
+				Holder:  "",
+				Patterns: map[string]CopyrightPattern{
+					"go": {
+						Match:   `// SPDX-License-Identifier: \S+\s*\n// Copyright.*All rights reserved\.`,
+						Replace: "// SPDX-License-Identifier: {license}\n// Copyright {holder}. All rights reserved.",
+					},
+					"star": {
+						Match:   `# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.`,
+						Replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved.",
+					},
+					"shell": {
+						Match:   `# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.`,
+						Replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved.",
+					},
+				},
+				Exclude: []string{"**/testdata/**", "**/vendor/**"},
 			},
 		},
 	}
