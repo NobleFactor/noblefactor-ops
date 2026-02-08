@@ -1,3 +1,11 @@
+---
+title: "Star Agent Team Orchestration"
+description: "Instructions for executing the star extension model refactoring plan"
+status: draft
+created: 2025-02-08
+updated: 2025-02-08
+---
+
 # Star Agent Team Orchestration
 
 This document provides instructions for executing the star extension model refactoring plan.
