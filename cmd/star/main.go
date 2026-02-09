@@ -253,8 +253,8 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 	})
 	rootCmd.AddCommand(docsCmd)
 
-	// Self-install command
-	rootCmd.AddCommand(cli.NewSelfInstallCmd(rootCmd, cli.SelfInstallInfo{
+	// Self commands (install, upgrade, etc.)
+	rootCmd.AddCommand(cli.NewSelfCmd(rootCmd, cli.SelfInstallInfo{
 		Name: "star",
 		ManHeader: cli.ManHeader{
 			Title:   "STAR",
