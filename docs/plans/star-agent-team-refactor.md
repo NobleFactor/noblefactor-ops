@@ -375,12 +375,18 @@ func Get(name string) *ExtensionSpec
 ### Contract 5: Wasm Host Runtime (Worker 5 → Worker 3)
 ```go
 // Worker 5 implements, Worker 3 consumes
+// Uses extension.Capabilities from internal/extension/spec.go
 type WasmHost struct { ... }
+type WasmModule struct { ... }
 
-func NewHost(capabilities Capabilities) (*WasmHost, error)
+func NewHost(ctx context.Context, caps extension.Capabilities) (*WasmHost, error)
 func (h *WasmHost) LoadModule(wasmPath string) (*WasmModule, error)
-func (h *WasmHost) Call(module *WasmModule, function string, args []byte) ([]byte, error)
 func (h *WasmHost) Close() error
+
+// Call is on WasmModule for idiomatic usage
+func (m *WasmModule) Call(ctx context.Context, function string, args []byte) ([]byte, error)
+func (m *WasmModule) Path() string
+func (m *WasmModule) ExportedFunctions() []string
 ```
 
 ### Contract 6: Host Callbacks (Worker 5 implements)
@@ -394,22 +400,24 @@ type HostCallbacks interface {
 }
 ```
 
-### Contract 7: Capabilities (Worker 5 implements, Worker 3 validates)
+### Contract 7: Capabilities (Worker 3 defines, Worker 5 validates)
 ```go
-type Capabilities struct {
-    FS        FSCapabilities        `yaml:"fs"`
-    HostCalls []string              `yaml:"host_calls"`
-}
+// Capabilities and FSCapabilities are defined in internal/extension/spec.go
+// Worker 5 provides validation via CapabilityChecker wrapper
 
-type FSCapabilities struct {
-    Read  []string `yaml:"read"`   // Directories extension can read
-    Write []string `yaml:"write"`  // Directories extension can write
-}
+// wasm.ValidateCapabilities validates capability declarations
+func ValidateCapabilities(caps extension.Capabilities) error
 
-func (c *Capabilities) Validate() error
-func (c *Capabilities) AllowsRead(path string) bool
-func (c *Capabilities) AllowsWrite(path string) bool
-func (c *Capabilities) AllowsHostCall(name string) bool
+// wasm.CapabilityChecker wraps capabilities for access checking
+type CapabilityChecker struct { ... }
+
+func NewCapabilityChecker(caps extension.Capabilities) *CapabilityChecker
+func (c *CapabilityChecker) AllowsRead(path string) bool
+func (c *CapabilityChecker) AllowsWrite(path string) bool
+func (c *CapabilityChecker) AllowsHostCall(name string) bool
+func (c *CapabilityChecker) CheckRead(path string) error
+func (c *CapabilityChecker) CheckWrite(path string) error
+func (c *CapabilityChecker) CheckHostCall(name string) error
 ```
 
 ---
@@ -953,31 +961,28 @@ Create:
 feat/ext-wasm-phase-{N}
 
 ## Interface Contract (you implement, Worker 3 consumes)
-type WasmHost struct {
-    runtime wazero.Runtime
-    config  wazero.ModuleConfig
-}
+// Uses extension.Capabilities from internal/extension/spec.go
+type WasmHost struct { ... }
+type WasmModule struct { ... }
 
-func NewHost(capabilities Capabilities) (*WasmHost, error)
+func NewHost(ctx context.Context, caps extension.Capabilities) (*WasmHost, error)
 func (h *WasmHost) LoadModule(wasmPath string) (*WasmModule, error)
-func (h *WasmHost) Call(module *WasmModule, function string, args []byte) ([]byte, error)
 func (h *WasmHost) Close() error
 
+// Call is on WasmModule for idiomatic usage
+func (m *WasmModule) Call(ctx context.Context, function string, args []byte) ([]byte, error)
+
 ## Capabilities System
-type Capabilities struct {
-    FS        FSCapabilities `yaml:"fs"`
-    HostCalls []string       `yaml:"host_calls"`
-}
+// Capabilities defined in internal/extension/spec.go (Worker 3)
+// Worker 5 provides validation via CapabilityChecker
 
-type FSCapabilities struct {
-    Read  []string `yaml:"read"`
-    Write []string `yaml:"write"`
-}
+func ValidateCapabilities(caps extension.Capabilities) error
 
-// Validation
-func (c *Capabilities) AllowsRead(path string) bool
-func (c *Capabilities) AllowsWrite(path string) bool
-func (c *Capabilities) AllowsHostCall(name string) bool
+type CapabilityChecker struct { ... }
+func NewCapabilityChecker(caps extension.Capabilities) *CapabilityChecker
+func (c *CapabilityChecker) AllowsRead(path string) bool
+func (c *CapabilityChecker) AllowsWrite(path string) bool
+func (c *CapabilityChecker) AllowsHostCall(name string) bool
 
 ## Host Callbacks
 Extensions call back to host for privileged operations:
@@ -996,27 +1001,31 @@ type HostCallbacks interface {
 }
 
 ## wazero Integration
-Use wazero (pure Go, no CGO):
-import "github.com/tetratelabs/wazero"
-import "github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
+Use wazero (pure Go, no CGO) with compilation caching:
 
-func NewHost(caps Capabilities) (*WasmHost, error) {
-    ctx := context.Background()
-
-    runtime := wazero.NewRuntime(ctx)
-    wasi_snapshot_preview1.MustInstantiate(ctx, runtime)
-
-    // Configure WASI with preopened directories based on capabilities
-    config := wazero.NewModuleConfig().
-        WithStdout(os.Stdout).
-        WithStderr(os.Stderr)
-
-    for _, dir := range caps.FS.Read {
-        config = config.WithFSConfig(
-            wazero.NewFSConfig().WithReadOnlyDirMount(dir, dir))
+func NewHost(ctx context.Context, caps extension.Capabilities) (*WasmHost, error) {
+    if err := ValidateCapabilities(caps); err != nil {
+        return nil, err
     }
 
-    return &WasmHost{runtime: runtime, config: config}, nil
+    // Compilation cache for 10x faster repeated loads
+    cacheDir := filepath.Join(os.UserCacheDir(), "star", "wasm", "wazero")
+    cache, _ := wazero.NewCompilationCacheWithDir(cacheDir)
+
+    config := wazero.NewRuntimeConfig().
+        WithCompilationCache(cache).
+        WithCloseOnContextDone(true)
+
+    rt := wazero.NewRuntimeWithConfig(ctx, config)
+    wasi_snapshot_preview1.Instantiate(ctx, rt)
+
+    return &WasmHost{runtime: rt, cache: cache, caps: caps}, nil
+}
+
+// Call uses stdin/stdout JSON protocol
+func (m *WasmModule) Call(ctx context.Context, function string, args []byte) ([]byte, error) {
+    // Request/Response JSON envelopes via stdin/stdout
+    // See protocol.go for message format
 }
 
 ## Phase 2 Deliverables

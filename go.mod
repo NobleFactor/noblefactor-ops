@@ -8,6 +8,7 @@ go 1.24.0
 require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
+	github.com/tetratelabs/wazero v1.11.0
 	go.starlark.net v0.0.0-20260102030733-3fee463870c9
 	gopkg.in/yaml.v3 v3.0.1
 )
