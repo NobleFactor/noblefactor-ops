@@ -208,7 +208,7 @@ func TestConfigValue_Attr_WithChildren(t *testing.T) {
 	defer ClearTypeCache()
 
 	// Create a hierarchy with ConfigElement children
-	cfg := NewExtensibleConfig("test.yaml")
+	cfg := newExtensionsConfig("test.yaml")
 	spec := ConfigSpec{
 		Fields: map[string]string{
 			"enabled": "bool",
@@ -217,7 +217,7 @@ func TestConfigValue_Attr_WithChildren(t *testing.T) {
 			"enabled": true,
 		},
 	}
-	cfg.RegisterExtension("lint.go", spec)
+	cfg.registerExtension("lint.go", spec)
 
 	cv := WrapAsStarlarkValue(cfg)
 
