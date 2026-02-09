@@ -29,12 +29,24 @@ type ManHeader struct {
 	Manual  string
 }
 
-// NewSelfInstallCmd creates the self-install command.
-func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
+// NewSelfCmd creates the self command with install subcommand.
+func NewSelfCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
+	selfCmd := &cobra.Command{
+		Use:   "self",
+		Short: "Self-management commands",
+	}
+
+	selfCmd.AddCommand(newInstallCmd(rootCmd, info))
+
+	return selfCmd
+}
+
+// newInstallCmd creates the install subcommand for self.
+func newInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
 	var shells []string
 
 	cmd := &cobra.Command{
-		Use:   "self-install <root-directory>",
+		Use:   "install <root-directory>",
 		Short: "Install star and supporting files to specified directory",
 		Long: `Install ` + info.Name + ` and all supporting files to the specified root directory.
 
@@ -45,11 +57,11 @@ This command:
   4. Copies ops/ directory to <root>/share/` + info.Name + `/ops/ (for Starlark commands)
 
 Shell completions are auto-detected by default. Use --shell to override:
-  ` + info.Name + ` self-install --shell bash --shell zsh ~/.local
+  ` + info.Name + ` self install --shell bash --shell zsh ~/.local
 
 Example:
-  ` + info.Name + ` self-install ~/.local
-  ` + info.Name + ` self-install /usr/local
+  ` + info.Name + ` self install ~/.local
+  ` + info.Name + ` self install /usr/local
 
 After installation, ensure <root>/bin is in your PATH.
 `,
