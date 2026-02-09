@@ -164,14 +164,6 @@ func valueToStarlark(v interface{}) starlark.Value {
 	}
 }
 
-// ToStarlark converts Registry values to a Starlark struct with attribute access.
-// This converts the merged configuration values to a Starlark-accessible format.
-// Top-level sections use struct for attribute access (cfg.lint.copyright.enabled).
-// Nested data maps use dict for .get/.items access (cfg.lint.copyright.patterns.get("go")).
-func (r *Registry) ToStarlark() starlark.Value {
-	return mapToStarlarkStructTopLevel(r.values, 0)
-}
-
 // mapToStarlarkStructTopLevel converts a map to a Starlark struct at the top levels.
 // After depth 2 (e.g., lint.copyright.patterns), nested maps become dicts for .get access.
 func mapToStarlarkStructTopLevel(m map[string]interface{}, depth int) starlark.Value {
