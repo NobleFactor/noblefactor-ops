@@ -6,6 +6,7 @@ package extension
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -366,5 +367,135 @@ func TestLoadAll_StatError(t *testing.T) {
 	// Should skip the file
 	if count != 0 {
 		t.Errorf("count = %d, want 0", count)
+	}
+}
+
+func TestFindExtensionDir_Found(t *testing.T) {
+	// Create a temp directory structure that matches DefaultSearchPaths
+	dir := t.TempDir()
+
+	// Create extensions/lint-copyright/extension.yaml
+	extDir := filepath.Join(dir, "extensions", "lint-copyright")
+	if err := os.MkdirAll(extDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	yaml := `
+extension: lint.copyright
+command:
+  help: "Test"
+`
+	if err := os.WriteFile(filepath.Join(extDir, "extension.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	// Change to temp dir so "extensions" is found
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer os.Chdir(oldWd)
+
+	foundDir, err := FindExtensionDir("lint.copyright")
+	if err != nil {
+		t.Fatalf("FindExtensionDir failed: %v", err)
+	}
+
+	if !strings.Contains(foundDir, "lint-copyright") {
+		t.Errorf("foundDir = %q, want path containing lint-copyright", foundDir)
+	}
+}
+
+func TestFindExtensionDir_FoundYml(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create extensions/test-ext/extension.yml (note .yml not .yaml)
+	extDir := filepath.Join(dir, "extensions", "test-ext")
+	if err := os.MkdirAll(extDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	yaml := `
+extension: test.ext
+command:
+  help: "Test"
+`
+	if err := os.WriteFile(filepath.Join(extDir, "extension.yml"), []byte(yaml), 0644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir failed: %v", err)
+	}
+	defer os.Chdir(oldWd)
+
+	foundDir, err := FindExtensionDir("test.ext")
+	if err != nil {
+		t.Fatalf("FindExtensionDir failed: %v", err)
+	}
+
+	if !strings.Contains(foundDir, "test-ext") {
+		t.Errorf("foundDir = %q, want path containing test-ext", foundDir)
+	}
+}
+
+func TestDiscover_WalkError(t *testing.T) {
+	// Test when WalkDir encounters an error during traversal
+	dir := t.TempDir()
+
+	// Create a subdirectory that we can't read
+	subDir := filepath.Join(dir, "unreadable")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	// Create extension in unreadable dir
+	extDir := filepath.Join(subDir, "ext")
+	if err := os.MkdirAll(extDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	yaml := `
+extension: test
+command:
+  help: "Test"
+`
+	if err := os.WriteFile(filepath.Join(extDir, "extension.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	// Make parent unreadable (only on Unix-like systems)
+	if err := os.Chmod(subDir, 0000); err != nil {
+		t.Skip("cannot test permission error on this platform")
+	}
+	defer os.Chmod(subDir, 0755)
+
+	_, err := Discover(dir)
+	if err == nil {
+		t.Error("expected error for unreadable directory")
+	}
+}
+
+func TestLoadAll_DiscoverError(t *testing.T) {
+	Clear()
+
+	dir := t.TempDir()
+
+	// Create directory then make it unreadable
+	extDir := filepath.Join(dir, "ext")
+	if err := os.MkdirAll(extDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	// Make it unreadable
+	if err := os.Chmod(extDir, 0000); err != nil {
+		t.Skip("cannot test permission error on this platform")
+	}
+	defer os.Chmod(extDir, 0755)
+
+	_, err := LoadAll(dir)
+	if err == nil {
+		t.Error("expected error when Discover fails")
 	}
 }

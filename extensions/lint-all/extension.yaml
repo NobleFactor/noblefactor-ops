@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: lint.all
+description: Run all configured linters
+
+receivers:
+  - name: lint
+    builtin: true
+    type: LintReceiver
+    description: Lint primitives
+    functions:
+      go: Run Go linter
+      shell: Run shell linter
+      markdown: Run markdown linter
+      ensure_tools: Check lint tool availability
+  - name: copyright
+    builtin: true
+    type: CopyrightChecker
+    description: Copyright checking
+    functions:
+      check: Verify copyright headers
+      fix: Add or update headers
+      detect_license: Detect SPDX from LICENSE file
+  - name: config
+    builtin: true
+    type: ConfigReceiver
+    description: Configuration access
+    functions:
+      get: Load merged config
+      sync: Sync tool configs
+  - name: fs
+    builtin: true
+    type: FSReceiver
+    description: Filesystem operations
+    functions:
+      glob: Find files matching pattern
+
+command:
+  help: Run all configured linters
+  implementation: lint-all.star
+
+flags:
+  - name: fix
+    type: bool
+    default: "false"
+    help: Auto-fix issues where possible
