@@ -12,8 +12,8 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
-// ToStarlark converts Config to a Starlark struct with attribute access.
-func (c *Config) ToStarlark() starlark.Value {
+// ToStarlark converts builtinConfig to a Starlark struct with attribute access.
+func (c *builtinConfig) ToStarlark() starlark.Value {
 	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 		"lint":      c.Lint.ToStarlark(),
 		"precommit": c.Precommit.ToStarlark(),
@@ -372,8 +372,8 @@ func getConfigElement(v interface{}) *ConfigElement {
 		return elem
 	}
 
-	// ExtensibleConfig has embedded ConfigElement
-	if cfg, ok := v.(*ExtensibleConfig); ok {
+	// extensionsConfig has embedded ConfigElement
+	if cfg, ok := v.(*extensionsConfig); ok {
 		return &cfg.ConfigElement
 	}
 

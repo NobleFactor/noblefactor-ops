@@ -21,7 +21,7 @@ func TestSyncPrecommitConfig(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	cfg := &Config{
+	cfg := &builtinConfig{
 		Precommit: PrecommitConfig{
 			Hooks: []PrecommitHook{
 				{
@@ -84,7 +84,7 @@ func TestSyncPrecommitConfigDefaultLanguage(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Config with empty language - should default to "system"
-	cfg := &Config{
+	cfg := &builtinConfig{
 		Precommit: PrecommitConfig{
 			Hooks: []PrecommitHook{
 				{
@@ -239,7 +239,7 @@ func TestSyncNoHooks(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	// Empty config - should not generate anything
-	cfg := &Config{}
+	cfg := &builtinConfig{}
 
 	result, err := cfg.Sync()
 	if err != nil {
