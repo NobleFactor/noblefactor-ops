@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: hook.pre-push
+description: Run pre-push checks (called by git pre-push hook)
+
+receivers:
+  - name: lint
+    builtin: true
+    type: LintReceiver
+    description: Lint primitives
+    functions:
+      go: Run Go linter
+      shell: Run shell linter
+      markdown: Run markdown linter
+      ensure_tools: Check lint tool availability
+
+command:
+  help: Run pre-push checks (called by git pre-push hook)
+  implementation: hook-pre-push.star
+
+flags: []

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: setup
+description: Run all setup tasks
+
+receivers:
+  - name: setup
+    builtin: true
+    type: SetupReceiver
+    description: Repository setup functions
+    functions:
+      tools: Check tool installation status
+      init_config: Initialize star.yaml
+      install_hook: Install git hooks
+
+command:
+  help: Run all setup tasks (tools check, config init, hooks install)
+  implementation: setup.star
+
+flags: []

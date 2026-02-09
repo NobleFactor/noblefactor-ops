@@ -478,3 +478,155 @@ flags:
 		t.Error("expected error for flag without name")
 	}
 }
+
+func TestValidate_FlagWithoutType(t *testing.T) {
+	yaml := `
+extension: test
+command:
+  help: "Test"
+flags:
+  - name: "myflag"
+    type: ""
+`
+	_, err := ParseSpecFromBytes([]byte(yaml))
+	if err == nil {
+		t.Error("expected error for flag without type")
+	}
+}
+
+func TestToConfigSpec_NilFields(t *testing.T) {
+	spec := &ExtensionSpec{
+		Extension: "test",
+		Command:   &CommandSpec{Help: "Test"},
+		Config: &ConfigDef{
+			Type:     "TestConfig",
+			Fields:   nil,
+			Defaults: nil,
+		},
+	}
+
+	configSpec := spec.ToConfigSpec()
+
+	if configSpec.Fields != nil {
+		t.Error("Fields should be nil when source is nil")
+	}
+	if configSpec.Defaults != nil {
+		t.Error("Defaults should be nil when source is nil")
+	}
+}
+
+func TestToConfigSpec_DeepNestedSlicesAndMaps(t *testing.T) {
+	spec := &ExtensionSpec{
+		Extension: "test",
+		Command:   &CommandSpec{Help: "Test"},
+		Config: &ConfigDef{
+			Type: "TestConfig",
+			Fields: map[string]string{
+				"complex": "any",
+			},
+			Defaults: map[string]interface{}{
+				// Nested map inside slice
+				"items": []interface{}{
+					map[string]interface{}{
+						"nested_map": map[string]interface{}{
+							"deep": "value",
+						},
+						"nested_slice": []interface{}{"a", "b"},
+					},
+				},
+				// Slice inside map
+				"wrapper": map[string]interface{}{
+					"list": []interface{}{
+						map[string]interface{}{"key": "val"},
+					},
+				},
+				// Simple values
+				"simple_string": "hello",
+				"simple_int":    42,
+			},
+		},
+	}
+
+	configSpec := spec.ToConfigSpec()
+
+	// Verify deep copy worked
+	items := configSpec.Defaults["items"].([]interface{})
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+
+	item := items[0].(map[string]interface{})
+	nestedMap := item["nested_map"].(map[string]interface{})
+	if nestedMap["deep"] != "value" {
+		t.Errorf("nestedMap[deep] = %v, want value", nestedMap["deep"])
+	}
+
+	nestedSlice := item["nested_slice"].([]interface{})
+	if len(nestedSlice) != 2 {
+		t.Errorf("len(nestedSlice) = %d, want 2", len(nestedSlice))
+	}
+}
+
+func TestParseSpecFromBytes_InvalidYAML(t *testing.T) {
+	yaml := `
+this is not valid yaml: [
+`
+	_, err := ParseSpecFromBytes([]byte(yaml))
+	if err == nil {
+		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestValidate_AllFlagTypes(t *testing.T) {
+	// Test all valid flag types
+	for _, flagType := range []string{"bool", "string", "int", "glob"} {
+		yaml := `
+extension: test
+command:
+  help: "Test"
+flags:
+  - name: "myflag"
+    type: ` + flagType + `
+`
+		_, err := ParseSpecFromBytes([]byte(yaml))
+		if err != nil {
+			t.Errorf("unexpected error for flag type %q: %v", flagType, err)
+		}
+	}
+}
+
+func TestToConfigSpec_SliceOfSlices(t *testing.T) {
+	// Test copySlice with nested slices (slice containing slices)
+	spec := &ExtensionSpec{
+		Extension: "test",
+		Command:   &CommandSpec{Help: "Test"},
+		Config: &ConfigDef{
+			Type: "TestConfig",
+			Fields: map[string]string{
+				"matrix": "any",
+			},
+			Defaults: map[string]interface{}{
+				// Matrix is a slice of slices
+				"matrix": []interface{}{
+					[]interface{}{"a", "b", "c"},
+					[]interface{}{"d", "e", "f"},
+				},
+			},
+		},
+	}
+
+	configSpec := spec.ToConfigSpec()
+
+	matrix := configSpec.Defaults["matrix"].([]interface{})
+	if len(matrix) != 2 {
+		t.Fatalf("len(matrix) = %d, want 2", len(matrix))
+	}
+
+	row1 := matrix[0].([]interface{})
+	if len(row1) != 3 {
+		t.Errorf("len(row1) = %d, want 3", len(row1))
+	}
+	if row1[0] != "a" {
+		t.Errorf("row1[0] = %v, want a", row1[0])
+	}
+}

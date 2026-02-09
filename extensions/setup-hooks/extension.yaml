@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: setup.hooks
+description: Install pre-commit hooks
+
+receivers:
+  - name: setup
+    builtin: true
+    type: SetupReceiver
+    description: Repository setup functions
+    functions:
+      install_hook: Install git hooks
+
+command:
+  help: Install pre-commit hooks
+  implementation: setup-hooks.star
+
+flags: []

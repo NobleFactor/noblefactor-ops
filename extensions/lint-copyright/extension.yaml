@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: lint.copyright
+description: Check or fix copyright headers in source files
+
+receivers:
+  - name: copyright
+    builtin: true
+    type: CopyrightChecker
+    description: Copyright header checking
+    functions:
+      check: Verify files have correct headers
+      fix: Add or update headers
+      detect_license: Detect SPDX from LICENSE file
+  - name: config
+    builtin: true
+    type: ConfigReceiver
+    description: Configuration access
+    functions:
+      get: Load merged config
+  - name: fs
+    builtin: true
+    type: FSReceiver
+    description: Filesystem operations
+    functions:
+      glob: Find files matching pattern
+
+command:
+  help: Check or fix copyright headers in source files
+  implementation: lint-copyright.star
+
+flags:
+  - name: fix
+    type: bool
+    default: "false"
+    help: Add missing headers and update old format
+  - name: path
+    type: string
+    default: "."
+    help: Path to check
+
+config:
+  type: CopyrightConfig
+  fields:
+    enabled: bool
+    license: string
+    holder: string
+    patterns: map[string]any
+    exclude: "[]string"
+  defaults:
+    enabled: false
+    license: "auto"
