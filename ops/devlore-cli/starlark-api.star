@@ -33,9 +33,9 @@ def run(ctx):
         return
 
     # Path to the starlark package
-    starlark_path = fs.join(devlore_path, "internal", "starlark")
+    starlark_path = file.join(devlore_path, "internal", "starlark")
 
-    if not fs.exists(starlark_path):
+    if not file.exists(starlark_path):
         fail("Starlark package not found at " + starlark_path)
         return
 

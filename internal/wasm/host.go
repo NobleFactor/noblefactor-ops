@@ -104,7 +104,8 @@ func ensureCacheDir() (string, error) {
 
 // LoadModule compiles and caches a Wasm module from the given path.
 // Subsequent calls with the same path return the cached module.
-func (h *WasmHost) LoadModule(wasmPath string) (*WasmModule, error) {
+// Returns extension.WasmModule to satisfy the extension.WasmHost interface.
+func (h *WasmHost) LoadModule(wasmPath string) (extension.WasmModule, error) {
 	// Get absolute path for cache key
 	absPath, err := filepath.Abs(wasmPath)
 	if err != nil {
@@ -136,6 +137,12 @@ func (h *WasmHost) LoadModule(wasmPath string) (*WasmModule, error) {
 	// Store in cache (may race, but that's okay - both are valid)
 	actual, _ := h.modules.LoadOrStore(absPath, module)
 	return actual.(*WasmModule), nil
+}
+
+// Call invokes a function in the given module.
+// Implements extension.WasmHost interface.
+func (h *WasmHost) Call(module extension.WasmModule, function string, args []byte) ([]byte, error) {
+	return module.Call(function, args)
 }
 
 // Capabilities returns the host's declared capabilities.

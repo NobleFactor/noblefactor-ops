@@ -29,7 +29,10 @@ type WasmModule struct {
 //
 // Each call creates a fresh module instance (reactor pattern) to ensure
 // clean state between invocations.
-func (m *WasmModule) Call(ctx context.Context, function string, args []byte) ([]byte, error) {
+//
+// Implements extension.WasmModule interface.
+func (m *WasmModule) Call(function string, args []byte) ([]byte, error) {
+	ctx := m.host.ctx
 	var stdout, stderr bytes.Buffer
 
 	// Build request envelope
@@ -176,6 +179,12 @@ func (m *WasmModule) ExportedFunctions() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Functions implements extension.WasmModule interface.
+// It returns the list of exported function names (alias for ExportedFunctions).
+func (m *WasmModule) Functions() []string {
+	return m.ExportedFunctions()
 }
 
 // HasFunction checks if the module exports a function with the given name.

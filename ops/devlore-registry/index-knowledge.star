@@ -23,10 +23,10 @@ ASSET_TYPES = ["prompts", "schemas", "examples", "transforms", "signatures", "sl
 def list_files(dir_path):
     """List all files in a directory (non-recursive)."""
     files = []
-    if not fs.exists(dir_path):
+    if not file.exists(dir_path):
         return files
 
-    for entry in fs.list_dir(dir_path):
+    for entry in file.list(dir_path):
         if entry.is_dir:
             continue
         # Skip hidden files
@@ -48,7 +48,7 @@ def build_index(domain_name, domain_path):
     index = {"domain": domain_name}
 
     for asset_type in ASSET_TYPES:
-        asset_dir = fs.join(domain_path, asset_type)
+        asset_dir = file.join(domain_path, asset_type)
         entries = build_asset_entries(asset_dir)
         if len(entries) > 0:
             index[asset_type] = entries
@@ -60,16 +60,16 @@ def run(ctx):
     registry = ctx.args.get("path", ".")
     dry_run = ctx.args.get("dry_run", "") == "true"
 
-    knowledge_dir = fs.join(registry, "knowledge")
+    knowledge_dir = file.join(registry, "knowledge")
 
-    if not fs.exists(knowledge_dir):
+    if not file.exists(knowledge_dir):
         fail("knowledge/ directory not found at " + knowledge_dir)
         return
 
     domains_processed = 0
     total_assets = 0
 
-    for entry in fs.list_dir(knowledge_dir):
+    for entry in file.list(knowledge_dir):
         if not entry.is_dir:
             continue
 
@@ -89,14 +89,14 @@ def run(ctx):
             continue
 
         index_content = yaml.encode(index)
-        index_path = fs.join(domain_path, "index.yaml")
+        index_path = file.join(domain_path, "index.yaml")
 
         if dry_run:
             note("Would write: " + index_path + " (" + str(asset_count) + " assets)")
             print(index_content)
             print("---")
         else:
-            fs.write(index_path, index_content)
+            file.write(index_path, index_content)
             success("Wrote: " + index_path + " (" + str(asset_count) + " assets)")
 
         domains_processed = domains_processed + 1

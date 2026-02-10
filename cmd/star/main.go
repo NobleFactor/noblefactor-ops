@@ -264,7 +264,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		},
 	}))
 
-	// Load Starlark commands from ops/ directory
+	// Load Starlark commands from ops/ and extensions/ directories
 	if err := loadStarlarkCommands(rootCmd); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
 	}

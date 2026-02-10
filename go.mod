@@ -6,6 +6,7 @@ module github.com/NobleFactor/noblefactor-ops
 go 1.24.0
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/tetratelabs/wazero v1.11.0

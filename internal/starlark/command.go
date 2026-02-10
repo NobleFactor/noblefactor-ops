@@ -19,6 +19,7 @@ type Command struct {
 	RunFunc     starlark.Callable
 	globals     starlark.StringDict
 	predeclared starlark.StringDict
+	runtime     *Runtime // Reference to runtime for command tree access
 }
 
 // Flag represents a command flag.
@@ -48,6 +49,11 @@ func (c *Command) Run(args map[string]string) error {
 		"args":    argsDict,
 		"dry_run": starlark.Bool(DryRun),
 	})
+
+	// Set current command context on the commands receiver
+	if cmds, ok := c.predeclared["commands"].(*CommandsReceiver); ok {
+		cmds.SetCurrentCommand(c.Name)
+	}
 
 	// Call the run function
 	_, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{ctx}, nil)

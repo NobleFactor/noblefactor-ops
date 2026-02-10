@@ -44,8 +44,8 @@ def build_modelfile(knowledge_path, domain, model):
 
     # Include each asset type in order
     for asset_type, section_name, extension in SYSTEM_ASSET_ORDER:
-        asset_dir = fs.join(knowledge_path, asset_type)
-        if not fs.is_dir(asset_dir):
+        asset_dir = file.join(knowledge_path, asset_type)
+        if not file.is_directory(asset_dir):
             continue
 
         section_content = _build_section(asset_dir, section_name, extension)
@@ -75,8 +75,8 @@ def _build_section(asset_dir, section_name, extension):
     lines.append("")
 
     for filename in files:
-        filepath = fs.join(asset_dir, filename)
-        content = fs.read(filepath)
+        filepath = file.join(asset_dir, filename)
+        content = file.read(filepath)
 
         # Skip baseline/generated files in examples
         if filename.startswith("baseline-"):
@@ -105,10 +105,10 @@ def _build_section(asset_dir, section_name, extension):
 def _list_asset_files(dir_path, extension):
     """List files in directory matching extension."""
     files = []
-    if not fs.exists(dir_path):
+    if not file.exists(dir_path):
         return files
 
-    for entry in fs.list_dir(dir_path):
+    for entry in file.list(dir_path):
         if entry.is_dir:
             continue
         if entry.name.startswith("."):
@@ -133,12 +133,12 @@ def _find_registry(explicit_path):
         return explicit_path
 
     # Try sibling directory
-    sibling = fs.join("..", "devlore-registry")
-    if fs.is_dir(sibling):
+    sibling = file.join("..", "devlore-registry")
+    if file.is_directory(sibling):
         return sibling
 
     # Try current directory
-    if fs.is_dir("knowledge"):
+    if file.is_directory("knowledge"):
         return "."
 
     return ""
@@ -146,12 +146,12 @@ def _find_registry(explicit_path):
 
 def _list_knowledge_domains(registry):
     """List all knowledge domains in the registry."""
-    knowledge_path = fs.join(registry, "knowledge")
-    if not fs.is_dir(knowledge_path):
+    knowledge_path = file.join(registry, "knowledge")
+    if not file.is_directory(knowledge_path):
         return []
 
     domains = []
-    for entry in fs.list_dir(knowledge_path):
+    for entry in file.list(knowledge_path):
         if entry.is_dir and not entry.name.startswith("."):
             domains.append(entry.name)
     return sorted(domains)
@@ -159,14 +159,14 @@ def _list_knowledge_domains(registry):
 
 def _build_domain(registry, domain, model):
     """Build Modelfile for a single domain."""
-    knowledge_path = fs.join(registry, "knowledge", domain)
-    if not fs.is_dir(knowledge_path):
+    knowledge_path = file.join(registry, "knowledge", domain)
+    if not file.is_directory(knowledge_path):
         fail("Knowledge domain not found: " + domain)
 
     content = build_modelfile(knowledge_path, domain, model)
     output_path = "Modelfile." + domain
 
-    fs.write(output_path, content)
+    file.write(output_path, content)
     success("Generated: " + output_path)
 
     # Show stats
