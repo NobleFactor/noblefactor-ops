@@ -3,7 +3,7 @@ title: "Devlore Extension Model"
 description: "Architecture for extending devlore CLIs with new capabilities via YAML specs, Starlark commands, and Go bindings"
 status: draft
 created: 2025-02-07
-updated: 2025-02-09
+updated: 2025-02-10
 ---
 
 # Devlore Extension Model
@@ -249,6 +249,79 @@ Host validates all capability requests. Extensions cannot:
 - Spawn processes directly
 - Make network requests directly
 - Access environment variables not explicitly passed
+
+### WASM Target Support
+
+Extensions target **wasm32-wasip1** (32-bit WebAssembly with WASI preview 1). This section documents the current state of toolchain support.
+
+#### Recommended Target
+
+| Target | Status | Use Case |
+|--------|--------|----------|
+| `wasm32-wasip1` | ✅ Stable | All extensions (recommended) |
+| `wasm64-unknown-unknown` | ⚠️ Experimental | Only if >4GB memory needed |
+
+For most extensions, **wasm32-wasip1 is sufficient**. Memory64 is only relevant for video editing, scientific computing, or LLM inference.
+
+#### Rust WASM Targets
+
+Rust has the most mature WASM support:
+
+| Target | Tier | Notes |
+|--------|------|-------|
+| [`wasm32-wasip1`](https://doc.rust-lang.org/rustc/platform-support/wasm32-wasip1.html) | Tier 2 | Stable, ships with wasi-libc |
+| [`wasm32-wasip2`](https://doc.rust-lang.org/rustc/platform-support/wasm32-wasip2.html) | Tier 3 | Component model support |
+| [`wasm64-unknown-unknown`](https://doc.rust-lang.org/beta/rustc/platform-support/wasm64-unknown-unknown.html) | Tier 3 | Memory64, no libc, requires `-Z build-std` |
+
+Building a Rust WASM receiver:
+
+```bash
+# Install target (one-time)
+rustup target add wasm32-wasip1
+
+# Build
+cd extensions/com.noblefactor.star.Gitignore
+cargo build --target wasm32-wasip1 --release
+cp target/wasm32-wasip1/release/gitignore.wasm receivers/
+```
+
+#### Go WASM Targets
+
+Go's WASM support is more limited:
+
+| Target | Status | Notes |
+|--------|--------|-------|
+| `GOOS=wasip1 GOARCH=wasm` | ✅ Stable | 64-bit integers but 32-bit addressing |
+| `wasm32` | ❌ [Proposed](https://github.com/golang/go/issues/63131) | Would improve performance |
+| `wasm64` / Memory64 | ❌ Not available | No current support |
+| WASIp2/p3 | ❌ [Proposed for 2026](https://github.com/golang/go/issues/77141) | Blocked on component model |
+
+Building a Go WASM receiver:
+
+```bash
+GOOS=wasip1 GOARCH=wasm go build -o receiver.wasm
+```
+
+**Note:** Go's `GOARCH=wasm` uses 64-bit pointers internally but still uses 32-bit memory addressing. True Memory64 support is not available.
+
+#### Memory64 and WebAssembly 3.0
+
+[WebAssembly 3.0](https://webassembly.org/news/2025-09-17-wasm-3.0/) (finalized September 2025) includes Memory64, extending addressable space from 4GB to 16 exabytes. Key points:
+
+- **Browser limits**: ~16GB in practice despite theoretical 16EB
+- **Toolchain support**: Still catching up (Rust tier 3, Go none)
+- **Recommendation**: Only use Memory64 if you need >4GB
+
+For current extension development, wasm32-wasip1 remains the recommended target.
+
+#### References
+
+- [Rust wasm32-wasip1 docs](https://doc.rust-lang.org/rustc/platform-support/wasm32-wasip1.html)
+- [Rust wasm64-unknown-unknown docs](https://doc.rust-lang.org/beta/rustc/platform-support/wasm64-unknown-unknown.html)
+- [Go wasm32 proposal #63131](https://github.com/golang/go/issues/63131)
+- [Go wasip3 proposal #77141](https://github.com/golang/go/issues/77141)
+- [WebAssembly 3.0 announcement](https://webassembly.org/news/2025-09-17-wasm-3.0/)
+- [State of WebAssembly 2025-2026](https://platform.uno/blog/the-state-of-webassembly-2025-2026/)
 
 ## Extension Components
 
