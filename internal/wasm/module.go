@@ -29,7 +29,10 @@ type WasmModule struct {
 //
 // Each call creates a fresh module instance (reactor pattern) to ensure
 // clean state between invocations.
-func (m *WasmModule) Call(ctx context.Context, function string, args []byte) ([]byte, error) {
+//
+// Implements extension.WasmModule interface.
+func (m *WasmModule) Call(function string, args []byte) ([]byte, error) {
+	ctx := m.host.ctx
 	var stdout, stderr bytes.Buffer
 
 	// Build request envelope
@@ -58,13 +61,17 @@ func (m *WasmModule) Call(ctx context.Context, function string, args []byte) ([]
 		return nil, err
 	}
 
+	// Create host state for this call and add to context
+	hostState := NewHostState(m.host.callbacks)
+	callCtx := withHostState(ctx, hostState)
+
 	// Instantiate and run
-	result, err := m.host.runtime.InstantiateModule(ctx, m.compiled, config)
+	result, err := m.host.runtime.InstantiateModule(callCtx, m.compiled, config)
 	if err != nil {
 		// DO NOT call result.Close() here - wazero already cleaned up on error
 		return nil, m.handleError(err, stderr.String())
 	}
-	defer result.Close(ctx)
+	defer result.Close(callCtx)
 
 	// Check stderr for errors
 	if stderr.Len() > 0 {
@@ -172,6 +179,12 @@ func (m *WasmModule) ExportedFunctions() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// Functions implements extension.WasmModule interface.
+// It returns the list of exported function names (alias for ExportedFunctions).
+func (m *WasmModule) Functions() []string {
+	return m.ExportedFunctions()
 }
 
 // HasFunction checks if the module exports a function with the given name.

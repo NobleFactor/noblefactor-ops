@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintGo
+description: Run Go lint checks (go mod tidy + golangci-lint)
+
+receivers:
+  - name: lint
+    builtin: true
+    type: LintReceiver
+    description: Go linting primitives
+    functions:
+      go: Run golangci-lint with mod tidy check
+      ensure_tools: Check lint tool availability
+
+commands:
+  - name: lint.go
+    help: Run Go lint checks (go mod tidy + golangci-lint)
+    implementation: commands/lint-go.star
+    flags:
+      - name: path
+        type: string
+        default: "./..."
+        help: Path to lint
+      - name: config
+        type: string
+        default: ""
+        help: Path to golangci-lint config file
+      - name: skip_mod_tidy
+        type: bool
+        default: "false"
+        help: Skip go mod tidy check

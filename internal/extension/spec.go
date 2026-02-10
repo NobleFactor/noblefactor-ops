@@ -14,8 +14,8 @@ import (
 
 // ExtensionSpec describes an extension parsed from YAML.
 type ExtensionSpec struct {
-	// Extension is the dotted name (e.g., "lint.copyright").
-	// Determines command path and config path.
+	// Extension is the reverse domain name identifier.
+	// Example: "com.noblefactor.star.CopyrightChecker"
 	Extension string `yaml:"extension"`
 
 	// Description is a brief summary of what the extension does.
@@ -25,16 +25,9 @@ type ExtensionSpec struct {
 	// Can be built-in (compiled into binary) or Wasm (loaded at runtime).
 	Receivers []ReceiverSpec `yaml:"receivers"`
 
-	// Capabilities defines sandboxing rules for Wasm extensions.
-	// Required if any receiver uses Wasm; nil for built-in only.
-	Capabilities *Capabilities `yaml:"capabilities"`
-
-	// Command defines a CLI subcommand if this extension provides one.
-	// Optional - binding-only extensions have no command.
-	Command *CommandSpec `yaml:"command"`
-
-	// Flags are command-line flags for the command.
-	Flags []FlagSpec `yaml:"flags"`
+	// Commands defines CLI subcommands provided by this extension.
+	// Each command has its own implementation file in commands/ subdirectory.
+	Commands []CommandSpec `yaml:"commands"`
 
 	// Config defines the configuration schema for this extension.
 	// Optional - not all extensions need configuration.
@@ -43,19 +36,24 @@ type ExtensionSpec struct {
 	// SourcePath is the path to the YAML file this was loaded from.
 	// Set by ParseSpec, not part of YAML.
 	SourcePath string `yaml:"-"`
+
+	// ExtensionDir is the directory containing the extension.
+	// Set by ParseSpec, not part of YAML.
+	ExtensionDir string `yaml:"-"`
 }
 
 // ReceiverSpec describes binding functions provided by an extension.
 type ReceiverSpec struct {
-	// Name is the module name exposed to Starlark (e.g., "copyright").
+	// Name is the module name exposed to Starlark (e.g., "gitignore").
 	Name string `yaml:"name"`
 
-	// Type is the Go type name for built-in receivers (e.g., "CopyrightChecker").
+	// Type is the Go type name for built-in receivers (e.g., "FileReceiver").
 	// Only used when Builtin is true.
 	Type string `yaml:"type"`
 
 	// Wasm is the path to the .wasm file for external receivers.
-	// Relative to the extension directory.
+	// Relative to the extension directory, in receivers/ subdirectory.
+	// Example: "receivers/gitignore.wasm"
 	Wasm string `yaml:"wasm"`
 
 	// Builtin indicates the receiver is compiled into the star binary.
@@ -68,16 +66,28 @@ type ReceiverSpec struct {
 	// Functions maps function names to descriptions.
 	// Keys are snake_case names as exposed to Starlark.
 	Functions map[string]string `yaml:"functions"`
+
+	// Capabilities defines sandboxing rules for this WASM receiver.
+	// Required when Wasm is set; ignored for builtin receivers.
+	Capabilities *Capabilities `yaml:"capabilities"`
 }
 
 // CommandSpec describes a CLI subcommand.
 type CommandSpec struct {
+	// Name is the dotted command path (e.g., "lint.copyright").
+	// Determines the CLI hierarchy: star lint copyright
+	Name string `yaml:"name"`
+
 	// Help is the help text shown for --help.
 	Help string `yaml:"help"`
 
 	// Implementation is the path to the Starlark file implementing the command.
-	// Relative to the extension directory.
+	// Relative to the extension directory, in commands/ subdirectory.
+	// Example: "commands/lint-copyright.star"
 	Implementation string `yaml:"implementation"`
+
+	// Flags are command-line flags for this command.
+	Flags []FlagSpec `yaml:"flags"`
 }
 
 // FlagSpec describes a command flag.
@@ -170,16 +180,14 @@ func (s *ExtensionSpec) Validate() error {
 		return fmt.Errorf("extension name is required")
 	}
 
-	// Validate extension name format (dotted path)
-	parts := strings.Split(s.Extension, ".")
-	for _, part := range parts {
-		if part == "" {
-			return fmt.Errorf("extension name %q has empty path segment", s.Extension)
-		}
+	// Validate extension name format (reverse domain name)
+	// Example: com.noblefactor.star.CopyrightChecker
+	if err := validateReverseDomainName(s.Extension); err != nil {
+		return fmt.Errorf("extension name %q: %w", s.Extension, err)
 	}
 
-	// Must have receivers OR command (or both)
-	if len(s.Receivers) == 0 && s.Command == nil {
+	// Must have receivers OR commands (or both)
+	if len(s.Receivers) == 0 && len(s.Commands) == 0 {
 		return fmt.Errorf("extension must define at least one receiver or command")
 	}
 
@@ -194,36 +202,91 @@ func (s *ExtensionSpec) Validate() error {
 		if !r.Builtin && r.Wasm == "" {
 			return fmt.Errorf("receiver %q: non-builtin receiver requires wasm path", r.Name)
 		}
+		// WASM receivers must have capabilities
+		if !r.Builtin && r.Wasm != "" && r.Capabilities == nil {
+			return fmt.Errorf("receiver %q: WASM receiver requires capabilities", r.Name)
+		}
+		// WASM path must be in receivers/ subdirectory
+		if r.Wasm != "" && !strings.HasPrefix(r.Wasm, "receivers/") {
+			return fmt.Errorf("receiver %q: wasm path must be in receivers/ subdirectory", r.Name)
+		}
 	}
 
-	// Validate Wasm receivers have capabilities
-	if s.HasWasmReceivers() && s.Capabilities == nil {
-		return fmt.Errorf("extension with Wasm receivers must define capabilities")
-	}
-
-	// Validate flags
-	for i, f := range s.Flags {
-		if f.Name == "" {
-			return fmt.Errorf("flag[%d] name is required", i)
+	// Validate commands
+	for i, c := range s.Commands {
+		if c.Name == "" {
+			return fmt.Errorf("command[%d] name is required", i)
 		}
-		if f.Type == "" {
-			return fmt.Errorf("flag %q: type is required", f.Name)
+		if c.Implementation == "" {
+			return fmt.Errorf("command %q: implementation is required", c.Name)
 		}
-		switch f.Type {
-		case "bool", "string", "int", "glob":
-			// valid
-		default:
-			return fmt.Errorf("flag %q: unknown type %q (expected bool, string, int, or glob)", f.Name, f.Type)
+		// Implementation must be in commands/ subdirectory
+		if !strings.HasPrefix(c.Implementation, "commands/") {
+			return fmt.Errorf("command %q: implementation must be in commands/ subdirectory", c.Name)
+		}
+		// Validate command flags
+		for j, f := range c.Flags {
+			if f.Name == "" {
+				return fmt.Errorf("command %q flag[%d]: name is required", c.Name, j)
+			}
+			if f.Type == "" {
+				return fmt.Errorf("command %q flag %q: type is required", c.Name, f.Name)
+			}
+			switch f.Type {
+			case "bool", "string", "int", "glob":
+				// valid
+			default:
+				return fmt.Errorf("command %q flag %q: unknown type %q", c.Name, f.Name, f.Type)
+			}
 		}
 	}
 
 	return nil
 }
 
-// CommandPath returns the extension name split into path segments.
-// "lint.copyright" -> ["lint", "copyright"]
-func (s *ExtensionSpec) CommandPath() []string {
-	return strings.Split(s.Extension, ".")
+// validateReverseDomainName checks that a name follows reverse domain format.
+// Examples: com.noblefactor.star.CopyrightChecker, org.example.MyExtension
+func validateReverseDomainName(name string) error {
+	parts := strings.Split(name, ".")
+	if len(parts) < 3 {
+		return fmt.Errorf("must have at least 3 segments (e.g., com.example.Name)")
+	}
+
+	// First segment should be a TLD (com, org, io, etc.)
+	tld := parts[0]
+	validTLDs := map[string]bool{"com": true, "org": true, "io": true, "net": true, "dev": true, "app": true}
+	if !validTLDs[tld] {
+		return fmt.Errorf("first segment %q should be a TLD (com, org, io, net, dev, app)", tld)
+	}
+
+	// All segments must be non-empty
+	for i, part := range parts {
+		if part == "" {
+			return fmt.Errorf("segment %d is empty", i)
+		}
+	}
+
+	return nil
+}
+
+// CommandPaths returns the command paths for all commands in this extension.
+// Each command name like "lint.copyright" becomes ["lint", "copyright"].
+func (s *ExtensionSpec) CommandPaths() [][]string {
+	var paths [][]string
+	for _, cmd := range s.Commands {
+		paths = append(paths, strings.Split(cmd.Name, "."))
+	}
+	return paths
+}
+
+// GetCommand returns the CommandSpec for the given command name, or nil if not found.
+func (s *ExtensionSpec) GetCommand(name string) *CommandSpec {
+	for i := range s.Commands {
+		if s.Commands[i].Name == name {
+			return &s.Commands[i]
+		}
+	}
+	return nil
 }
 
 // IsBuiltin returns true if all receivers are built-in (no Wasm).
@@ -246,9 +309,9 @@ func (s *ExtensionSpec) HasWasmReceivers() bool {
 	return false
 }
 
-// HasCommand returns true if this extension provides a CLI command.
-func (s *ExtensionSpec) HasCommand() bool {
-	return s.Command != nil
+// HasCommands returns true if this extension provides CLI commands.
+func (s *ExtensionSpec) HasCommands() bool {
+	return len(s.Commands) > 0
 }
 
 // HasReceivers returns true if this extension provides binding functions.
@@ -275,11 +338,15 @@ func (s *ExtensionSpec) ToConfigSpec() config.ConfigSpec {
 	}
 }
 
-// GetFlag returns the FlagSpec for the given flag name, or nil if not found.
-func (s *ExtensionSpec) GetFlag(name string) *FlagSpec {
-	for i := range s.Flags {
-		if s.Flags[i].Name == name {
-			return &s.Flags[i]
+// GetFlag returns the FlagSpec for the given command and flag name, or nil if not found.
+func (s *ExtensionSpec) GetFlag(cmdName, flagName string) *FlagSpec {
+	cmd := s.GetCommand(cmdName)
+	if cmd == nil {
+		return nil
+	}
+	for i := range cmd.Flags {
+		if cmd.Flags[i].Name == flagName {
+			return &cmd.Flags[i]
 		}
 	}
 	return nil

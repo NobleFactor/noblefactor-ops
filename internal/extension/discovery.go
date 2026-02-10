@@ -105,17 +105,23 @@ func LoadAll(dirs ...string) (int, error) {
 
 // DefaultSearchPaths returns the standard directories to search for extensions.
 // The paths are:
-//   - ./extensions (project local)
-//   - ~/.star/extensions (user extensions)
+//   - ./star/extensions (project local)
+//   - ${XDG_DATA_HOME}/star/extensions (user extensions, defaults to ~/.local/share)
 //   - /usr/local/share/star/extensions (system-wide)
 func DefaultSearchPaths() []string {
 	paths := []string{
-		"extensions",
+		filepath.Join("star", "extensions"),
 	}
 
-	// User extensions directory
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".star", "extensions"))
+	// User extensions directory (XDG_DATA_HOME)
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dataHome = filepath.Join(home, ".local", "share")
+		}
+	}
+	if dataHome != "" {
+		paths = append(paths, filepath.Join(dataHome, "star", "extensions"))
 	}
 
 	// System-wide extensions (Unix-like systems)
@@ -132,13 +138,13 @@ func LoadDefaults() (int, error) {
 
 // FindExtensionDir locates the directory containing an extension by name.
 // Searches default paths and returns the path to the extension directory.
+// Extension directories use the extension name directly (reverse domain format).
+// Example: extension "com.noblefactor.star.CopyrightChecker" is in
+// directory "com.noblefactor.star.CopyrightChecker/".
 func FindExtensionDir(name string) (string, error) {
-	// Convert extension name to directory path
-	// "lint.copyright" -> "lint-copyright"
-	dirName := strings.ReplaceAll(name, ".", "-")
-
 	for _, searchPath := range DefaultSearchPaths() {
-		dir := filepath.Join(searchPath, dirName)
+		// Directory name is the extension name (reverse domain format)
+		dir := filepath.Join(searchPath, name)
 		yamlPath := filepath.Join(dir, "extension.yaml")
 
 		if _, err := os.Stat(yamlPath); err == nil {

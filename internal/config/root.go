@@ -20,21 +20,19 @@ type ConfigSpec struct {
 	Defaults map[string]interface{} // default values
 }
 
-// ExtensibleConfig is the root of the new configuration hierarchy.
+// extensionsConfig is the root of the extension configuration hierarchy.
 // It embeds ConfigElement with path = "" and manages extension configs.
-//
-// Note: This is named ExtensibleConfig to coexist with the legacy Config type.
-// It will be renamed to Config in Phase 5 when legacy code is removed.
-type ExtensibleConfig struct {
+// This is private - consumers should use the unified Config type.
+type extensionsConfig struct {
 	ConfigElement                  // path = "", children = top-level sections
 	source        string           // filename, e.g., "star.yaml"
 	dirty         bool             // modified since load
 	specs         map[string]ConfigSpec // registered extension specs by path
 }
 
-// NewExtensibleConfig creates a new empty configuration root.
-func NewExtensibleConfig(source string) *ExtensibleConfig {
-	return &ExtensibleConfig{
+// newExtensionsConfig creates a new empty extension configuration root.
+func newExtensionsConfig(source string) *extensionsConfig {
+	return &extensionsConfig{
 		ConfigElement: ConfigElement{path: ""},
 		source:        source,
 		specs:         make(map[string]ConfigSpec),
@@ -42,17 +40,17 @@ func NewExtensibleConfig(source string) *ExtensibleConfig {
 }
 
 // Source returns the configuration source path.
-func (c *ExtensibleConfig) Source() string {
+func (c *extensionsConfig) Source() string {
 	return c.source
 }
 
 // IsDirty returns true if config has been modified since load.
-func (c *ExtensibleConfig) IsDirty() bool {
+func (c *extensionsConfig) IsDirty() bool {
 	return c.dirty
 }
 
 // SetDirty marks the config as modified.
-func (c *ExtensibleConfig) SetDirty(dirty bool) {
+func (c *extensionsConfig) SetDirty(dirty bool) {
 	c.dirty = dirty
 }
 
@@ -71,7 +69,7 @@ func (c *ExtensibleConfig) SetDirty(dirty bool) {
 //	        "license": "auto",
 //	    },
 //	})
-func (c *ExtensibleConfig) RegisterExtension(path string, spec ConfigSpec) error {
+func (c *extensionsConfig) registerExtension(path string, spec ConfigSpec) error {
 	if path == "" {
 		return fmt.Errorf("extension path cannot be empty")
 	}
@@ -115,14 +113,14 @@ func (c *ExtensibleConfig) RegisterExtension(path string, spec ConfigSpec) error
 	return nil
 }
 
-// GetSpec returns the ConfigSpec for an extension path.
-func (c *ExtensibleConfig) GetSpec(path string) (ConfigSpec, bool) {
+// getSpec returns the ConfigSpec for an extension path.
+func (c *extensionsConfig) getSpec(path string) (ConfigSpec, bool) {
 	spec, ok := c.specs[path]
 	return spec, ok
 }
 
-// Accessor returns a typed accessor for a section at the given path.
-func (c *ExtensibleConfig) Accessor(path string) *ConfigAccessor {
+// accessor returns a typed accessor for a section at the given path.
+func (c *extensionsConfig) accessor(path string) *ConfigAccessor {
 	elem := c.Navigate(path)
 	if elem == nil {
 		return &ConfigAccessor{}
@@ -130,10 +128,10 @@ func (c *ExtensibleConfig) Accessor(path string) *ConfigAccessor {
 	return NewAccessor(elem)
 }
 
-// LoadExtensible reads configuration from a file and merges it into the hierarchy.
+// loadExtensions reads configuration from a file and merges it into the hierarchy.
 // Extensions must be registered before calling Load.
-func LoadExtensible(source string) (*ExtensibleConfig, error) {
-	cfg := NewExtensibleConfig(source)
+func loadExtensions(source string) (*extensionsConfig, error) {
+	cfg := newExtensionsConfig(source)
 
 	// Read source file
 	data, err := os.ReadFile(source)
@@ -157,14 +155,14 @@ func LoadExtensible(source string) (*ExtensibleConfig, error) {
 	return cfg, nil
 }
 
-// LoadExtensibleWithSpecs registers extensions and loads configuration.
-// This is a convenience function that combines RegisterExtension and LoadExtensible.
-func LoadExtensibleWithSpecs(source string, specs map[string]ConfigSpec) (*ExtensibleConfig, error) {
-	cfg := NewExtensibleConfig(source)
+// loadExtensionsWithSpecs registers extensions and loads configuration.
+// This is a convenience function that combines registerExtension and loadExtensions.
+func loadExtensionsWithSpecs(source string, specs map[string]ConfigSpec) (*extensionsConfig, error) {
+	cfg := newExtensionsConfig(source)
 
 	// Register all extensions
 	for path, spec := range specs {
-		if err := cfg.RegisterExtension(path, spec); err != nil {
+		if err := cfg.registerExtension(path, spec); err != nil {
 			return nil, fmt.Errorf("register %s: %w", path, err)
 		}
 	}
@@ -187,8 +185,8 @@ func LoadExtensibleWithSpecs(source string, specs map[string]ConfigSpec) (*Exten
 	return cfg, nil
 }
 
-// Save writes configuration back to the source file.
-func (c *ExtensibleConfig) Save() error {
+// save writes configuration back to the source file.
+func (c *extensionsConfig) save() error {
 	data, err := yaml.Marshal(c.toMap())
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
@@ -203,12 +201,12 @@ func (c *ExtensibleConfig) Save() error {
 }
 
 // mergeRaw merges raw YAML values into the configuration hierarchy.
-func (c *ExtensibleConfig) mergeRaw(raw map[string]interface{}) {
+func (c *extensionsConfig) mergeRaw(raw map[string]interface{}) {
 	c.mergeInto(&c.ConfigElement, raw, "")
 }
 
 // mergeInto recursively merges values into a config element.
-func (c *ExtensibleConfig) mergeInto(elem *ConfigElement, values map[string]interface{}, pathPrefix string) {
+func (c *extensionsConfig) mergeInto(elem *ConfigElement, values map[string]interface{}, pathPrefix string) {
 	for key, val := range values {
 		childPath := key
 		if pathPrefix != "" {
@@ -259,12 +257,12 @@ func mergeIntoStruct(obj interface{}, values map[string]interface{}) {
 }
 
 // toMap converts the configuration hierarchy to a map for YAML serialization.
-func (c *ExtensibleConfig) toMap() map[string]interface{} {
+func (c *extensionsConfig) toMap() map[string]interface{} {
 	return c.elementToMap(&c.ConfigElement)
 }
 
 // elementToMap recursively converts a ConfigElement to a map.
-func (c *ExtensibleConfig) elementToMap(elem *ConfigElement) map[string]interface{} {
+func (c *extensionsConfig) elementToMap(elem *ConfigElement) map[string]interface{} {
 	result := make(map[string]interface{})
 
 	for name, child := range elem.Children() {
@@ -294,8 +292,8 @@ func structToMap(obj interface{}) map[string]interface{} {
 	return result
 }
 
-// WrapAsStarlark wraps the config for Starlark access.
-// Uses the new ConfigValue type for reflection-based access.
-func (c *ExtensibleConfig) WrapAsStarlark() interface{} {
+// wrapAsStarlark wraps the config for Starlark access.
+// Uses the ConfigValue type for reflection-based access.
+func (c *extensionsConfig) wrapAsStarlark() interface{} {
 	return WrapAsStarlarkValue(c)
 }

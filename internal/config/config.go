@@ -2,9 +2,9 @@
 // Copyright Noble Factor. All rights reserved.
 
 // Package config provides unified configuration for star commands.
-// Configuration is loaded from a hierarchy of star.yaml files:
-//  1. ./star.yaml (project - highest priority)
-//  2. ${XDG_CONFIG_HOME}/star/star.yaml (user defaults)
+// Configuration is loaded from a hierarchy of config.yaml files:
+//  1. ./star/config.yaml (project - highest priority)
+//  2. ${XDG_CONFIG_HOME}/star/config.yaml (user defaults)
 //  3. Built-in defaults (hardcoded fallback)
 package config
 
@@ -15,8 +15,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the top-level configuration structure for star commands.
-type Config struct {
+// builtinConfig is the top-level configuration structure for star commands.
+// This is private - consumers should use the unified Config type.
+type builtinConfig struct {
 	Lint      LintConfig      `yaml:"lint"`
 	Precommit PrecommitConfig `yaml:"precommit"`
 }
@@ -88,9 +89,9 @@ type CopyrightPattern struct {
 	Replace string `yaml:"replace"` // Canonical form to use
 }
 
-// DefaultConfig returns the built-in default configuration.
-func DefaultConfig() *Config {
-	return &Config{
+// defaultBuiltinConfig returns the built-in default configuration.
+func defaultBuiltinConfig() *builtinConfig {
+	return &builtinConfig{
 		Lint: LintConfig{
 			Go: GoLintConfig{
 				Path:        "./...",
@@ -133,10 +134,10 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Load loads configuration from the hierarchy of star.yaml files.
+// loadBuiltin loads builtin configuration from the hierarchy of star.yaml files.
 // Project config overrides user config, which overrides defaults.
-func Load() (*Config, error) {
-	cfg := DefaultConfig()
+func loadBuiltin() (*builtinConfig, error) {
+	cfg := defaultBuiltinConfig()
 
 	// Load user config from XDG_CONFIG_HOME
 	userCfg, err := loadUserConfig()
@@ -159,9 +160,9 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// LoadWithSources loads configuration and returns the source of each file.
-func LoadWithSources() (*Config, []ConfigSource, error) {
-	cfg := DefaultConfig()
+// loadBuiltinWithSources loads builtin configuration and returns the source of each file.
+func loadBuiltinWithSources() (*builtinConfig, []ConfigSource, error) {
+	cfg := defaultBuiltinConfig()
 	var sources []ConfigSource
 
 	sources = append(sources, ConfigSource{
@@ -172,7 +173,7 @@ func LoadWithSources() (*Config, []ConfigSource, error) {
 	// Load user config
 	userPath := userConfigPath()
 	if userPath != "" {
-		userCfg, err := loadFile(userPath)
+		userCfg, err := loadBuiltinFile(userPath)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -187,7 +188,7 @@ func LoadWithSources() (*Config, []ConfigSource, error) {
 
 	// Load project config
 	projectPath := projectConfigPath()
-	projectCfg, err := loadFile(projectPath)
+	projectCfg, err := loadBuiltinFile(projectPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -208,7 +209,7 @@ type ConfigSource struct {
 	Exists bool
 }
 
-// userConfigPath returns the path to the user's star.yaml.
+// userConfigPath returns the path to the user's config.yaml.
 func userConfigPath() string {
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
@@ -218,30 +219,30 @@ func userConfigPath() string {
 		}
 		configHome = filepath.Join(home, ".config")
 	}
-	return filepath.Join(configHome, "star", "star.yaml")
+	return filepath.Join(configHome, "star", "config.yaml")
 }
 
-// projectConfigPath returns the path to the project's star.yaml.
+// projectConfigPath returns the path to the project's config.yaml.
 func projectConfigPath() string {
-	return "star.yaml"
+	return filepath.Join("star", "config.yaml")
 }
 
 // loadUserConfig loads the user's star.yaml if it exists.
-func loadUserConfig() (*Config, error) {
+func loadUserConfig() (*builtinConfig, error) {
 	path := userConfigPath()
 	if path == "" {
 		return nil, nil
 	}
-	return loadFile(path)
+	return loadBuiltinFile(path)
 }
 
 // loadProjectConfig loads the project's star.yaml if it exists.
-func loadProjectConfig() (*Config, error) {
-	return loadFile(projectConfigPath())
+func loadProjectConfig() (*builtinConfig, error) {
+	return loadBuiltinFile(projectConfigPath())
 }
 
-// loadFile loads a config file, returning nil if it doesn't exist.
-func loadFile(path string) (*Config, error) {
+// loadBuiltinFile loads a builtin config file, returning nil if it doesn't exist.
+func loadBuiltinFile(path string) (*builtinConfig, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -250,7 +251,7 @@ func loadFile(path string) (*Config, error) {
 		return nil, err
 	}
 
-	var cfg Config
+	var cfg builtinConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}

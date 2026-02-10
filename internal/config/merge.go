@@ -3,9 +3,9 @@
 
 package config
 
-// merge combines two configs, with overlay taking precedence over base.
+// merge combines two builtin configs, with overlay taking precedence over base.
 // Only non-zero values in overlay override base values.
-func merge(base, overlay *Config) *Config {
+func merge(base, overlay *builtinConfig) *builtinConfig {
 	result := *base
 
 	// Merge lint config

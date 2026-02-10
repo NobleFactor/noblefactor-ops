@@ -2,13 +2,12 @@
 // Copyright Noble Factor. All rights reserved.
 
 // star is the Starlark-powered operations tool for NobleFactor projects.
-// Operations are defined as .star scripts in the ops/ directory.
+// Commands are defined as extensions in the star/extensions/ directory.
 package main
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -26,13 +25,12 @@ var (
 
 const starlarkDocs = `WRITING STARLARK OPERATIONS
 
-Operations are defined in .star files in the ops/ directory (relative to the
-star binary or current working directory). Each file can register one or
-more commands.
+Commands are defined as extensions in the star/extensions/ directory.
+Each extension can register one or more commands via extension.yaml.
 
 BASIC STRUCTURE
 
-    # ops/my-operation.star
+    # star/extensions/com.example.MyExt/commands/my-operation.star
 
     def run(ctx):
         """Main entry point for the operation."""
@@ -141,8 +139,7 @@ func main() {
 		Short: "Starlark-powered operations tool",
 		Long: `star is the Starlark-powered operations tool for NobleFactor projects.
 
-Operations are defined as .star scripts in the ops/ directory.
-Each script can register commands using the command() function.
+Commands are defined as extensions in the star/extensions/ directory.
 Run 'star docs starlark' for details on writing operations.
 
 SHELL COMPLETION
@@ -264,7 +261,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		},
 	}))
 
-	// Load Starlark commands from ops/ directory
+	// Load Starlark commands from extensions
 	if err := loadStarlarkCommands(rootCmd); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
 	}
@@ -274,15 +271,9 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 	}
 }
 
-// loadStarlarkCommands loads .star files from the ops/ directory and registers them as commands.
+// loadStarlarkCommands loads extensions and registers their commands.
 func loadStarlarkCommands(rootCmd *cobra.Command) error {
-	// Find ops directory relative to executable or current directory
-	opsDir := findOpsDir()
-	if opsDir == "" {
-		return nil // No ops directory found, not an error
-	}
-
-	runtime := starruntime.NewRuntime(opsDir)
+	runtime := starruntime.NewRuntime()
 	if err := runtime.LoadAll(); err != nil {
 		return err
 	}
@@ -293,34 +284,6 @@ func loadStarlarkCommands(rootCmd *cobra.Command) error {
 	}
 
 	return nil
-}
-
-// findOpsDir looks for the ops/ directory in standard locations.
-func findOpsDir() string {
-	// Try relative to current directory (development)
-	if info, err := os.Stat("ops"); err == nil && info.IsDir() {
-		return "ops"
-	}
-
-	// Try relative to executable
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-
-		// Try ops/ next to binary (portable installation)
-		dir := filepath.Join(exeDir, "ops")
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return dir
-		}
-
-		// Try ../share/star/ops (FHS-compliant installation)
-		// e.g., /usr/local/bin/star -> /usr/local/share/star/ops
-		shareOps := filepath.Join(filepath.Dir(exeDir), "share", "star", "ops")
-		if info, err := os.Stat(shareOps); err == nil && info.IsDir() {
-			return shareOps
-		}
-	}
-
-	return ""
 }
 
 // registerStarlarkCommand creates a cobra command from a Starlark command.

@@ -11,8 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestNewExtensibleConfig(t *testing.T) {
-	cfg := NewExtensibleConfig("star.yaml")
+func TestNewExtensionsConfig(t *testing.T) {
+	cfg := newExtensionsConfig("star.yaml")
 
 	if cfg.Source() != "star.yaml" {
 		t.Errorf("Source() = %q, want 'star.yaml'", cfg.Source())
@@ -25,8 +25,8 @@ func TestNewExtensibleConfig(t *testing.T) {
 	}
 }
 
-func TestExtensibleConfig_SetDirty(t *testing.T) {
-	cfg := NewExtensibleConfig("star.yaml")
+func TestExtensionsConfig_SetDirty(t *testing.T) {
+	cfg := newExtensionsConfig("star.yaml")
 
 	cfg.SetDirty(true)
 	if !cfg.IsDirty() {
@@ -39,11 +39,11 @@ func TestExtensibleConfig_SetDirty(t *testing.T) {
 	}
 }
 
-func TestExtensibleConfig_RegisterExtension_Simple(t *testing.T) {
+func TestExtensionsConfig_RegisterExtension_Simple(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := NewExtensibleConfig("star.yaml")
+	cfg := newExtensionsConfig("star.yaml")
 
 	spec := ConfigSpec{
 		Fields: map[string]string{
@@ -56,9 +56,9 @@ func TestExtensibleConfig_RegisterExtension_Simple(t *testing.T) {
 		},
 	}
 
-	err := cfg.RegisterExtension("test", spec)
+	err := cfg.registerExtension("test", spec)
 	if err != nil {
-		t.Fatalf("RegisterExtension error: %v", err)
+		t.Fatalf("registerExtension error: %v", err)
 	}
 
 	// Should be able to navigate to it
@@ -68,7 +68,7 @@ func TestExtensibleConfig_RegisterExtension_Simple(t *testing.T) {
 	}
 
 	// Should have default values
-	acc := cfg.Accessor("test")
+	acc := cfg.accessor("test")
 	if !acc.Bool("enabled") {
 		t.Error("enabled should be true")
 	}
@@ -77,11 +77,11 @@ func TestExtensibleConfig_RegisterExtension_Simple(t *testing.T) {
 	}
 }
 
-func TestExtensibleConfig_RegisterExtension_Nested(t *testing.T) {
+func TestExtensionsConfig_RegisterExtension_Nested(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := NewExtensibleConfig("star.yaml")
+	cfg := newExtensionsConfig("star.yaml")
 
 	spec := ConfigSpec{
 		Fields: map[string]string{
@@ -94,9 +94,9 @@ func TestExtensibleConfig_RegisterExtension_Nested(t *testing.T) {
 		},
 	}
 
-	err := cfg.RegisterExtension("lint.copyright", spec)
+	err := cfg.registerExtension("lint.copyright", spec)
 	if err != nil {
-		t.Fatalf("RegisterExtension error: %v", err)
+		t.Fatalf("registerExtension error: %v", err)
 	}
 
 	// Should create intermediate "lint" element
@@ -112,7 +112,7 @@ func TestExtensibleConfig_RegisterExtension_Nested(t *testing.T) {
 	}
 
 	// Check defaults
-	acc := cfg.Accessor("lint.copyright")
+	acc := cfg.accessor("lint.copyright")
 	if acc.Bool("enabled") {
 		t.Error("enabled should be false")
 	}
@@ -121,20 +121,20 @@ func TestExtensibleConfig_RegisterExtension_Nested(t *testing.T) {
 	}
 }
 
-func TestExtensibleConfig_RegisterExtension_EmptyPath(t *testing.T) {
-	cfg := NewExtensibleConfig("star.yaml")
+func TestExtensionsConfig_RegisterExtension_EmptyPath(t *testing.T) {
+	cfg := newExtensionsConfig("star.yaml")
 
-	err := cfg.RegisterExtension("", ConfigSpec{})
+	err := cfg.registerExtension("", ConfigSpec{})
 	if err == nil {
-		t.Error("RegisterExtension with empty path should error")
+		t.Error("registerExtension with empty path should error")
 	}
 }
 
-func TestExtensibleConfig_GetSpec(t *testing.T) {
+func TestExtensionsConfig_GetSpec(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := NewExtensibleConfig("star.yaml")
+	cfg := newExtensionsConfig("star.yaml")
 
 	spec := ConfigSpec{
 		Type: "TestConfig",
@@ -143,42 +143,42 @@ func TestExtensibleConfig_GetSpec(t *testing.T) {
 		},
 	}
 
-	cfg.RegisterExtension("test", spec)
+	cfg.registerExtension("test", spec)
 
-	got, ok := cfg.GetSpec("test")
+	got, ok := cfg.getSpec("test")
 	if !ok {
-		t.Fatal("GetSpec('test') should return true")
+		t.Fatal("getSpec('test') should return true")
 	}
 	if got.Type != "TestConfig" {
 		t.Errorf("spec.Type = %q, want 'TestConfig'", got.Type)
 	}
 
-	_, ok = cfg.GetSpec("missing")
+	_, ok = cfg.getSpec("missing")
 	if ok {
-		t.Error("GetSpec('missing') should return false")
+		t.Error("getSpec('missing') should return false")
 	}
 }
 
-func TestExtensibleConfig_Accessor_Invalid(t *testing.T) {
-	cfg := NewExtensibleConfig("star.yaml")
+func TestExtensionsConfig_Accessor_Invalid(t *testing.T) {
+	cfg := newExtensionsConfig("star.yaml")
 
-	acc := cfg.Accessor("missing.path")
+	acc := cfg.accessor("missing.path")
 	if acc.IsValid() {
-		t.Error("Accessor for missing path should be invalid")
+		t.Error("accessor for missing path should be invalid")
 	}
 }
 
-func TestLoadExtensible_FileNotExist(t *testing.T) {
-	cfg, err := LoadExtensible("/nonexistent/path/star.yaml")
+func TestLoadExtensions_FileNotExist(t *testing.T) {
+	cfg, err := loadExtensions("/nonexistent/path/star.yaml")
 	if err != nil {
-		t.Fatalf("LoadExtensible should not error for missing file: %v", err)
+		t.Fatalf("loadExtensions should not error for missing file: %v", err)
 	}
 	if cfg == nil {
-		t.Fatal("LoadExtensible should return config even for missing file")
+		t.Fatal("loadExtensions should return config even for missing file")
 	}
 }
 
-func TestLoadExtensible_ValidYAML(t *testing.T) {
+func TestLoadExtensions_ValidYAML(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
@@ -196,7 +196,7 @@ lint:
 	}
 
 	// First register the extension
-	cfg := NewExtensibleConfig(yamlPath)
+	cfg := newExtensionsConfig(yamlPath)
 	spec := ConfigSpec{
 		Fields: map[string]string{
 			"enabled": "bool",
@@ -207,7 +207,7 @@ lint:
 			"license": "MIT",
 		},
 	}
-	cfg.RegisterExtension("lint.copyright", spec)
+	cfg.registerExtension("lint.copyright", spec)
 
 	// Now load and merge values
 	data, _ := os.ReadFile(yamlPath)
@@ -218,7 +218,7 @@ lint:
 	cfg.mergeRaw(raw)
 
 	// Check merged values
-	acc := cfg.Accessor("lint.copyright")
+	acc := cfg.accessor("lint.copyright")
 	if !acc.Bool("enabled") {
 		t.Error("enabled should be true after merge")
 	}
@@ -227,7 +227,7 @@ lint:
 	}
 }
 
-func TestLoadExtensibleWithSpecs(t *testing.T) {
+func TestLoadExtensionsWithSpecs(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
@@ -256,12 +256,12 @@ lint:
 		},
 	}
 
-	cfg, err := LoadExtensibleWithSpecs(yamlPath, specs)
+	cfg, err := loadExtensionsWithSpecs(yamlPath, specs)
 	if err != nil {
-		t.Fatalf("LoadExtensibleWithSpecs error: %v", err)
+		t.Fatalf("loadExtensionsWithSpecs error: %v", err)
 	}
 
-	acc := cfg.Accessor("lint.go")
+	acc := cfg.accessor("lint.go")
 	if !acc.Bool("enabled") {
 		t.Error("enabled should be true (from YAML)")
 	}
@@ -270,14 +270,14 @@ lint:
 	}
 }
 
-func TestExtensibleConfig_Save(t *testing.T) {
+func TestExtensionsConfig_Save(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
 	tmpDir := t.TempDir()
 	yamlPath := filepath.Join(tmpDir, "star.yaml")
 
-	cfg := NewExtensibleConfig(yamlPath)
+	cfg := newExtensionsConfig(yamlPath)
 	spec := ConfigSpec{
 		Fields: map[string]string{
 			"enabled": "bool",
@@ -286,15 +286,15 @@ func TestExtensibleConfig_Save(t *testing.T) {
 			"enabled": true,
 		},
 	}
-	cfg.RegisterExtension("test", spec)
+	cfg.registerExtension("test", spec)
 	cfg.SetDirty(true)
 
-	if err := cfg.Save(); err != nil {
-		t.Fatalf("Save error: %v", err)
+	if err := cfg.save(); err != nil {
+		t.Fatalf("save error: %v", err)
 	}
 
 	if cfg.IsDirty() {
-		t.Error("IsDirty should be false after Save")
+		t.Error("IsDirty should be false after save")
 	}
 
 	// File should exist
@@ -303,11 +303,11 @@ func TestExtensibleConfig_Save(t *testing.T) {
 	}
 }
 
-func TestExtensibleConfig_RegisterExtension_WithNestedTypes(t *testing.T) {
+func TestExtensionsConfig_RegisterExtension_WithNestedTypes(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := NewExtensibleConfig("star.yaml")
+	cfg := newExtensionsConfig("star.yaml")
 
 	spec := ConfigSpec{
 		Fields: map[string]string{
@@ -331,13 +331,13 @@ func TestExtensibleConfig_RegisterExtension_WithNestedTypes(t *testing.T) {
 		},
 	}
 
-	err := cfg.RegisterExtension("lint.copyright", spec)
+	err := cfg.registerExtension("lint.copyright", spec)
 	if err != nil {
-		t.Fatalf("RegisterExtension error: %v", err)
+		t.Fatalf("registerExtension error: %v", err)
 	}
 
 	// Verify the nested structure
-	acc := cfg.Accessor("lint.copyright")
+	acc := cfg.accessor("lint.copyright")
 	patterns := acc.Map("patterns")
 	if patterns == nil {
 		t.Fatal("patterns should not be nil")

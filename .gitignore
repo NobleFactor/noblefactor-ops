@@ -5,3 +5,6 @@
 .golangci.yaml
 .markdownlint-cli2.yaml
 .pre-commit-config.yaml
+
+# Rust build artifacts (WASM extensions)
+**/target/

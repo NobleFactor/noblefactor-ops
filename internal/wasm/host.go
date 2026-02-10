@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/tetratelabs/wazero"
+	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
@@ -18,11 +19,13 @@ import (
 
 // WasmHost manages the wazero runtime and module lifecycle.
 type WasmHost struct {
-	runtime wazero.Runtime
-	cache   wazero.CompilationCache
-	caps    extension.Capabilities
-	checker *CapabilityChecker
-	ctx     context.Context
+	runtime    wazero.Runtime
+	cache      wazero.CompilationCache
+	caps       extension.Capabilities
+	checker    *CapabilityChecker
+	callbacks  HostCallbacks
+	hostModule api.Module
+	ctx        context.Context
 
 	// modules caches compiled modules by absolute path.
 	modules sync.Map // map[string]*WasmModule
@@ -66,12 +69,26 @@ func NewHost(ctx context.Context, caps extension.Capabilities) (*WasmHost, error
 		return nil, fmt.Errorf("instantiate WASI: %w", err)
 	}
 
+	// Create capability checker and callbacks
+	checker := NewCapabilityChecker(caps)
+	callbacks := NewDefaultCallbacks(checker)
+
+	// Instantiate host module for callbacks
+	hostModule, err := InstantiateHostModule(ctx, rt, callbacks)
+	if err != nil {
+		_ = cache.Close(ctx)
+		_ = rt.Close(ctx)
+		return nil, fmt.Errorf("instantiate host module: %w", err)
+	}
+
 	return &WasmHost{
-		runtime: rt,
-		cache:   cache,
-		caps:    caps,
-		checker: NewCapabilityChecker(caps),
-		ctx:     ctx,
+		runtime:    rt,
+		cache:      cache,
+		caps:       caps,
+		checker:    checker,
+		callbacks:  callbacks,
+		hostModule: hostModule,
+		ctx:        ctx,
 	}, nil
 }
 
@@ -87,7 +104,8 @@ func ensureCacheDir() (string, error) {
 
 // LoadModule compiles and caches a Wasm module from the given path.
 // Subsequent calls with the same path return the cached module.
-func (h *WasmHost) LoadModule(wasmPath string) (*WasmModule, error) {
+// Returns extension.WasmModule to satisfy the extension.WasmHost interface.
+func (h *WasmHost) LoadModule(wasmPath string) (extension.WasmModule, error) {
 	// Get absolute path for cache key
 	absPath, err := filepath.Abs(wasmPath)
 	if err != nil {
@@ -121,6 +139,12 @@ func (h *WasmHost) LoadModule(wasmPath string) (*WasmModule, error) {
 	return actual.(*WasmModule), nil
 }
 
+// Call invokes a function in the given module.
+// Implements extension.WasmHost interface.
+func (h *WasmHost) Call(module extension.WasmModule, function string, args []byte) ([]byte, error) {
+	return module.Call(function, args)
+}
+
 // Capabilities returns the host's declared capabilities.
 func (h *WasmHost) Capabilities() extension.Capabilities {
 	return h.caps
@@ -131,8 +155,13 @@ func (h *WasmHost) Checker() *CapabilityChecker {
 	return h.checker
 }
 
+// Callbacks returns the host callbacks for this host.
+func (h *WasmHost) Callbacks() HostCallbacks {
+	return h.callbacks
+}
+
 // Close releases all resources held by the host.
-// This closes all cached modules, the runtime, and the compilation cache.
+// This closes all cached modules, the host module, the runtime, and the compilation cache.
 func (h *WasmHost) Close() error {
 	var errs []error
 
@@ -145,6 +174,13 @@ func (h *WasmHost) Close() error {
 		}
 		return true
 	})
+
+	// Close host module
+	if h.hostModule != nil {
+		if err := h.hostModule.Close(h.ctx); err != nil {
+			errs = append(errs, fmt.Errorf("close host module: %w", err))
+		}
+	}
 
 	// Close runtime
 	if err := h.runtime.Close(h.ctx); err != nil {

@@ -69,10 +69,11 @@ func TestLoadModule(t *testing.T) {
 	}
 
 	// Load module
-	module, err := host.LoadModule(wasmPath)
+	mod, err := host.LoadModule(wasmPath)
 	if err != nil {
 		t.Fatalf("LoadModule() error = %v", err)
 	}
+	module := mod.(*WasmModule) // Type assert for concrete methods
 
 	// Verify path
 	if module.Path() != wasmPath {
@@ -186,14 +187,15 @@ func TestModule_Call_WasiModule(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	module, err := host.LoadModule(wasmPath)
+	mod, err := host.LoadModule(wasmPath)
 	if err != nil {
 		t.Fatalf("LoadModule() error = %v", err)
 	}
+	module := mod.(*WasmModule)
 
 	// Call should succeed (module just initializes and returns)
 	// The module doesn't produce output, so result should be nil
-	result, err := module.Call(ctx, "test", []byte(`{"key": "value"}`))
+	result, err := module.Call("test", []byte(`{"key": "value"}`))
 	if err != nil {
 		t.Logf("Call() error = %v (expected for minimal module)", err)
 	}
@@ -217,16 +219,17 @@ func TestModule_Call_Timeout(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	module, err := host.LoadModule(wasmPath)
+	mod, err := host.LoadModule(wasmPath)
 	if err != nil {
 		t.Fatalf("LoadModule() error = %v", err)
 	}
+	module := mod.(*WasmModule)
 
 	// Cancel context before call
 	cancel()
 
-	// Call with cancelled context
-	_, err = module.Call(ctx, "test", nil)
+	// Call with cancelled context (context is from host)
+	_, err = module.Call("test", nil)
 	if err == nil {
 		t.Log("Call() with cancelled context succeeded (module may have completed before cancellation)")
 	}
@@ -307,10 +310,11 @@ func TestModule_handleError(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	module, err := host.LoadModule(wasmPath)
+	mod, err := host.LoadModule(wasmPath)
 	if err != nil {
 		t.Fatalf("LoadModule() error = %v", err)
 	}
+	module := mod.(*WasmModule)
 
 	// Test context.Canceled
 	canceledErr := module.handleError(context.Canceled, "")

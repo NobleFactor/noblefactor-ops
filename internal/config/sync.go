@@ -25,7 +25,7 @@ type SyncResult struct {
 }
 
 // Sync writes tool-specific config files from star.yaml.
-func (c *Config) Sync() (*SyncResult, error) {
+func (c *builtinConfig) Sync() (*SyncResult, error) {
 	result := &SyncResult{}
 
 	// Sync golangci-lint config if configured
@@ -62,7 +62,7 @@ func (c *Config) Sync() (*SyncResult, error) {
 }
 
 // syncGolangciLint writes .golangci.yaml from star.yaml config.
-func (c *Config) syncGolangciLint() (string, error) {
+func (c *builtinConfig) syncGolangciLint() (string, error) {
 	path := ".golangci.yaml"
 
 	data, err := yaml.Marshal(c.Lint.Go.Config)
@@ -79,7 +79,7 @@ func (c *Config) syncGolangciLint() (string, error) {
 }
 
 // syncMarkdownLint writes .markdownlint-cli2.yaml from star.yaml config.
-func (c *Config) syncMarkdownLint() (string, error) {
+func (c *builtinConfig) syncMarkdownLint() (string, error) {
 	path := ".markdownlint-cli2.yaml"
 
 	// markdownlint-cli2 expects config under a "config" key
@@ -123,7 +123,7 @@ type precommitConfig struct {
 }
 
 // syncPrecommitConfig writes .pre-commit-config.yaml from star.yaml config.
-func (c *Config) syncPrecommitConfig() (string, error) {
+func (c *builtinConfig) syncPrecommitConfig() (string, error) {
 	path := ".pre-commit-config.yaml"
 
 	// Convert our hooks to pre-commit format
@@ -169,7 +169,7 @@ func (c *Config) syncPrecommitConfig() (string, error) {
 
 // GolangciConfigPath returns the path to use for golangci-lint config.
 // Returns the generated path if star.yaml has config, otherwise empty.
-func (c *Config) GolangciConfigPath() string {
+func (c *builtinConfig) GolangciConfigPath() string {
 	if c.Lint.Go.Config != nil && len(c.Lint.Go.Config) > 0 {
 		return ".golangci.yaml"
 	}
@@ -178,7 +178,7 @@ func (c *Config) GolangciConfigPath() string {
 
 // MarkdownLintConfigPath returns the path to use for markdownlint config.
 // Returns the generated path if star.yaml has config, otherwise empty.
-func (c *Config) MarkdownLintConfigPath() string {
+func (c *builtinConfig) MarkdownLintConfigPath() string {
 	if c.Lint.Markdown.Config != nil && len(c.Lint.Markdown.Config) > 0 {
 		return ".markdownlint-cli2.yaml"
 	}

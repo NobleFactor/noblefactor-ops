@@ -80,54 +80,56 @@ Extensions are distributed as **WebAssembly modules** for cross-platform compati
 | Full | 1+ | 1+ | `lint.copyright` - has command AND binding functions |
 | Built-in | varies | varies | Core extensions compiled into star binary |
 
-### Extension Packaging Structure
+### Project Structure
 
 ```
-star/
+project/
 ├── cmd/star/                    # CLI entry point
 │   └── main.go
 │
 ├── internal/
 │   ├── config/                  # Configuration system
-│   │   ├── element.go          # ConfigElement base type
-│   │   ├── root.go             # Config root
-│   │   ├── types.go            # Runtime type generation
-│   │   ├── accessor.go         # Typed field access
+│   │   ├── config.go           # Config loading (star/config.yaml)
 │   │   └── starlark.go         # Starlark adapter
 │   │
-│   ├── extension/               # Extension loading (NEW)
+│   ├── extension/               # Extension loading
 │   │   ├── spec.go             # ExtensionSpec types
 │   │   ├── registry.go         # Extension registry
-│   │   ├── discovery.go        # Directory scanning
-│   │   └── wasm.go             # Wasm runtime integration
+│   │   └── discovery.go        # Directory scanning (star/extensions/)
 │   │
-│   ├── wasm/                    # Wasm host runtime (NEW)
+│   ├── wasm/                    # Wasm host runtime
 │   │   ├── host.go             # wazero host setup
-│   │   ├── callbacks.go        # Host callback implementations
-│   │   └── capabilities.go     # Capability validation
+│   │   └── receiver.go         # WasmReceiver implementation
 │   │
 │   ├── starlark/                # Starlark runtime
-│   │   ├── runtime.go          # Script execution
+│   │   ├── runtime.go          # Script execution, extension loading
 │   │   ├── receiver.go         # Receiver API
 │   │   ├── command.go          # Command types
-│   │   └── builtin_*.go        # Built-in binding functions
+│   │   └── receiver_*.go       # Built-in receivers
 │   │
 │   └── cli/                     # Output formatting
 │
-├── extensions/                   # Extension packages (NEW)
-│   ├── lint-copyright/
-│   │   ├── extension.yaml      # Metadata + capabilities
-│   │   ├── lint-copyright.wasm # Compiled binding functions
-│   │   └── lint-copyright.star # Starlark command implementation
-│   │
-│   ├── lint-go/
-│   │   ├── extension.yaml
-│   │   └── lint-go.star        # Command-only (uses built-in receivers)
-│   │
-│   └── ...
-│
-└── ops/                          # Legacy location (migrating to extensions/)
+└── star/                         # Star project directory
+    ├── config.yaml              # Project configuration
+    └── extensions/              # Extension packages
+        ├── com.noblefactor.star.LintCopyright/
+        │   ├── extension.yaml   # Single source of truth
+        │   └── commands/
+        │       └── lint-copyright.star  # Just defines run(ctx)
+        │
+        ├── com.noblefactor.star.LintGo/
+        │   ├── extension.yaml
+        │   └── commands/
+        │       └── lint-go.star
+        │
+        └── ...
 ```
+
+**Key design principles:**
+- `extension.yaml` is the single source of truth for command metadata
+- `.star` files only define a `run(ctx)` function (no `command()` registration)
+- Config lives in `star/config.yaml` (not `star.yaml`)
+- Extensions live in `star/extensions/` (not `extensions/`)
 
 ### Extension Specification Format
 
@@ -518,15 +520,44 @@ Phase 6: Documentation and Testing
 **Lead Modifies:**
 - `cmd/star/main.go` - Extension discovery and loading
 
-### Phase 5: Remove Legacy Code (Worker 1)
+### Phase 5: Directory Structure Consolidation (Lead)
 
-**Delete:** `schema.go`, `value.go`, `registry.go`, `loader.go`, `extensions.go`, `config.go`
+**COMPLETED in Phase 4:**
 
-### Phase 6: Documentation (Worker 4)
+The directory structure has been consolidated. All paths now use the `star/` prefix:
+
+| Before | After |
+|--------|-------|
+| `star.yaml` | `star/config.yaml` |
+| `extensions/` | `star/extensions/` |
+| `ops/` | Deleted (stale, covered by extensions) |
+
+**Code changes completed:**
+- `internal/config/config.go` - Updated to use `star/config.yaml`
+- `internal/extension/discovery.go` - Updated to use `star/extensions/`
+- `cmd/star/main.go` - Removed `ops/` loading
+- `internal/starlark/runtime.go` - Removed `Load()` method, `command()` builtin, and `commandCollector`
+- `internal/starlark/command.go` - Removed `commandCollector` and `parseFlag`
+
+**Single source of truth:** `extension.yaml` is now the only way to declare extensions. The `.star` files just define a `run` function.
+
+**Legacy code removed:**
+- `commandCollector` type and `commandBuiltin` function
+- `parseFlag` function
+- `applyFlagDefaults` method
+- `Load()` method (loaded individual .star files with command() calls)
+- `SetExtensionsDir()` method
+- All `command()` calls from extension .star files
+
+### Phase 6: Documentation and Testing (Worker 4)
+
+**Update:**
+- `docs/architecture/devlore-extension-model.md` - Updated for `star/` paths and run function convention
+- `docs/plans/star-extension-model.md` - Update for new structure
 
 **Create:**
-- `docs/guides/writing-extensions.md`
-- `docs/guides/config-migration.md`
+- `docs/guides/writing-extensions.md` - How to create extensions with extension.yaml + run function
+- `docs/guides/config-migration.md` - Migration from old paths to `star/` prefix
 
 ---
 

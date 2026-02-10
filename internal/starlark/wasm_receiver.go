@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: MIT
+// Copyright Noble Factor. All rights reserved.
+
+package starlark
+
+import (
+	"encoding/json"
+	"fmt"
+
+	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/noblefactor-ops/internal/extension"
+)
+
+// WasmReceiver wraps a WASM module as a Starlark HasAttrs value.
+// Each attribute access returns a builtin that invokes the corresponding
+// WASM function via JSON-RPC.
+type WasmReceiver struct {
+	BaseReceiver
+	module    extension.WasmModule
+	functions map[string]bool // Available functions from extension.yaml
+}
+
+// NewWasmReceiver creates a receiver wrapping a WASM module.
+// The functions parameter specifies which function names are valid attributes.
+func NewWasmReceiver(name string, module extension.WasmModule, functions []string) *WasmReceiver {
+	funcMap := make(map[string]bool, len(functions))
+	for _, fn := range functions {
+		funcMap[fn] = true
+	}
+	return &WasmReceiver{
+		BaseReceiver: NewBaseReceiver(name),
+		module:       module,
+		functions:    funcMap,
+	}
+}
+
+// Attr implements starlark.HasAttrs.
+func (r *WasmReceiver) Attr(name string) (starlark.Value, error) {
+	if !r.functions[name] {
+		return nil, NoSuchAttrError(r.name, name)
+	}
+	return starlark.NewBuiltin(r.name+"."+name, r.makeCall(name)), nil
+}
+
+// AttrNames implements starlark.HasAttrs.
+func (r *WasmReceiver) AttrNames() []string {
+	names := make([]string, 0, len(r.functions))
+	for fn := range r.functions {
+		names = append(names, fn)
+	}
+	return names
+}
+
+// makeCall returns a builtin function that invokes the WASM method.
+func (r *WasmReceiver) makeCall(method string) BuiltinFunc {
+	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+		// Convert Starlark args to JSON
+		params, err := wasmArgsToJSON(args, kwargs)
+		if err != nil {
+			return nil, fmt.Errorf("%s.%s: %w", r.name, method, err)
+		}
+
+		// Call WASM module
+		resultBytes, err := r.module.Call(method, params)
+		if err != nil {
+			return nil, fmt.Errorf("%s.%s: %w", r.name, method, err)
+		}
+
+		// Handle nil/empty result
+		if len(resultBytes) == 0 {
+			return starlark.None, nil
+		}
+
+		// Convert JSON result back to Starlark
+		return wasmJSONToStarlark(resultBytes)
+	}
+}
+
+// wasmArgsToJSON converts Starlark function arguments to JSON bytes.
+// Positional args become an array, kwargs become object properties.
+func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error) {
+	// If we have kwargs, build an object
+	if len(kwargs) > 0 {
+		obj := make(map[string]any)
+		for _, kv := range kwargs {
+			if len(kv) != 2 {
+				continue
+			}
+			key, ok := starlark.AsString(kv[0])
+			if !ok {
+				continue
+			}
+			// Use existing starlarkToGo (returns interface{}, no error)
+			obj[key] = starlarkToGo(kv[1])
+		}
+		// Also include positional args if any
+		if len(args) > 0 {
+			for i, arg := range args {
+				// Use numeric keys for positional args
+				obj[fmt.Sprintf("arg%d", i)] = starlarkToGo(arg)
+			}
+		}
+		return json.Marshal(obj)
+	}
+
+	// Positional only - if single arg, marshal directly; if multiple, as array
+	if len(args) == 0 {
+		return []byte("{}"), nil
+	}
+	if len(args) == 1 {
+		val := starlarkToGo(args[0])
+		// If it's already a map, marshal directly
+		if _, ok := val.(map[string]interface{}); ok {
+			return json.Marshal(val)
+		}
+		// Wrap single value in object with "path" key (common pattern)
+		return json.Marshal(map[string]any{"path": val})
+	}
+
+	// Multiple positional args - convert to array
+	arr := make([]any, len(args))
+	for i, arg := range args {
+		arr[i] = starlarkToGo(arg)
+	}
+	return json.Marshal(arr)
+}
+
+// wasmJSONToStarlark converts JSON bytes to a Starlark value.
+func wasmJSONToStarlark(data []byte) (starlark.Value, error) {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, err
+	}
+	// Use existing goToStarlark (returns starlark.Value, no error)
+	return goToStarlark(v), nil
+}

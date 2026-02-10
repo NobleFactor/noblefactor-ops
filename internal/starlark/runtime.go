@@ -5,16 +5,20 @@
 package starlark
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"go.starlark.net/starlark"
-	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/cli"
+	"github.com/NobleFactor/noblefactor-ops/internal/config"
+	"github.com/NobleFactor/noblefactor-ops/internal/extension"
+	"github.com/NobleFactor/noblefactor-ops/internal/ignore"
+	"github.com/NobleFactor/noblefactor-ops/internal/wasm"
 )
 
 // DryRun is set by the --dry-run global flag. When true, side-effect
@@ -25,69 +29,270 @@ var DryRun bool
 // Runtime manages Starlark script execution.
 type Runtime struct {
 	commands map[string]*Command
-	opsDir   string
+	config   *config.Config // Unified config for builtin and extension config
+
+	// wasmHosts maps extension name to its WASM host.
+	// Each extension gets its own host with its receiver's capabilities.
+	wasmHosts map[string]*wasm.WasmHost
+
+	// wasmReceivers maps extension name to its loaded WASM receivers.
+	// Key format: "extensionName:receiverName"
+	wasmReceivers map[string]*WasmReceiver
 }
 
 // NewRuntime creates a new Starlark runtime.
-func NewRuntime(opsDir string) *Runtime {
+func NewRuntime() *Runtime {
 	return &Runtime{
-		commands: make(map[string]*Command),
-		opsDir:   opsDir,
+		commands:      make(map[string]*Command),
+		wasmHosts:     make(map[string]*wasm.WasmHost),
+		wasmReceivers: make(map[string]*WasmReceiver),
 	}
 }
 
-// LoadAll loads all .star files from the ops directory and subdirectories.
-func (r *Runtime) LoadAll() error {
-	return filepath.WalkDir(r.opsDir, func(path string, d os.DirEntry, err error) error {
+// Config returns the unified config, initializing if needed.
+func (r *Runtime) Config() *config.Config {
+	if r.config == nil {
+		cfg, err := config.Load()
 		if err != nil {
-			if os.IsNotExist(err) {
-				return nil // No ops directory is fine
-			}
-			return err
+			// Fall back to empty config on error
+			cfg, _ = config.Load()
 		}
-
-		// Skip directories and non-.star files
-		if d.IsDir() || filepath.Ext(d.Name()) != ".star" {
-			return nil
-		}
-
-		// Load the star file
-		relPath, relErr := filepath.Rel(r.opsDir, path)
-		if relErr != nil {
-			relPath = path // Fall back to absolute path
-		}
-		if err := r.Load(path); err != nil {
-			return fmt.Errorf("loading %s: %w", relPath, err)
-		}
-		return nil
-	})
+		r.config = cfg
+	}
+	return r.config
 }
 
-// Load loads a single .star file and registers its commands.
-func (r *Runtime) Load(path string) error {
+// LoadAll loads extensions from all default search paths.
+func (r *Runtime) LoadAll() error {
+	return r.LoadExtensions()
+}
+
+// LoadExtensions discovers and loads extensions from all default search paths.
+func (r *Runtime) LoadExtensions() error {
+	return r.loadExtensionsFromPaths(extension.DefaultSearchPaths()...)
+}
+
+// LoadExtensionsFrom loads extensions from a specific directory.
+func (r *Runtime) LoadExtensionsFrom(dir string) error {
+	return r.loadExtensionsFromPaths(dir)
+}
+
+// loadExtensionsFromPaths discovers and loads extensions from the given paths.
+func (r *Runtime) loadExtensionsFromPaths(paths ...string) error {
+	// Discover extensions from all search paths
+	var specs []*extension.ExtensionSpec
+	for _, dir := range paths {
+		// Skip non-existent directories
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
+
+		dirSpecs, err := extension.Discover(dir)
+		if err != nil {
+			return fmt.Errorf("discover extensions in %s: %w", dir, err)
+		}
+		specs = append(specs, dirSpecs...)
+	}
+
+	// Register extensions and load their commands
+	for _, spec := range specs {
+		// Register with global extension registry (ignore duplicates)
+		_ = extension.Register(spec)
+
+		// Register config if the extension has one
+		if spec.HasConfig() {
+			if err := r.Config().RegisterExtension(spec.Extension, spec.ToConfigSpec()); err != nil {
+				return fmt.Errorf("register config for %s: %w", spec.Extension, err)
+			}
+		}
+
+		// Load WASM receivers for this extension
+		if spec.HasWasmReceivers() {
+			if err := r.loadWasmReceivers(spec); err != nil {
+				return fmt.Errorf("load WASM receivers for %s: %w", spec.Extension, err)
+			}
+		}
+
+		// Load the extension's Starlark commands
+		if spec.HasCommands() {
+			if err := r.loadExtensionCommands(spec); err != nil {
+				return fmt.Errorf("load extension %s: %w", spec.Extension, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// loadWasmReceivers loads WASM receivers for an extension.
+// Creates a WASM host for each receiver with its declared capabilities.
+func (r *Runtime) loadWasmReceivers(spec *extension.ExtensionSpec) error {
+	if !spec.HasWasmReceivers() {
+		return nil
+	}
+
+	extDir := filepath.Dir(spec.SourcePath)
+
+	for _, recv := range spec.Receivers {
+		if recv.Builtin || recv.Wasm == "" {
+			continue
+		}
+
+		// Build absolute path to WASM file
+		wasmPath := filepath.Join(extDir, recv.Wasm)
+
+		// Check if WASM file exists
+		if _, err := os.Stat(wasmPath); os.IsNotExist(err) {
+			return fmt.Errorf("WASM file not found: %s", wasmPath)
+		}
+
+		// Create WASM host with receiver's capabilities
+		caps := extension.Capabilities{}
+		if recv.Capabilities != nil {
+			caps = *recv.Capabilities
+		}
+
+		host, err := wasm.NewHost(context.Background(), caps)
+		if err != nil {
+			return fmt.Errorf("create WASM host for %s: %w", recv.Name, err)
+		}
+
+		// Store host for cleanup later
+		hostKey := fmt.Sprintf("%s:%s", spec.Extension, recv.Name)
+		r.wasmHosts[hostKey] = host
+
+		// Load the WASM module
+		module, err := host.LoadModule(wasmPath)
+		if err != nil {
+			return fmt.Errorf("load WASM module %s: %w", recv.Name, err)
+		}
+
+		// Get function names from spec (or use module's exported functions)
+		var functions []string
+		if len(recv.Functions) > 0 {
+			for fn := range recv.Functions {
+				functions = append(functions, fn)
+			}
+		} else {
+			functions = module.Functions()
+		}
+
+		// Create WasmReceiver
+		receiver := NewWasmReceiver(recv.Name, module, functions)
+		r.wasmReceivers[hostKey] = receiver
+
+		// Special case: gitignore module is also used by file.glob
+		if recv.Name == "gitignore" {
+			ignore.SetModule(module)
+		}
+	}
+
+	return nil
+}
+
+// loadExtensionCommands loads all commands from an extension.
+func (r *Runtime) loadExtensionCommands(spec *extension.ExtensionSpec) error {
+	// Get extension directory from the spec's source path
+	extDir := filepath.Dir(spec.SourcePath)
+
+	// Load each command
+	for _, cmdSpec := range spec.Commands {
+		if cmdSpec.Implementation == "" {
+			continue
+		}
+
+		if err := r.loadExtensionCommand(spec, &cmdSpec, extDir); err != nil {
+			return fmt.Errorf("load command %s: %w", cmdSpec.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// loadExtensionCommand loads a single command from an extension.
+// The .star file must define a `run` function. All metadata comes from extension.yaml.
+func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *extension.CommandSpec, extDir string) error {
+	// Build path to implementation file
+	implPath := filepath.Join(extDir, cmdSpec.Implementation)
+
 	// Create thread with print function
 	thread := &starlark.Thread{
-		Name:  filepath.Base(path),
+		Name:  cmdSpec.Name,
 		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
 	}
 
-	// Create collector for command() calls
-	collector := &commandCollector{commands: make(map[string]*Command)}
+	// Build predeclared environment with extension-specific context
+	predeclared := r.buildPredeclared(spec)
 
-	// Build predeclared environment
+	// Execute the script with extended dialect options
+	fileOpts := syntax.FileOptions{
+		Set:             true,
+		While:           true,
+		TopLevelControl: true,
+		GlobalReassign:  true,
+		Recursion:       true,
+	}
+	globals, err := starlark.ExecFileOptions(&fileOpts, thread, implPath, nil, predeclared)
+	if err != nil {
+		return fmt.Errorf("exec %s: %w", implPath, err)
+	}
+
+	// Look for the run function
+	runVal, ok := globals["run"]
+	if !ok {
+		return fmt.Errorf("%s: missing 'run' function", implPath)
+	}
+	runFunc, ok := runVal.(starlark.Callable)
+	if !ok {
+		return fmt.Errorf("%s: 'run' is not callable", implPath)
+	}
+
+	// Build command from extension.yaml metadata
+	cmd := &Command{
+		Name:        cmdSpec.Name,
+		Help:        cmdSpec.Help,
+		RunFunc:     runFunc,
+		globals:     globals,
+		predeclared: predeclared,
+		runtime:     r,
+	}
+
+	// Build flags from command spec
+	for _, flagSpec := range cmdSpec.Flags {
+		cmd.Flags = append(cmd.Flags, Flag{
+			Name:    flagSpec.Name,
+			Help:    flagSpec.Help,
+			Default: flagSpec.Default,
+		})
+	}
+
+	// Register with space-separated name (e.g., "lint.go" -> "lint go")
+	cmdName := strings.ReplaceAll(cmdSpec.Name, ".", " ")
+	r.commands[cmdName] = cmd
+
+	return nil
+}
+
+// buildPredeclared constructs the predeclared environment for Starlark execution.
+// If spec is non-nil, it may provide extension-specific bindings (WASM receivers).
+func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.StringDict {
 	predeclared := starlark.StringDict{
-		"fs":             fsModule(),
-		"json":           jsonModule(),
-		"yaml":           yamlModule(),
-		"schema":         schemaModule(),
-		"go":             goModule(),
-		"shell":          shellModule(),
-		"lint":           lintModule(),
-		"copyright":      copyrightModule(),
-		"config":         configModule(),
-		"setup":          setupModule(),
-		"starlark_parse": starlarkParseModule(),
-		"command":        starlark.NewBuiltin("command", collector.commandBuiltin),
+		// Receiver-pattern bindings (all modules use HasAttrs pattern)
+		"file":           File,
+		"json":           JSON,
+		"yaml":           YAML,
+		"schema":         Schema,
+		"shell":          Shell,
+		"regexp":         Regexp,
+		"go":             Go,
+		"lint":           Lint,
+		"setup":          Setup,
+		"config":         Config,
+		"starlark_parse": StarlarkParse,
+
+		// Command tree navigation (current command set at runtime)
+		"commands": NewCommandsReceiver(r),
+
 		// Output functions in global namespace
 		"note":    starlark.NewBuiltin("note", noteBuiltin),
 		"warn":    starlark.NewBuiltin("warn", warnBuiltin),
@@ -96,27 +301,20 @@ func (r *Runtime) Load(path string) error {
 		"fail":    starlark.NewBuiltin("fail", failBuiltin),
 	}
 
-	// Execute the script with extended dialect options
-	fileOpts := syntax.FileOptions{
-		Set:             true, // Enable set() built-in
-		While:           true, // Enable while loops
-		TopLevelControl: true, // Enable top-level if/for/while
-		GlobalReassign:  true, // Enable reassignment to top-level names
-		Recursion:       true, // Enable recursive functions
-	}
-	globals, err := starlark.ExecFileOptions(&fileOpts, thread, path, nil, predeclared)
-	if err != nil {
-		return fmt.Errorf("exec %s: %w", path, err)
-	}
-
-	// Store globals for later use by run functions
-	for name, cmd := range collector.commands {
-		cmd.globals = globals
-		cmd.predeclared = predeclared
-		r.commands[name] = cmd
+	// Add WASM receivers from extension spec
+	if spec != nil {
+		for _, recv := range spec.Receivers {
+			if recv.Builtin || recv.Wasm == "" {
+				continue
+			}
+			key := fmt.Sprintf("%s:%s", spec.Extension, recv.Name)
+			if wasmRecv, ok := r.wasmReceivers[key]; ok {
+				predeclared[recv.Name] = wasmRecv
+			}
+		}
 	}
 
-	return nil
+	return predeclared
 }
 
 // Commands returns all registered commands.
@@ -124,131 +322,19 @@ func (r *Runtime) Commands() map[string]*Command {
 	return r.commands
 }
 
-// Command represents a Starlark-defined command.
-type Command struct {
-	Name        string
-	Help        string
-	Flags       []Flag
-	RunFunc     starlark.Callable
-	globals     starlark.StringDict
-	predeclared starlark.StringDict
-}
-
-// Flag represents a command flag.
-type Flag struct {
-	Name     string
-	Help     string
-	Default  string
-	Required bool
-}
-
-// Run executes the command with the given arguments.
-func (c *Command) Run(args map[string]string) error {
-	thread := &starlark.Thread{
-		Name:  c.Name,
-		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
-	}
-
-	// Build context dict
-	argsDict := starlark.NewDict(len(args))
-	for k, v := range args {
-		if err := argsDict.SetKey(starlark.String(k), starlark.String(v)); err != nil {
-			return fmt.Errorf("setting arg %q: %w", k, err)
+// Close releases all resources held by the runtime.
+// This includes closing all WASM hosts.
+func (r *Runtime) Close() error {
+	var errs []error
+	for name, host := range r.wasmHosts {
+		if err := host.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close WASM host %s: %w", name, err))
 		}
 	}
-
-	ctx := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"args":    argsDict,
-		"dry_run": starlark.Bool(DryRun),
-	})
-
-	// Call the run function
-	_, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{ctx}, nil)
-	if err != nil {
-		var evalErr *starlark.EvalError
-		if errors.As(err, &evalErr) {
-			return fmt.Errorf("%s", evalErr.Backtrace())
-		}
-		return err
+	if len(errs) > 0 {
+		return fmt.Errorf("close errors: %v", errs)
 	}
 	return nil
-}
-
-// commandCollector collects command() calls during script execution.
-type commandCollector struct {
-	commands map[string]*Command
-}
-
-func (c *commandCollector) commandBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var name, help string
-	var flags *starlark.List
-	var runFunc starlark.Callable
-
-	if err := starlark.UnpackArgs("command", args, kwargs,
-		"name", &name,
-		"help", &help,
-		"flags?", &flags,
-		"run", &runFunc,
-	); err != nil {
-		return nil, err
-	}
-
-	cmd := &Command{
-		Name:    name,
-		Help:    help,
-		RunFunc: runFunc,
-	}
-
-	// Parse flags if provided
-	if flags != nil {
-		iter := flags.Iterate()
-		defer iter.Done()
-		var v starlark.Value
-		for iter.Next(&v) {
-			flagDict, ok := v.(*starlark.Dict)
-			if !ok {
-				return nil, fmt.Errorf("flag must be a dict, got %s", v.Type())
-			}
-			flag, err := parseFlag(flagDict)
-			if err != nil {
-				return nil, err
-			}
-			cmd.Flags = append(cmd.Flags, flag)
-		}
-	}
-
-	c.commands[name] = cmd
-	return starlark.None, nil
-}
-
-func parseFlag(d *starlark.Dict) (Flag, error) {
-	var flag Flag
-
-	if v, found, err := d.Get(starlark.String("name")); err == nil && found {
-		if s, ok := v.(starlark.String); ok {
-			flag.Name = string(s)
-		}
-	}
-	if v, found, err := d.Get(starlark.String("help")); err == nil && found {
-		if s, ok := v.(starlark.String); ok {
-			flag.Help = string(s)
-		}
-	}
-	if v, found, err := d.Get(starlark.String("default")); err == nil && found {
-		if s, ok := v.(starlark.String); ok {
-			flag.Default = string(s)
-		}
-	}
-	if v, found, err := d.Get(starlark.String("required")); err == nil && found {
-		if b, ok := v.(starlark.Bool); ok {
-			flag.Required = bool(b)
-		}
-	}
-
-	if flag.Name == "" {
-		return flag, fmt.Errorf("flag missing 'name' field")
-	}
-	return flag, nil
 }
 
 // =============================================================================

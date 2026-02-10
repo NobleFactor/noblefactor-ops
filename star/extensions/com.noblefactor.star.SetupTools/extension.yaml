@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.SetupTools
+description: Show required development tools and installation status
+
+receivers:
+  - name: setup
+    builtin: true
+    type: SetupReceiver
+    description: Repository setup functions
+    functions:
+      tools: Check tool installation status
+
+commands:
+  - name: setup.tools
+    help: Show required development tools and installation status
+    implementation: commands/setup-tools.star
