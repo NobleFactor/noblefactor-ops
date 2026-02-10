@@ -36,16 +36,16 @@ def scan_packages(packages_dir):
     """Scan packages directory and collect metadata."""
     packages = []
 
-    for entry in fs.list_dir(packages_dir):
+    for entry in file.list(packages_dir):
         if not entry.is_dir:
             continue
 
-        lifecycle_path = fs.join(entry.path, "lifecycle.yaml")
-        if not fs.exists(lifecycle_path):
+        lifecycle_path = file.join(entry.path, "lifecycle.yaml")
+        if not file.exists(lifecycle_path):
             warn("Skipping " + entry.name + " (no lifecycle.yaml)")
             continue
 
-        content = fs.read(lifecycle_path)
+        content = file.read(lifecycle_path)
         pkg = parse_lifecycle(content)
         if pkg == None:
             warn("Skipping " + entry.name + " (invalid lifecycle.yaml)")
@@ -55,12 +55,12 @@ def scan_packages(packages_dir):
         pkg["dir"] = entry.name
 
         # Check for README
-        readme_path = fs.join(entry.path, "README.md")
-        pkg["has_readme"] = fs.exists(readme_path)
+        readme_path = file.join(entry.path, "README.md")
+        pkg["has_readme"] = file.exists(readme_path)
 
         # List available platform variants
         variants = []
-        for subentry in fs.list_dir(entry.path):
+        for subentry in file.list(entry.path):
             if subentry.is_dir and not subentry.name.startswith("."):
                 variants.append(subentry.name)
         pkg["variants"] = variants
@@ -124,9 +124,9 @@ def run(ctx):
     """Main entry point."""
     registry = ctx.args.get("path", ".")
 
-    packages_dir = fs.join(registry, "packages")
+    packages_dir = file.join(registry, "packages")
 
-    if not fs.exists(packages_dir):
+    if not file.exists(packages_dir):
         fail("packages/ directory not found at " + packages_dir)
         return
 
@@ -139,13 +139,13 @@ def run(ctx):
 
     # Build and write package index
     index = build_index(packages)
-    index_path = fs.join(packages_dir, "index.yaml")
-    fs.write(index_path, yaml.encode(index))
+    index_path = file.join(packages_dir, "index.yaml")
+    file.write(index_path, yaml.encode(index))
     success("Wrote: " + index_path)
 
     # Build and write cross-reference
     xref = build_package_resolution(packages)
-    xref_path = fs.join(packages_dir, "cross-reference.yaml")
+    xref_path = file.join(packages_dir, "cross-reference.yaml")
 
     # Count mappings
     total_mappings = 0
@@ -153,7 +153,7 @@ def run(ctx):
         total_mappings = total_mappings + len(names)
 
     if total_mappings > 0:
-        fs.write(xref_path, yaml.encode(xref))
+        file.write(xref_path, yaml.encode(xref))
         success("Wrote: " + xref_path)
         note(str(len(xref)) + " managers, " + str(total_mappings) + " mappings")
     else:

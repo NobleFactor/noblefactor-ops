@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.Gitignore
+description: Gitignore pattern matching using BurntSushi's ignore crate
+
+receivers:
+  - name: gitignore
+    wasm: receivers/gitignore.wasm
+    description: Match paths against .gitignore patterns
+    functions:
+      matches: Check if a path matches gitignore patterns
+      filter: Filter a list of paths, returning non-ignored ones
+    capabilities:
+      fs:
+        read:
+          - "/workspace"  # Need to read .gitignore files (expands to cwd)
+        write: []
+      host_calls: []

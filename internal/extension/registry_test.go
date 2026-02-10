@@ -13,21 +13,23 @@ func TestRegistry_RegisterAndGet(t *testing.T) {
 	r := &Registry{specs: make(map[string]*ExtensionSpec)}
 
 	spec := &ExtensionSpec{
-		Extension:   "test.example",
+		Extension:   "com.example.TestExtension",
 		Description: "Test extension",
-		Command:     &CommandSpec{Help: "Test"},
+		Commands: []CommandSpec{
+			{Name: "test.example", Help: "Test", Implementation: "commands/test.star"},
+		},
 	}
 
 	if err := r.Register(spec); err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
 
-	got := r.Get("test.example")
+	got := r.Get("com.example.TestExtension")
 	if got == nil {
 		t.Fatal("Get returned nil")
 	}
-	if got.Extension != "test.example" {
-		t.Errorf("got.Extension = %q, want %q", got.Extension, "test.example")
+	if got.Extension != "com.example.TestExtension" {
+		t.Errorf("got.Extension = %q, want %q", got.Extension, "com.example.TestExtension")
 	}
 }
 
@@ -44,8 +46,10 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 	r := &Registry{specs: make(map[string]*ExtensionSpec)}
 
 	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{Name: "test", Help: "Test", Implementation: "commands/test.star"},
+		},
 	}
 
 	if err := r.Register(spec); err != nil {
@@ -71,9 +75,9 @@ func TestRegistry_All(t *testing.T) {
 	r := &Registry{specs: make(map[string]*ExtensionSpec)}
 
 	specs := []*ExtensionSpec{
-		{Extension: "a", Command: &CommandSpec{Help: "A"}},
-		{Extension: "b", Command: &CommandSpec{Help: "B"}},
-		{Extension: "c", Command: &CommandSpec{Help: "C"}},
+		{Extension: "com.example.A", Commands: []CommandSpec{{Name: "a", Help: "A", Implementation: "commands/a.star"}}},
+		{Extension: "com.example.B", Commands: []CommandSpec{{Name: "b", Help: "B", Implementation: "commands/b.star"}}},
+		{Extension: "com.example.C", Commands: []CommandSpec{{Name: "c", Help: "C", Implementation: "commands/c.star"}}},
 	}
 
 	for _, spec := range specs {
@@ -88,8 +92,8 @@ func TestRegistry_All(t *testing.T) {
 	}
 
 	// Verify it's a copy by modifying the returned map
-	delete(all, "a")
-	if r.Get("a") == nil {
+	delete(all, "com.example.A")
+	if r.Get("com.example.A") == nil {
 		t.Error("modifying All() result affected registry")
 	}
 }
@@ -98,9 +102,9 @@ func TestRegistry_Names(t *testing.T) {
 	r := &Registry{specs: make(map[string]*ExtensionSpec)}
 
 	specs := []*ExtensionSpec{
-		{Extension: "c.ext", Command: &CommandSpec{Help: "C"}},
-		{Extension: "a.ext", Command: &CommandSpec{Help: "A"}},
-		{Extension: "b.ext", Command: &CommandSpec{Help: "B"}},
+		{Extension: "com.example.C", Commands: []CommandSpec{{Name: "c", Help: "C", Implementation: "commands/c.star"}}},
+		{Extension: "com.example.A", Commands: []CommandSpec{{Name: "a", Help: "A", Implementation: "commands/a.star"}}},
+		{Extension: "com.example.B", Commands: []CommandSpec{{Name: "b", Help: "B", Implementation: "commands/b.star"}}},
 	}
 
 	for _, spec := range specs {
@@ -115,7 +119,7 @@ func TestRegistry_Names(t *testing.T) {
 	}
 
 	// Should be sorted
-	expected := []string{"a.ext", "b.ext", "c.ext"}
+	expected := []string{"com.example.A", "com.example.B", "com.example.C"}
 	for i, name := range names {
 		if name != expected[i] {
 			t.Errorf("names[%d] = %q, want %q", i, name, expected[i])
@@ -127,8 +131,10 @@ func TestRegistry_Clear(t *testing.T) {
 	r := &Registry{specs: make(map[string]*ExtensionSpec)}
 
 	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{Name: "test", Help: "Test", Implementation: "commands/test.star"},
+		},
 	}
 
 	if err := r.Register(spec); err != nil {
@@ -145,7 +151,7 @@ func TestRegistry_Clear(t *testing.T) {
 		t.Errorf("Count() after Clear = %d, want 0", r.Count())
 	}
 
-	if r.Get("test") != nil {
+	if r.Get("com.example.Test") != nil {
 		t.Error("Get after Clear should return nil")
 	}
 }
@@ -156,8 +162,10 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	// Pre-register some extensions
 	for i := 0; i < 10; i++ {
 		spec := &ExtensionSpec{
-			Extension: fmt.Sprintf("ext%d", i),
-			Command:   &CommandSpec{Help: "Test"},
+			Extension: fmt.Sprintf("com.example.Ext%d", i),
+			Commands: []CommandSpec{
+				{Name: fmt.Sprintf("ext%d", i), Help: "Test", Implementation: "commands/test.star"},
+			},
 		}
 		if err := r.Register(spec); err != nil {
 			t.Fatalf("Register failed: %v", err)
@@ -172,7 +180,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			_ = r.Get(fmt.Sprintf("ext%d", n%10))
+			_ = r.Get(fmt.Sprintf("com.example.Ext%d", n%10))
 			_ = r.All()
 			_ = r.Names()
 			_ = r.Count()
@@ -185,8 +193,10 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			spec := &ExtensionSpec{
-				Extension: fmt.Sprintf("ext%d", n),
-				Command:   &CommandSpec{Help: "Test"},
+				Extension: fmt.Sprintf("com.example.Ext%d", n),
+				Commands: []CommandSpec{
+					{Name: fmt.Sprintf("ext%d", n), Help: "Test", Implementation: "commands/test.star"},
+				},
 			}
 			if err := r.Register(spec); err != nil {
 				errors <- err
@@ -213,15 +223,17 @@ func TestGlobalRegistry(t *testing.T) {
 	Clear()
 
 	spec := &ExtensionSpec{
-		Extension: "global.test",
-		Command:   &CommandSpec{Help: "Test"},
+		Extension: "com.example.GlobalTest",
+		Commands: []CommandSpec{
+			{Name: "global.test", Help: "Test", Implementation: "commands/test.star"},
+		},
 	}
 
 	if err := Register(spec); err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
 
-	if Get("global.test") == nil {
+	if Get("com.example.GlobalTest") == nil {
 		t.Error("Get returned nil")
 	}
 
@@ -230,8 +242,8 @@ func TestGlobalRegistry(t *testing.T) {
 	}
 
 	names := Names()
-	if len(names) != 1 || names[0] != "global.test" {
-		t.Errorf("Names() = %v, want [global.test]", names)
+	if len(names) != 1 || names[0] != "com.example.GlobalTest" {
+		t.Errorf("Names() = %v, want [com.example.GlobalTest]", names)
 	}
 
 	all := All()

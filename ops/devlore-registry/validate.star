@@ -58,26 +58,26 @@ def find_files(registry, pattern):
             if "*" in part:
                 # Scan this directory
                 remaining = "/".join(parts[i+1:])
-                if fs.exists(base_path) and fs.is_dir(base_path):
-                    for entry in fs.list_dir(base_path):
+                if file.exists(base_path) and file.is_directory(base_path):
+                    for entry in file.list(base_path):
                         if entry.is_dir and part == "*":
-                            candidate = fs.join(entry.path, remaining)
-                            if fs.exists(candidate):
+                            candidate = file.join(entry.path, remaining)
+                            if file.exists(candidate):
                                 files.append(candidate)
                 break
             else:
-                base_path = fs.join(base_path, part)
+                base_path = file.join(base_path, part)
     else:
         # No wildcard - direct file
-        path = fs.join(registry, pattern)
-        if fs.exists(path):
+        path = file.join(registry, pattern)
+        if file.exists(path):
             files.append(path)
 
     return files
 
 def validate_file(file_path, schema_json):
     """Validate a single file against a schema."""
-    content = fs.read(file_path)
+    content = file.read(file_path)
     data = yaml.decode(content)
     if data == None:
         return False, ["Failed to parse YAML"]
@@ -98,12 +98,12 @@ def run(ctx):
         if not matches_type_filter(schema_type, type_filter):
             continue
 
-        schema_path = fs.join(registry, config["schema"])
-        if not fs.exists(schema_path):
+        schema_path = file.join(registry, config["schema"])
+        if not file.exists(schema_path):
             # Schema doesn't exist yet - skip silently
             continue
 
-        schema_json = fs.read(schema_path)
+        schema_json = file.read(schema_path)
         files = find_files(registry, config["pattern"])
 
         if len(files) == 0:

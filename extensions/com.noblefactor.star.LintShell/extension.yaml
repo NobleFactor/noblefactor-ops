@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintShell
+description: Run shellcheck and shfmt on shell scripts
+
+receivers:
+  - name: lint
+    builtin: true
+    type: LintReceiver
+    description: Shell linting primitives
+    functions:
+      shell: Run shellcheck and shfmt
+      ensure_tools: Check lint tool availability
+
+commands:
+  - name: lint.shell
+    help: Run shellcheck and shfmt on shell scripts
+    implementation: commands/lint-shell.star
+    flags:
+      - name: path
+        type: string
+        default: "."
+        help: Path to lint
+      - name: severity
+        type: string
+        default: "warning"
+        help: Minimum shellcheck severity (error, warning, info, style)
+      - name: indent
+        type: int
+        default: "4"
+        help: Expected indent size for shfmt

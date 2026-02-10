@@ -15,21 +15,21 @@ def collect_source_files(path, exclude_patterns):
     files = []
 
     # Collect Go files
-    go_files = fs.glob(path + "/**/*.go")
+    go_files = file.glob(path + "/**/*.go")
     for f in go_files:
         files.append(f)
 
     # Collect Starlark files
-    star_files = fs.glob(path + "/**/*.star")
+    star_files = file.glob(path + "/**/*.star")
     for f in star_files:
         files.append(f)
 
     # Collect shell files
-    sh_files = fs.glob(path + "/**/*.sh")
+    sh_files = file.glob(path + "/**/*.sh")
     for f in sh_files:
         files.append(f)
 
-    bash_files = fs.glob(path + "/**/*.bash")
+    bash_files = file.glob(path + "/**/*.bash")
     for f in bash_files:
         files.append(f)
 

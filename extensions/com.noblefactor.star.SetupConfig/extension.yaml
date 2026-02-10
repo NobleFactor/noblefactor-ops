@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.SetupConfig
+description: Initialize star.yaml and sync tool configurations
+
+receivers:
+  - name: setup
+    builtin: true
+    type: SetupReceiver
+    description: Repository setup functions
+    functions:
+      init_config: Initialize star.yaml
+
+commands:
+  - name: setup.config
+    help: Initialize star.yaml and sync tool configurations
+    implementation: commands/setup-config.star

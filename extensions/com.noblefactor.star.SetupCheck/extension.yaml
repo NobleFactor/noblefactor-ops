@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.SetupCheck
+description: Check setup status without making changes
+
+receivers:
+  - name: setup
+    builtin: true
+    type: SetupReceiver
+    description: Repository setup functions
+    functions:
+      tools: Check tool installation status
+      check_hook: Check hook installation status
+
+commands:
+  - name: setup.check
+    help: Check setup status without making changes
+    implementation: commands/setup-check.star

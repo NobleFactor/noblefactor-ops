@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintAll
+description: Run all configured linters
+
+receivers:
+  - name: commands
+    builtin: true
+    type: CommandsReceiver
+    description: Command tree query and execution
+    functions:
+      siblings: Get sibling commands
+      children: Get child commands
+      query: Query commands by pattern
+      get: Get command by name
+      run: Execute a command
+  - name: config
+    builtin: true
+    type: ConfigReceiver
+    description: Configuration access
+    functions:
+      get: Load merged config
+
+commands:
+  - name: lint.all
+    help: Run all configured linters
+    implementation: commands/lint-all.star
+    flags:
+      - name: fix
+        type: bool
+        default: "false"
+        help: Auto-fix issues where possible

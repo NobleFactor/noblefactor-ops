@@ -1,0 +1,888 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+#
+# Default language definitions for copyright header checking.
+# These can be overridden in ~/.config/star/config.yaml or .star.yaml
+
+# Default settings
+defaults:
+  license: "auto"
+  holder: ""
+  year: "auto"
+  include:
+    - "**/*"
+  exclude:
+    - ".git/**"
+    - "vendor/**"
+    - "node_modules/**"
+    - "**/*.min.js"
+    - "**/*.min.css"
+    - "**/*.generated.*"
+    - "**/testdata/**"
+    # Config files typically don't need copyright headers
+    - "**/.star.yaml"
+    - "**/star.yaml"
+    - "**/.*.yaml"
+    - "**/go.mod"
+    - "**/go.sum"
+    - "**/package.json"
+    - "**/package-lock.json"
+    - "**/yarn.lock"
+    - "**/Cargo.lock"
+    - "**/.gitignore"
+    - "**/.gitattributes"
+    - "**/LICENSE*"
+    - "**/CHANGELOG*"
+    - "**/README*"
+
+# Language definitions
+languages:
+  # ============================================================================
+  # Hash comment languages (#)
+  # ============================================================================
+  shell:
+    extensions: [".sh", ".bash", ".zsh", ".ksh"]
+    filenames: ["Makefile", "GNUmakefile", "Dockerfile", "Containerfile", ".envrc"]
+    shebangs:
+      - '^#!.*/bin/(ba|z|k)?sh'
+      - '^#!.*/usr/bin/env\s+(ba|z|k)?sh'
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  python:
+    extensions: [".py", ".pyw", ".pyi"]
+    filenames: []
+    shebangs:
+      - '^#!.*python[0-9.]*'
+      - '^#!.*/usr/bin/env\s+python'
+    comment:
+      line: "#"
+      block: ['"""', '', '"""']
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  ruby:
+    extensions: [".rb", ".rake", ".gemspec"]
+    filenames: ["Rakefile", "Gemfile", "Guardfile", "Vagrantfile"]
+    shebangs:
+      - '^#!.*ruby'
+    comment:
+      line: "#"
+      block: ["=begin", "", "=end"]
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  perl:
+    extensions: [".pl", ".pm", ".pod", ".t"]
+    filenames: []
+    shebangs:
+      - '^#!.*perl'
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  starlark:
+    extensions: [".star", ".bzl"]
+    filenames: ["BUILD", "WORKSPACE", "BUILD.bazel", "WORKSPACE.bazel"]
+    shebangs: []
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  yaml:
+    extensions: [".yaml", ".yml"]
+    filenames: [".clang-format", ".clang-tidy"]
+    shebangs: []
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  toml:
+    extensions: [".toml"]
+    filenames: ["Cargo.toml", "pyproject.toml", "Pipfile"]
+    shebangs: []
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  terraform:
+    extensions: [".tf", ".tfvars"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "#"
+      block: ["/*", " *", " */"]
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  nix:
+    extensions: [".nix"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "#"
+      block: ["/*", " *", " */"]
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  elixir:
+    extensions: [".ex", ".exs"]
+    filenames: ["mix.exs"]
+    shebangs:
+      - '^#!.*elixir'
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  powershell:
+    extensions: [".ps1", ".psm1", ".psd1"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "#"
+      block: ["<#", "", "#>"]
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  r:
+    extensions: [".r", ".R", ".Rmd", ".Rnw"]
+    filenames: [".Rprofile"]
+    shebangs:
+      - '^#!.*Rscript'
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  julia:
+    extensions: [".jl"]
+    filenames: []
+    shebangs:
+      - '^#!.*julia'
+    comment:
+      line: "#"
+      block: ['#=', '', '=#']
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  tcl:
+    extensions: [".tcl"]
+    filenames: []
+    shebangs:
+      - '^#!.*tclsh'
+      - '^#!.*wish'
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  awk:
+    extensions: [".awk"]
+    filenames: []
+    shebangs:
+      - '^#!.*(g|m|n)?awk'
+    comment:
+      line: "#"
+      block: null
+    header: |
+      # SPDX-License-Identifier: {{.License}}
+      # Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^#\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^#\s*Copyright\s+([^.]+)'
+
+  # ============================================================================
+  # Slash comment languages (//)
+  # ============================================================================
+  go:
+    extensions: [".go"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  javascript:
+    extensions: [".js", ".jsx", ".mjs", ".cjs"]
+    filenames: []
+    shebangs:
+      - '^#!.*node'
+      - '^#!.*deno'
+      - '^#!.*bun'
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  typescript:
+    extensions: [".ts", ".tsx", ".mts", ".cts"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  c:
+    extensions: [".c", ".h"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  cpp:
+    extensions: [".cc", ".cpp", ".cxx", ".hpp", ".hxx", ".hh", ".ipp"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  java:
+    extensions: [".java"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  kotlin:
+    extensions: [".kt", ".kts"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  scala:
+    extensions: [".scala", ".sc"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  rust:
+    extensions: [".rs"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  swift:
+    extensions: [".swift"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  csharp:
+    extensions: [".cs"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  dart:
+    extensions: [".dart"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  zig:
+    extensions: [".zig"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: null
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  v:
+    extensions: [".v", ".vv"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  protobuf:
+    extensions: [".proto"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  groovy:
+    extensions: [".groovy", ".gradle"]
+    filenames: ["Jenkinsfile"]
+    shebangs:
+      - '^#!.*groovy'
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  php:
+    extensions: [".php", ".phtml"]
+    filenames: []
+    shebangs:
+      - '^#!.*php'
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  jsonc:
+    extensions: [".jsonc"]
+    filenames: ["tsconfig.json", "jsconfig.json", ".eslintrc.json"]
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  # ============================================================================
+  # Double-dash comment languages (--)
+  # ============================================================================
+  sql:
+    extensions: [".sql"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "--"
+      block: ["/*", " *", " */"]
+    header: |
+      -- SPDX-License-Identifier: {{.License}}
+      -- Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^--\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^--\s*Copyright\s+([^.]+)'
+
+  lua:
+    extensions: [".lua"]
+    filenames: []
+    shebangs:
+      - '^#!.*lua'
+    comment:
+      line: "--"
+      block: ["--[[", "", "]]"]
+    header: |
+      -- SPDX-License-Identifier: {{.License}}
+      -- Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^--\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^--\s*Copyright\s+([^.]+)'
+
+  haskell:
+    extensions: [".hs", ".lhs"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "--"
+      block: ["{-", "", "-}"]
+    header: |
+      -- SPDX-License-Identifier: {{.License}}
+      -- Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^--\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^--\s*Copyright\s+([^.]+)'
+
+  elm:
+    extensions: [".elm"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "--"
+      block: ["{-", "", "-}"]
+    header: |
+      -- SPDX-License-Identifier: {{.License}}
+      -- Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^--\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^--\s*Copyright\s+([^.]+)'
+
+  vhdl:
+    extensions: [".vhd", ".vhdl"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "--"
+      block: null
+    header: |
+      -- SPDX-License-Identifier: {{.License}}
+      -- Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^--\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^--\s*Copyright\s+([^.]+)'
+
+  # ============================================================================
+  # Other comment styles
+  # ============================================================================
+  erlang:
+    extensions: [".erl", ".hrl"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "%"
+      block: null
+    header: |
+      % SPDX-License-Identifier: {{.License}}
+      % Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^%\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^%\s*Copyright\s+([^.]+)'
+
+  lisp:
+    extensions: [".lisp", ".lsp", ".cl", ".el"]
+    filenames: [".emacs"]
+    shebangs: []
+    comment:
+      line: ";;"
+      block: null
+    header: |
+      ;; SPDX-License-Identifier: {{.License}}
+      ;; Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^;;\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^;;\s*Copyright\s+([^.]+)'
+
+  scheme:
+    extensions: [".scm", ".ss", ".rkt"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: ";;"
+      block: ["#|", "", "|#"]
+    header: |
+      ;; SPDX-License-Identifier: {{.License}}
+      ;; Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^;;\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^;;\s*Copyright\s+([^.]+)'
+
+  clojure:
+    extensions: [".clj", ".cljs", ".cljc", ".edn"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: ";;"
+      block: null
+    header: |
+      ;; SPDX-License-Identifier: {{.License}}
+      ;; Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^;;\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^;;\s*Copyright\s+([^.]+)'
+
+  vim:
+    extensions: [".vim"]
+    filenames: [".vimrc", "_vimrc", ".gvimrc", "_gvimrc", ".exrc"]
+    shebangs: []
+    comment:
+      line: "\""
+      block: null
+    header: |
+      " SPDX-License-Identifier: {{.License}}
+      " Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^"\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^"\s*Copyright\s+([^.]+)'
+
+  assembly:
+    extensions: [".asm", ".s", ".S"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: ";"
+      block: null
+    header: |
+      ; SPDX-License-Identifier: {{.License}}
+      ; Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^;\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^;\s*Copyright\s+([^.]+)'
+
+  ini:
+    extensions: [".ini", ".cfg", ".conf"]
+    filenames: [".editorconfig", ".gitconfig", "setup.cfg", "tox.ini"]
+    shebangs: []
+    comment:
+      line: ";"
+      block: null
+    header: |
+      ; SPDX-License-Identifier: {{.License}}
+      ; Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^;\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^;\s*Copyright\s+([^.]+)'
+
+  css:
+    extensions: [".css"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: null
+      block: ["/*", " *", " */"]
+    header: |
+      /*
+       * SPDX-License-Identifier: {{.License}}
+       * Copyright {{.Holder}}. All rights reserved.
+       */
+    match:
+      spdx: '^\s*\*?\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^\s*\*?\s*Copyright\s+([^.]+)'
+
+  scss:
+    extensions: [".scss", ".sass"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  less:
+    extensions: [".less"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["/*", " *", " */"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  html:
+    extensions: [".html", ".htm", ".xhtml"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: null
+      block: ["<!--", "  ", "-->"]
+    header: |
+      <!--
+        SPDX-License-Identifier: {{.License}}
+        Copyright {{.Holder}}. All rights reserved.
+      -->
+    match:
+      spdx: 'SPDX-License-Identifier:\s*(\S+)'
+      copyright: 'Copyright\s+([^.]+)'
+
+  xml:
+    extensions: [".xml", ".xsl", ".xslt", ".xsd", ".svg", ".plist", ".wsdl"]
+    filenames: ["pom.xml", "build.xml"]
+    shebangs: []
+    comment:
+      line: null
+      block: ["<!--", "  ", "-->"]
+    header: |
+      <!--
+        SPDX-License-Identifier: {{.License}}
+        Copyright {{.Holder}}. All rights reserved.
+      -->
+    match:
+      spdx: 'SPDX-License-Identifier:\s*(\S+)'
+      copyright: 'Copyright\s+([^.]+)'
+
+  latex:
+    extensions: [".tex", ".sty", ".cls"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "%"
+      block: null
+    header: |
+      % SPDX-License-Identifier: {{.License}}
+      % Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^%\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^%\s*Copyright\s+([^.]+)'
+
+  matlab:
+    extensions: [".m", ".mat"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "%"
+      block: ["%{", "", "%}"]
+    header: |
+      % SPDX-License-Identifier: {{.License}}
+      % Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^%\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^%\s*Copyright\s+([^.]+)'
+
+  fortran:
+    extensions: [".f", ".for", ".f90", ".f95", ".f03", ".f08"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "!"
+      block: null
+    header: |
+      ! SPDX-License-Identifier: {{.License}}
+      ! Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^!\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^!\s*Copyright\s+([^.]+)'
+
+  ada:
+    extensions: [".adb", ".ads"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "--"
+      block: null
+    header: |
+      -- SPDX-License-Identifier: {{.License}}
+      -- Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^--\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^--\s*Copyright\s+([^.]+)'
+
+  ocaml:
+    extensions: [".ml", ".mli"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: null
+      block: ["(*", " *", " *)"]
+    header: |
+      (*
+       * SPDX-License-Identifier: {{.License}}
+       * Copyright {{.Holder}}. All rights reserved.
+       *)
+    match:
+      spdx: 'SPDX-License-Identifier:\s*(\S+)'
+      copyright: 'Copyright\s+([^.]+)'
+
+  fsharp:
+    extensions: [".fs", ".fsi", ".fsx"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["(*", " *", " *)"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  pascal:
+    extensions: [".pas", ".pp", ".inc"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "//"
+      block: ["{", " ", "}"]
+    header: |
+      // SPDX-License-Identifier: {{.License}}
+      // Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^//\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^//\s*Copyright\s+([^.]+)'
+
+  cobol:
+    extensions: [".cob", ".cbl", ".cpy"]
+    filenames: []
+    shebangs: []
+    comment:
+      line: "*>"
+      block: null
+    header: |
+      *> SPDX-License-Identifier: {{.License}}
+      *> Copyright {{.Holder}}. All rights reserved.
+    match:
+      spdx: '^\*>\s*SPDX-License-Identifier:\s*(\S+)'
+      copyright: '^\*>\s*Copyright\s+([^.]+)'

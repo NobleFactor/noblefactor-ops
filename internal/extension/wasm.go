@@ -31,6 +31,10 @@ type WasmModule interface {
 
 	// Functions returns the list of exported function names.
 	Functions() []string
+
+	// Call invokes a function in this module.
+	// Arguments and return values are serialized as bytes (e.g., JSON).
+	Call(function string, args []byte) ([]byte, error)
 }
 
 // wasmHost is the registered Wasm runtime.

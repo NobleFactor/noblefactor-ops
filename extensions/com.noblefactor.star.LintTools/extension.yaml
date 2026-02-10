@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintTools
+description: Check status of required lint tools
+
+receivers:
+  - name: lint
+    builtin: true
+    type: LintReceiver
+    description: Lint tool checking
+    functions:
+      ensure_tools: Check lint tool availability
+
+commands:
+  - name: lint.tools
+    help: Check status of required lint tools
+    implementation: commands/lint-tools.star

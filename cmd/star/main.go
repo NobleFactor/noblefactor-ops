@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,9 @@ import (
 	"github.com/spf13/cobra/doc"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/cli"
+	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 	starruntime "github.com/NobleFactor/noblefactor-ops/internal/starlark"
+	"github.com/NobleFactor/noblefactor-ops/internal/wasm"
 )
 
 var (
@@ -264,6 +267,11 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		},
 	}))
 
+	// Load extensions from default search paths
+	if err := loadExtensions(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load extensions: %v\n", err)
+	}
+
 	// Load Starlark commands from ops/ directory
 	if err := loadStarlarkCommands(rootCmd); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
@@ -381,4 +389,26 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 	}
 
 	parent.AddCommand(cobraCmd)
+}
+
+// loadExtensions discovers and loads extensions from default search paths.
+// It initializes the Wasm runtime and registers it with the extension package.
+func loadExtensions() error {
+	// Initialize Wasm host with empty capabilities.
+	// Extensions declare their own capabilities which are validated at call time.
+	ctx := context.Background()
+	host, err := wasm.NewHost(ctx, extension.Capabilities{})
+	if err != nil {
+		// Wasm init failure is a warning, not fatal - built-in extensions still work
+		fmt.Fprintf(os.Stderr, "Warning: Wasm runtime unavailable: %v\n", err)
+	} else {
+		// Register the host (implements extension.WasmHost interface directly)
+		extension.SetWasmHost(host)
+		// Note: Host cleanup happens via process exit - no explicit Close() needed
+		// for CLI tools. Long-running processes would need explicit lifecycle.
+	}
+
+	// Load extensions from default search paths
+	_, err = extension.LoadDefaults()
+	return err
 }

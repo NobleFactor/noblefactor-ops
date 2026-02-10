@@ -36,9 +36,9 @@ def run(ctx):
             fail("--registry-path required (no ../devlore-registry found)")
 
     # Validate paths exist
-    if not fs.is_dir(source_path):
+    if not file.is_directory(source_path):
         fail("Source path not found: " + source_path)
-    if not fs.is_dir(registry_path):
+    if not file.is_directory(registry_path):
         fail("Registry path not found: " + registry_path)
 
     # Build knowledge for selected domain(s)
@@ -52,8 +52,8 @@ def run(ctx):
 def _find_sibling(name):
     """Find a sibling directory by name."""
     # Try ../name relative to current directory
-    sibling = fs.join("..", name)
-    if fs.is_dir(sibling):
+    sibling = file.join("..", name)
+    if file.is_directory(sibling):
         return sibling
     return ""
 
@@ -70,8 +70,8 @@ def build_onboarding_knowledge(source_path, registry_path):
     """
     note("Building onboarding knowledge (Starlark API)...")
 
-    starlark_path = fs.join(source_path, "internal", "starlark")
-    if not fs.is_dir(starlark_path):
+    starlark_path = file.join(source_path, "internal", "starlark")
+    if not file.is_directory(starlark_path):
         fail("Starlark package not found: " + starlark_path)
 
     # Parse the API using Go AST - returns hierarchical structure
@@ -97,13 +97,13 @@ def build_onboarding_knowledge(source_path, registry_path):
     api_dict = _api_to_dict(api)
 
     # Write to registry
-    reference_path = fs.join(registry_path, "knowledge", "package-authoring", "bindings", "reference.yaml")
+    reference_path = file.join(registry_path, "knowledge", "package-authoring", "bindings", "reference.yaml")
 
     # Compare with existing
     changes_detected = False
     new_content = yaml.encode(api_dict)
-    if fs.exists(reference_path):
-        current_content = fs.read(reference_path)
+    if file.exists(reference_path):
+        current_content = file.read(reference_path)
         if current_content != new_content:
             changes_detected = True
             note("  Changes detected in reference.yaml")
@@ -112,7 +112,7 @@ def build_onboarding_knowledge(source_path, registry_path):
         note("  Creating new reference.yaml")
 
     if changes_detected:
-        fs.write(reference_path, new_content)
+        file.write(reference_path, new_content)
         success("  Wrote " + reference_path)
     else:
         success("  No changes to reference.yaml")
@@ -204,16 +204,16 @@ def build_migration_knowledge(source_path, registry_path):
     """
     note("Building migration knowledge...")
 
-    migrate_path = fs.join(source_path, "internal", "writ", "migrate")
-    if not fs.is_dir(migrate_path):
+    migrate_path = file.join(source_path, "internal", "writ", "migrate")
+    if not file.is_directory(migrate_path):
         fail("Migrate source not found: " + migrate_path)
 
-    execution_path = fs.join(source_path, "internal", "execution")
-    if not fs.is_dir(execution_path):
+    execution_path = file.join(source_path, "internal", "execution")
+    if not file.is_directory(execution_path):
         fail("Execution source not found: " + execution_path)
 
-    knowledge_path = fs.join(registry_path, "knowledge", "migration")
-    if not fs.is_dir(knowledge_path):
+    knowledge_path = file.join(registry_path, "knowledge", "migration")
+    if not file.is_directory(knowledge_path):
         fail("Migration knowledge path not found: " + knowledge_path)
 
     # Step 1: Parse Go source files
@@ -230,7 +230,7 @@ def build_migration_knowledge(source_path, registry_path):
     note("  Found " + str(len(platforms)) + " platforms")
 
     # Step 1b: Parse execution operations from ops.go
-    ops_path = fs.join(execution_path, "ops.go")
+    ops_path = file.join(execution_path, "ops.go")
     note("  Scanning " + ops_path + "...")
     ops_result = go.parse_execution_ops(ops_path)
     execution_ops = list(ops_result.operations)
@@ -238,13 +238,13 @@ def build_migration_knowledge(source_path, registry_path):
 
     # Step 2: Load registry signature files
     # Only include files that look like actual system signatures (have a 'name' field)
-    signatures_path = fs.join(knowledge_path, "signatures")
+    signatures_path = file.join(knowledge_path, "signatures")
     registry_systems = []
-    if fs.is_dir(signatures_path):
-        for entry in fs.list_dir(signatures_path):
+    if file.is_directory(signatures_path):
+        for entry in file.list(signatures_path):
             if entry.name.endswith(".yaml"):
-                sig_path = fs.join(signatures_path, entry.name)
-                content = fs.read(sig_path)
+                sig_path = file.join(signatures_path, entry.name)
+                content = file.read(sig_path)
                 sig = yaml.decode(content)
                 # Only consider files with a 'name' field as system signatures
                 if sig.get("name"):
@@ -252,11 +252,11 @@ def build_migration_knowledge(source_path, registry_path):
                     registry_systems.append(system_name)
 
     # Step 3: Load writ-structure.yaml for platform validation
-    writ_structure_path = fs.join(knowledge_path, "concepts", "writ-structure.yaml")
+    writ_structure_path = file.join(knowledge_path, "concepts", "writ-structure.yaml")
     registry_platforms = []
     registry_platform_aliases = []
-    if fs.exists(writ_structure_path):
-        content = fs.read(writ_structure_path)
+    if file.exists(writ_structure_path):
+        content = file.read(writ_structure_path)
         structure = yaml.decode(content)
         segments = structure.get("naming", {}).get("segments", {})
         platform_list = segments.get("platforms", [])
@@ -288,12 +288,12 @@ def build_migration_knowledge(source_path, registry_path):
 
     # Step 5: Generate/update systems reference file
     systems_ref = generate_systems_reference(source_systems, encryption_systems, repo_layers, platforms)
-    systems_ref_path = fs.join(knowledge_path, "systems-reference.yaml")
+    systems_ref_path = file.join(knowledge_path, "systems-reference.yaml")
 
     # Compare with existing
     changes_detected = False
-    if fs.exists(systems_ref_path):
-        current_content = fs.read(systems_ref_path)
+    if file.exists(systems_ref_path):
+        current_content = file.read(systems_ref_path)
         new_content = yaml.encode(systems_ref)
         if current_content != new_content:
             changes_detected = True
@@ -303,7 +303,7 @@ def build_migration_knowledge(source_path, registry_path):
         note("  Creating new systems-reference.yaml")
 
     if changes_detected:
-        fs.write(systems_ref_path, yaml.encode(systems_ref))
+        file.write(systems_ref_path, yaml.encode(systems_ref))
         success("  Wrote " + systems_ref_path)
     else:
         success("  No changes to systems-reference.yaml")
@@ -320,13 +320,13 @@ def generate_execution_schema(source_path, knowledge_path):
 
     This ensures the schema is always derived from the actual Go types.
     """
-    schemas_path = fs.join(knowledge_path, "schemas")
-    if not fs.is_dir(schemas_path):
+    schemas_path = file.join(knowledge_path, "schemas")
+    if not file.is_directory(schemas_path):
         warn("  Schemas path not found: " + schemas_path)
         return
 
     # Parse Go execution package for structs and operations
-    execution_path = fs.join(source_path, "internal", "execution")
+    execution_path = file.join(source_path, "internal", "execution")
     note("  Generating schema from " + execution_path + "...")
     schema_data = go.parse_execution_schema(execution_path)
 
@@ -334,12 +334,12 @@ def generate_execution_schema(source_path, knowledge_path):
     engine_schema = _build_engine_graph_schema(schema_data)
 
     # Write schema
-    engine_schema_path = fs.join(schemas_path, "engine-graph.json")
+    engine_schema_path = file.join(schemas_path, "engine-graph.json")
     new_content = json.encode_indent(engine_schema, "  ")
 
     changes_detected = False
-    if fs.exists(engine_schema_path):
-        current_content = fs.read(engine_schema_path)
+    if file.exists(engine_schema_path):
+        current_content = file.read(engine_schema_path)
         if current_content != new_content:
             changes_detected = True
             note("  Changes detected in engine-graph.json")
@@ -348,7 +348,7 @@ def generate_execution_schema(source_path, knowledge_path):
         note("  Creating new engine-graph.json")
 
     if changes_detected:
-        fs.write(engine_schema_path, new_content)
+        file.write(engine_schema_path, new_content)
         success("  Wrote " + engine_schema_path)
     else:
         success("  No changes to engine-graph.json")
@@ -622,12 +622,12 @@ def validate_signature_coverage(source_systems, signatures_path):
         if val in ["unknown", "native"]:
             continue
 
-        sig_file = fs.join(signatures_path, val + ".yaml")
-        if not fs.exists(sig_file):
+        sig_file = file.join(signatures_path, val + ".yaml")
+        if not file.exists(sig_file):
             warn("  Missing signature file: " + sig_file)
         else:
             # Validate signature file has required fields
-            content = fs.read(sig_file)
+            content = file.read(sig_file)
             sig = yaml.decode(content)
             if not sig.get("name"):
                 warn("  Signature missing 'name': " + sig_file)

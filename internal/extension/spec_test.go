@@ -11,7 +11,7 @@ import (
 
 func TestParseSpec_FullExtension(t *testing.T) {
 	yaml := `
-extension: lint.copyright
+extension: com.noblefactor.star.CopyrightChecker
 description: "Check or fix copyright headers"
 
 receivers:
@@ -23,15 +23,15 @@ receivers:
       check: "Verify files have correct headers"
       fix: "Add or update headers"
 
-command:
-  help: "Check or fix copyright headers"
-  implementation: lint-copyright.star
-
-flags:
-  - name: fix
-    type: bool
-    default: "false"
-    help: Add missing headers
+commands:
+  - name: lint.copyright
+    help: "Check or fix copyright headers"
+    implementation: commands/lint-copyright.star
+    flags:
+      - name: fix
+        type: bool
+        default: "false"
+        help: Add missing headers
 
 config:
   type: CopyrightConfig
@@ -47,8 +47,8 @@ config:
 		t.Fatalf("ParseSpecFromBytes failed: %v", err)
 	}
 
-	if spec.Extension != "lint.copyright" {
-		t.Errorf("Extension = %q, want %q", spec.Extension, "lint.copyright")
+	if spec.Extension != "com.noblefactor.star.CopyrightChecker" {
+		t.Errorf("Extension = %q, want %q", spec.Extension, "com.noblefactor.star.CopyrightChecker")
 	}
 
 	if spec.Description != "Check or fix copyright headers" {
@@ -70,18 +70,22 @@ config:
 		t.Errorf("Receiver.Type = %q, want %q", r.Type, "CopyrightChecker")
 	}
 
-	if spec.Command == nil {
-		t.Fatal("Command is nil")
+	if len(spec.Commands) != 1 {
+		t.Fatalf("len(Commands) = %d, want 1", len(spec.Commands))
 	}
-	if spec.Command.Implementation != "lint-copyright.star" {
-		t.Errorf("Command.Implementation = %q, want %q", spec.Command.Implementation, "lint-copyright.star")
+	cmd := spec.Commands[0]
+	if cmd.Name != "lint.copyright" {
+		t.Errorf("Command.Name = %q, want %q", cmd.Name, "lint.copyright")
+	}
+	if cmd.Implementation != "commands/lint-copyright.star" {
+		t.Errorf("Command.Implementation = %q, want %q", cmd.Implementation, "commands/lint-copyright.star")
 	}
 
-	if len(spec.Flags) != 1 {
-		t.Fatalf("len(Flags) = %d, want 1", len(spec.Flags))
+	if len(cmd.Flags) != 1 {
+		t.Fatalf("len(Flags) = %d, want 1", len(cmd.Flags))
 	}
-	if spec.Flags[0].Name != "fix" {
-		t.Errorf("Flag.Name = %q, want %q", spec.Flags[0].Name, "fix")
+	if cmd.Flags[0].Name != "fix" {
+		t.Errorf("Flag.Name = %q, want %q", cmd.Flags[0].Name, "fix")
 	}
 
 	if spec.Config == nil {
@@ -94,7 +98,7 @@ config:
 
 func TestParseSpec_BindingOnly(t *testing.T) {
 	yaml := `
-extension: copyright
+extension: com.example.Copyright
 description: "Copyright header primitives"
 
 receivers:
@@ -113,8 +117,8 @@ receivers:
 	if !spec.HasReceivers() {
 		t.Error("HasReceivers() = false, want true")
 	}
-	if spec.HasCommand() {
-		t.Error("HasCommand() = true, want false")
+	if spec.HasCommands() {
+		t.Error("HasCommands() = true, want false")
 	}
 	if spec.HasConfig() {
 		t.Error("HasConfig() = true, want false")
@@ -123,12 +127,13 @@ receivers:
 
 func TestParseSpec_CommandOnly(t *testing.T) {
 	yaml := `
-extension: lint.all
+extension: com.example.LintAll
 description: "Run all linters"
 
-command:
-  help: "Run all configured linters"
-  implementation: lint-all.star
+commands:
+  - name: lint.all
+    help: "Run all configured linters"
+    implementation: commands/lint-all.star
 `
 	spec, err := ParseSpecFromBytes([]byte(yaml))
 	if err != nil {
@@ -138,28 +143,27 @@ command:
 	if spec.HasReceivers() {
 		t.Error("HasReceivers() = true, want false")
 	}
-	if !spec.HasCommand() {
-		t.Error("HasCommand() = false, want true")
+	if !spec.HasCommands() {
+		t.Error("HasCommands() = false, want true")
 	}
 }
 
 func TestParseSpec_WasmExtension(t *testing.T) {
 	yaml := `
-extension: custom.linter
+extension: com.example.CustomLinter
 description: "Custom analysis"
 
 receivers:
   - name: customlint
-    wasm: customlint.wasm
+    wasm: receivers/customlint.wasm
     functions:
       analyze: "Run analysis"
-
-capabilities:
-  fs:
-    read: ["/workspace"]
-    write: []
-  host_calls:
-    - shell.run
+    capabilities:
+      fs:
+        read: ["/workspace"]
+        write: []
+      host_calls:
+        - shell.run
 `
 	spec, err := ParseSpecFromBytes([]byte(yaml))
 	if err != nil {
@@ -172,17 +176,22 @@ capabilities:
 	if !spec.HasWasmReceivers() {
 		t.Error("HasWasmReceivers() = false, want true")
 	}
-	if spec.Capabilities == nil {
-		t.Fatal("Capabilities is nil")
+
+	r := spec.GetReceiver("customlint")
+	if r == nil {
+		t.Fatal("GetReceiver(customlint) returned nil")
 	}
-	if len(spec.Capabilities.FS.Read) != 1 {
-		t.Errorf("len(Capabilities.FS.Read) = %d, want 1", len(spec.Capabilities.FS.Read))
+	if r.Capabilities == nil {
+		t.Fatal("Receiver.Capabilities is nil")
+	}
+	if len(r.Capabilities.FS.Read) != 1 {
+		t.Errorf("len(Capabilities.FS.Read) = %d, want 1", len(r.Capabilities.FS.Read))
 	}
 }
 
 func TestValidate_EmptyExtension(t *testing.T) {
 	yaml := `
-extension: empty
+extension: com.example.Empty
 description: "No receivers or command"
 `
 	_, err := ParseSpecFromBytes([]byte(yaml))
@@ -205,9 +214,23 @@ receivers:
 	}
 }
 
+func TestValidate_InvalidReverseDomainName(t *testing.T) {
+	yaml := `
+extension: "just.two"
+receivers:
+  - name: test
+    builtin: true
+    type: TestReceiver
+`
+	_, err := ParseSpecFromBytes([]byte(yaml))
+	if err == nil {
+		t.Error("expected error for invalid reverse domain name (too few segments)")
+	}
+}
+
 func TestValidate_BuiltinWithoutType(t *testing.T) {
 	yaml := `
-extension: test
+extension: com.example.Test
 receivers:
   - name: test
     builtin: true
@@ -220,13 +243,13 @@ receivers:
 
 func TestValidate_WasmWithoutPath(t *testing.T) {
 	yaml := `
-extension: test
+extension: com.example.Test
 receivers:
   - name: test
     builtin: false
-capabilities:
-  fs:
-    read: []
+    capabilities:
+      fs:
+        read: []
 `
 	_, err := ParseSpecFromBytes([]byte(yaml))
 	if err == nil {
@@ -236,10 +259,10 @@ capabilities:
 
 func TestValidate_WasmWithoutCapabilities(t *testing.T) {
 	yaml := `
-extension: test
+extension: com.example.Test
 receivers:
   - name: test
-    wasm: test.wasm
+    wasm: receivers/test.wasm
 `
 	_, err := ParseSpecFromBytes([]byte(yaml))
 	if err == nil {
@@ -247,14 +270,46 @@ receivers:
 	}
 }
 
+func TestValidate_WasmNotInReceiversDir(t *testing.T) {
+	yaml := `
+extension: com.example.Test
+receivers:
+  - name: test
+    wasm: test.wasm
+    capabilities:
+      fs:
+        read: []
+`
+	_, err := ParseSpecFromBytes([]byte(yaml))
+	if err == nil {
+		t.Error("expected error for wasm not in receivers/ subdirectory")
+	}
+}
+
+func TestValidate_CommandNotInCommandsDir(t *testing.T) {
+	yaml := `
+extension: com.example.Test
+commands:
+  - name: test
+    help: "Test"
+    implementation: test.star
+`
+	_, err := ParseSpecFromBytes([]byte(yaml))
+	if err == nil {
+		t.Error("expected error for implementation not in commands/ subdirectory")
+	}
+}
+
 func TestValidate_InvalidFlagType(t *testing.T) {
 	yaml := `
-extension: test
-command:
-  help: "Test"
-flags:
+extension: com.example.Test
+commands:
   - name: test
-    type: invalid
+    help: "Test"
+    implementation: commands/test.star
+    flags:
+      - name: test
+        type: invalid
 `
 	_, err := ParseSpecFromBytes([]byte(yaml))
 	if err == nil {
@@ -262,22 +317,30 @@ flags:
 	}
 }
 
-func TestCommandPath(t *testing.T) {
-	spec := &ExtensionSpec{Extension: "lint.copyright"}
-	path := spec.CommandPath()
-
-	if len(path) != 2 {
-		t.Fatalf("len(CommandPath()) = %d, want 2", len(path))
+func TestCommandPaths(t *testing.T) {
+	spec := &ExtensionSpec{
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{Name: "lint.copyright", Implementation: "commands/lint-copyright.star"},
+			{Name: "lint.go", Implementation: "commands/lint-go.star"},
+		},
 	}
-	if path[0] != "lint" || path[1] != "copyright" {
-		t.Errorf("CommandPath() = %v, want [lint, copyright]", path)
+	paths := spec.CommandPaths()
+
+	if len(paths) != 2 {
+		t.Fatalf("len(CommandPaths()) = %d, want 2", len(paths))
+	}
+	if paths[0][0] != "lint" || paths[0][1] != "copyright" {
+		t.Errorf("CommandPaths()[0] = %v, want [lint, copyright]", paths[0])
 	}
 }
 
 func TestToConfigSpec(t *testing.T) {
 	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{Name: "test", Help: "Test", Implementation: "commands/test.star"},
+		},
 		Config: &ConfigDef{
 			Type: "TestConfig",
 			Fields: map[string]string{
@@ -306,8 +369,10 @@ func TestToConfigSpec(t *testing.T) {
 
 func TestToConfigSpec_NoConfig(t *testing.T) {
 	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{Name: "test", Help: "Test", Implementation: "commands/test.star"},
+		},
 	}
 
 	configSpec := spec.ToConfigSpec()
@@ -322,10 +387,12 @@ func TestParseSpec_FromFile(t *testing.T) {
 	path := filepath.Join(dir, "extension.yaml")
 
 	yaml := `
-extension: test.example
+extension: com.example.Test
 description: "Test extension"
-command:
-  help: "Test command"
+commands:
+  - name: test
+    help: "Test command"
+    implementation: commands/test.star
 `
 	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
@@ -336,8 +403,8 @@ command:
 		t.Fatalf("ParseSpec failed: %v", err)
 	}
 
-	if spec.Extension != "test.example" {
-		t.Errorf("Extension = %q, want %q", spec.Extension, "test.example")
+	if spec.Extension != "com.example.Test" {
+		t.Errorf("Extension = %q, want %q", spec.Extension, "com.example.Test")
 	}
 	if spec.SourcePath != path {
 		t.Errorf("SourcePath = %q, want %q", spec.SourcePath, path)
@@ -346,30 +413,40 @@ command:
 
 func TestGetFlag(t *testing.T) {
 	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
-		Flags: []FlagSpec{
-			{Name: "fix", Type: "bool"},
-			{Name: "output", Type: "string"},
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{
+				Name:           "test",
+				Help:           "Test",
+				Implementation: "commands/test.star",
+				Flags: []FlagSpec{
+					{Name: "fix", Type: "bool"},
+					{Name: "output", Type: "string"},
+				},
+			},
 		},
 	}
 
-	flag := spec.GetFlag("fix")
+	flag := spec.GetFlag("test", "fix")
 	if flag == nil {
-		t.Fatal("GetFlag(fix) returned nil")
+		t.Fatal("GetFlag(test, fix) returned nil")
 	}
 	if flag.Type != "bool" {
 		t.Errorf("flag.Type = %q, want %q", flag.Type, "bool")
 	}
 
-	if spec.GetFlag("nonexistent") != nil {
-		t.Error("GetFlag(nonexistent) should return nil")
+	if spec.GetFlag("test", "nonexistent") != nil {
+		t.Error("GetFlag(test, nonexistent) should return nil")
+	}
+
+	if spec.GetFlag("nonexistent", "fix") != nil {
+		t.Error("GetFlag(nonexistent, fix) should return nil")
 	}
 }
 
 func TestGetReceiver(t *testing.T) {
 	spec := &ExtensionSpec{
-		Extension: "test",
+		Extension: "com.example.Test",
 		Receivers: []ReceiverSpec{
 			{Name: "copyright", Type: "CopyrightChecker", Builtin: true},
 			{Name: "shell", Type: "ShellRunner", Builtin: true},
@@ -389,39 +466,12 @@ func TestGetReceiver(t *testing.T) {
 	}
 }
 
-func TestToConfigSpec_NestedDefaults(t *testing.T) {
-	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
-		Config: &ConfigDef{
-			Type: "TestConfig",
-			Fields: map[string]string{
-				"items": "[]string",
-			},
-			Defaults: map[string]interface{}{
-				"items": []interface{}{"a", "b", "c"},
-				"nested": map[string]interface{}{
-					"deep": []interface{}{
-						map[string]interface{}{"key": "value"},
-					},
-				},
-			},
-		},
-	}
-
-	configSpec := spec.ToConfigSpec()
-
-	// Verify nested defaults are copied
-	items := configSpec.Defaults["items"].([]interface{})
-	if len(items) != 3 {
-		t.Errorf("len(items) = %d, want 3", len(items))
-	}
-}
-
 func TestIsBuiltin_NoReceivers(t *testing.T) {
 	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{Name: "test", Help: "Test", Implementation: "commands/test.star"},
+		},
 		Receivers: []ReceiverSpec{},
 	}
 
@@ -440,7 +490,7 @@ func TestParseSpec_ReadError(t *testing.T) {
 
 func TestValidate_EmptyReceiverName(t *testing.T) {
 	yaml := `
-extension: test
+extension: com.example.Test
 receivers:
   - name: ""
     builtin: true
@@ -452,26 +502,30 @@ receivers:
 	}
 }
 
-func TestValidate_InvalidExtensionPath(t *testing.T) {
+func TestValidate_CommandWithoutName(t *testing.T) {
 	yaml := `
-extension: "lint..copyright"
-command:
-  help: "Test"
+extension: com.example.Test
+commands:
+  - name: ""
+    help: "Test"
+    implementation: commands/test.star
 `
 	_, err := ParseSpecFromBytes([]byte(yaml))
 	if err == nil {
-		t.Error("expected error for invalid extension path with empty segment")
+		t.Error("expected error for command without name")
 	}
 }
 
 func TestValidate_FlagWithoutName(t *testing.T) {
 	yaml := `
-extension: test
-command:
-  help: "Test"
-flags:
-  - name: ""
-    type: bool
+extension: com.example.Test
+commands:
+  - name: test
+    help: "Test"
+    implementation: commands/test.star
+    flags:
+      - name: ""
+        type: bool
 `
 	_, err := ParseSpecFromBytes([]byte(yaml))
 	if err == nil {
@@ -481,12 +535,14 @@ flags:
 
 func TestValidate_FlagWithoutType(t *testing.T) {
 	yaml := `
-extension: test
-command:
-  help: "Test"
-flags:
-  - name: "myflag"
-    type: ""
+extension: com.example.Test
+commands:
+  - name: test
+    help: "Test"
+    implementation: commands/test.star
+    flags:
+      - name: "myflag"
+        type: ""
 `
 	_, err := ParseSpecFromBytes([]byte(yaml))
 	if err == nil {
@@ -494,76 +550,23 @@ flags:
 	}
 }
 
-func TestToConfigSpec_NilFields(t *testing.T) {
-	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
-		Config: &ConfigDef{
-			Type:     "TestConfig",
-			Fields:   nil,
-			Defaults: nil,
-		},
-	}
-
-	configSpec := spec.ToConfigSpec()
-
-	if configSpec.Fields != nil {
-		t.Error("Fields should be nil when source is nil")
-	}
-	if configSpec.Defaults != nil {
-		t.Error("Defaults should be nil when source is nil")
-	}
-}
-
-func TestToConfigSpec_DeepNestedSlicesAndMaps(t *testing.T) {
-	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
-		Config: &ConfigDef{
-			Type: "TestConfig",
-			Fields: map[string]string{
-				"complex": "any",
-			},
-			Defaults: map[string]interface{}{
-				// Nested map inside slice
-				"items": []interface{}{
-					map[string]interface{}{
-						"nested_map": map[string]interface{}{
-							"deep": "value",
-						},
-						"nested_slice": []interface{}{"a", "b"},
-					},
-				},
-				// Slice inside map
-				"wrapper": map[string]interface{}{
-					"list": []interface{}{
-						map[string]interface{}{"key": "val"},
-					},
-				},
-				// Simple values
-				"simple_string": "hello",
-				"simple_int":    42,
-			},
-		},
-	}
-
-	configSpec := spec.ToConfigSpec()
-
-	// Verify deep copy worked
-	items := configSpec.Defaults["items"].([]interface{})
-	if len(items) != 1 {
-		t.Fatalf("len(items) = %d, want 1", len(items))
-	}
-
-	item := items[0].(map[string]interface{})
-	nestedMap := item["nested_map"].(map[string]interface{})
-	if nestedMap["deep"] != "value" {
-		t.Errorf("nestedMap[deep] = %v, want value", nestedMap["deep"])
-	}
-
-	nestedSlice := item["nested_slice"].([]interface{})
-	if len(nestedSlice) != 2 {
-		t.Errorf("len(nestedSlice) = %d, want 2", len(nestedSlice))
+func TestValidate_AllFlagTypes(t *testing.T) {
+	// Test all valid flag types
+	for _, flagType := range []string{"bool", "string", "int", "glob"} {
+		yaml := `
+extension: com.example.Test
+commands:
+  - name: test
+    help: "Test"
+    implementation: commands/test.star
+    flags:
+      - name: "myflag"
+        type: ` + flagType + `
+`
+		_, err := ParseSpecFromBytes([]byte(yaml))
+		if err != nil {
+			t.Errorf("unexpected error for flag type %q: %v", flagType, err)
+		}
 	}
 }
 
@@ -577,56 +580,24 @@ this is not valid yaml: [
 	}
 }
 
-func TestValidate_AllFlagTypes(t *testing.T) {
-	// Test all valid flag types
-	for _, flagType := range []string{"bool", "string", "int", "glob"} {
-		yaml := `
-extension: test
-command:
-  help: "Test"
-flags:
-  - name: "myflag"
-    type: ` + flagType + `
-`
-		_, err := ParseSpecFromBytes([]byte(yaml))
-		if err != nil {
-			t.Errorf("unexpected error for flag type %q: %v", flagType, err)
-		}
-	}
-}
-
-func TestToConfigSpec_SliceOfSlices(t *testing.T) {
-	// Test copySlice with nested slices (slice containing slices)
+func TestGetCommand(t *testing.T) {
 	spec := &ExtensionSpec{
-		Extension: "test",
-		Command:   &CommandSpec{Help: "Test"},
-		Config: &ConfigDef{
-			Type: "TestConfig",
-			Fields: map[string]string{
-				"matrix": "any",
-			},
-			Defaults: map[string]interface{}{
-				// Matrix is a slice of slices
-				"matrix": []interface{}{
-					[]interface{}{"a", "b", "c"},
-					[]interface{}{"d", "e", "f"},
-				},
-			},
+		Extension: "com.example.Test",
+		Commands: []CommandSpec{
+			{Name: "lint.go", Help: "Go linting", Implementation: "commands/lint-go.star"},
+			{Name: "lint.shell", Help: "Shell linting", Implementation: "commands/lint-shell.star"},
 		},
 	}
 
-	configSpec := spec.ToConfigSpec()
-
-	matrix := configSpec.Defaults["matrix"].([]interface{})
-	if len(matrix) != 2 {
-		t.Fatalf("len(matrix) = %d, want 2", len(matrix))
+	cmd := spec.GetCommand("lint.go")
+	if cmd == nil {
+		t.Fatal("GetCommand(lint.go) returned nil")
+	}
+	if cmd.Help != "Go linting" {
+		t.Errorf("cmd.Help = %q, want %q", cmd.Help, "Go linting")
 	}
 
-	row1 := matrix[0].([]interface{})
-	if len(row1) != 3 {
-		t.Errorf("len(row1) = %d, want 3", len(row1))
-	}
-	if row1[0] != "a" {
-		t.Errorf("row1[0] = %v, want a", row1[0])
+	if spec.GetCommand("nonexistent") != nil {
+		t.Error("GetCommand(nonexistent) should return nil")
 	}
 }

@@ -416,7 +416,7 @@ def run_copyright_silent(fix):
     # Collect files
     files = []
     for ext in ["**/*.go", "**/*.star", "**/*.sh"]:
-        for f in fs.glob(ext):
+        for f in file.glob(ext):
             excluded = False
             for pattern in exclude:
                 if pattern.endswith("/**"):
