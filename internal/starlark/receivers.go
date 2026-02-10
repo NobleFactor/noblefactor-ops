@@ -3,10 +3,6 @@
 
 package starlark
 
-import (
-	"go.starlark.net/starlark"
-)
-
 // Receiver instances - these are singletons used across all Starlark executions.
 var (
 	// File provides file system operations (renamed from fs).
@@ -42,21 +38,3 @@ var (
 	// StarlarkParse provides Starlark source parsing operations.
 	StarlarkParse = NewStarlarkParseReceiver()
 )
-
-// Receivers returns a StringDict containing all receiver instances.
-// This is used by Runtime.buildPredeclared() to inject receivers into scripts.
-func Receivers() starlark.StringDict {
-	return starlark.StringDict{
-		"file":           File,
-		"json":           JSON,
-		"yaml":           YAML,
-		"schema":         Schema,
-		"shell":          Shell,
-		"regexp":         Regexp,
-		"go":             Go,
-		"lint":           Lint,
-		"setup":          Setup,
-		"config":         Config,
-		"starlark_parse": StarlarkParse,
-	}
-}

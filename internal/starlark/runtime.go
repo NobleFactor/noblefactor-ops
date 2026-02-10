@@ -17,6 +17,7 @@ import (
 	"github.com/NobleFactor/noblefactor-ops/internal/cli"
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
+	"github.com/NobleFactor/noblefactor-ops/internal/ignore"
 	"github.com/NobleFactor/noblefactor-ops/internal/wasm"
 )
 
@@ -204,6 +205,11 @@ func (r *Runtime) loadWasmReceivers(spec *extension.ExtensionSpec) error {
 		// Create WasmReceiver
 		receiver := NewWasmReceiver(recv.Name, module, functions)
 		r.wasmReceivers[hostKey] = receiver
+
+		// Special case: gitignore module is also used by file.glob
+		if recv.Name == "gitignore" {
+			ignore.SetModule(module)
+		}
 	}
 
 	return nil

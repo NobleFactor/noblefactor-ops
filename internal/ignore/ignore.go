@@ -3,198 +3,135 @@
 
 // Package ignore provides gitignore-aware file filtering.
 //
-// This is a stub implementation. The full implementation will use
-// the gitignore WASM extension which wraps BurntSushi's ignore crate.
+// This package uses the gitignore WASM extension (BurntSushi's ignore crate)
+// when available, falling back to a Go stub implementation otherwise.
+//
+// The WASM module is set by the runtime during extension loading via SetModule.
 package ignore
 
 import (
-	"bufio"
-	"os"
+	"encoding/json"
 	"path/filepath"
-	"regexp"
-	"strings"
+	"sync"
+
+	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 )
+
+// module holds the gitignore WASM module set by the runtime.
+var (
+	mu     sync.RWMutex
+	module extension.WasmModule
+)
+
+// SetModule sets the gitignore WASM module.
+// Called by the runtime after loading the gitignore extension.
+func SetModule(m extension.WasmModule) {
+	mu.Lock()
+	defer mu.Unlock()
+	module = m
+}
+
+// getModule returns the current WASM module, if set.
+func getModule() extension.WasmModule {
+	mu.RLock()
+	defer mu.RUnlock()
+	return module
+}
 
 // Matcher checks if paths should be ignored based on .gitignore rules.
 type Matcher struct {
-	patterns []pattern
-	base     string
-}
-
-type pattern struct {
-	regex  *regexp.Regexp
-	negate bool
+	base string
 }
 
 // New creates a new Matcher for the given directory.
-// It walks up the directory tree to find .gitignore files.
 func New(dir string) (*Matcher, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, err
 	}
-
-	m := &Matcher{base: absDir}
-
-	// Walk up to find .gitignore files
-	current := absDir
-	var gitignorePaths []string
-
-	for {
-		gi := filepath.Join(current, ".gitignore")
-		if _, err := os.Stat(gi); err == nil {
-			gitignorePaths = append(gitignorePaths, gi)
-		}
-
-		// Stop at .git directory or filesystem root
-		if _, err := os.Stat(filepath.Join(current, ".git")); err == nil {
-			break
-		}
-
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-		current = parent
-	}
-
-	// Load gitignore files (root first)
-	for i := len(gitignorePaths) - 1; i >= 0; i-- {
-		if err := m.loadGitignore(gitignorePaths[i]); err != nil {
-			// Ignore errors loading individual files
-			continue
-		}
-	}
-
-	return m, nil
-}
-
-// loadGitignore parses a .gitignore file and adds patterns.
-func (m *Matcher) loadGitignore(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if p := parsePattern(line); p != nil {
-			m.patterns = append(m.patterns, *p)
-		}
-	}
-
-	return scanner.Err()
-}
-
-// parsePattern converts a gitignore line to a regex pattern.
-// Returns nil for comments and blank lines.
-func parsePattern(line string) *pattern {
-	// Trim trailing spaces
-	line = strings.TrimRight(line, " \t\r")
-
-	// Skip empty lines and comments
-	if line == "" || strings.HasPrefix(line, "#") {
-		return nil
-	}
-
-	negate := false
-	if strings.HasPrefix(line, "!") {
-		negate = true
-		line = line[1:]
-	}
-
-	// Convert gitignore pattern to regex
-	regex := gitignoreToRegex(line)
-	if regex == "" {
-		return nil
-	}
-
-	re, err := regexp.Compile(regex)
-	if err != nil {
-		return nil
-	}
-
-	return &pattern{regex: re, negate: negate}
-}
-
-// gitignoreToRegex converts a gitignore pattern to a regex.
-func gitignoreToRegex(pattern string) string {
-	// Handle directory-only patterns
-	dirOnly := strings.HasSuffix(pattern, "/")
-	if dirOnly {
-		pattern = strings.TrimSuffix(pattern, "/")
-	}
-
-	// Escape regex special chars except * and ?
-	var b strings.Builder
-	b.WriteString("(?:^|/)")
-
-	for i := 0; i < len(pattern); i++ {
-		c := pattern[i]
-		switch c {
-		case '*':
-			if i+1 < len(pattern) && pattern[i+1] == '*' {
-				// ** matches any path
-				b.WriteString(".*")
-				i++
-				if i+1 < len(pattern) && pattern[i+1] == '/' {
-					i++ // skip the slash after **
-				}
-			} else {
-				// * matches anything except /
-				b.WriteString("[^/]*")
-			}
-		case '?':
-			b.WriteString("[^/]")
-		case '.', '+', '^', '$', '(', ')', '[', ']', '{', '}', '|', '\\':
-			b.WriteByte('\\')
-			b.WriteByte(c)
-		default:
-			b.WriteByte(c)
-		}
-	}
-
-	if dirOnly {
-		b.WriteString("/")
-	} else {
-		b.WriteString("(?:/|$)")
-	}
-
-	return b.String()
+	return &Matcher{base: absDir}, nil
 }
 
 // Match checks if the given path should be ignored.
 func (m *Matcher) Match(path string) bool {
-	if len(m.patterns) == 0 {
-		return false
+	if mod := getModule(); mod != nil {
+		return matchWasm(mod, path, m.base)
 	}
-
-	// Normalize path
-	path = filepath.ToSlash(path)
-
-	ignored := false
-	for _, p := range m.patterns {
-		if p.regex.MatchString(path) {
-			ignored = !p.negate
-		}
-	}
-
-	return ignored
+	return matchStub(path, m.base)
 }
 
 // Filter returns paths that are NOT ignored.
 func (m *Matcher) Filter(paths []string) []string {
-	if len(m.patterns) == 0 {
+	if len(paths) == 0 {
 		return paths
 	}
 
-	result := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if !m.Match(p) {
-			result = append(result, p)
-		}
+	if mod := getModule(); mod != nil {
+		return filterWasm(mod, paths, m.base)
 	}
-	return result
+	return filterStub(paths, m.base)
+}
+
+// filterParams is the input for the WASM filter method.
+type filterParams struct {
+	Paths []string `json:"paths"`
+	Base  string   `json:"base"`
+}
+
+// filterResult is the output from the WASM filter method.
+type filterResult struct {
+	Paths []string `json:"paths"`
+}
+
+// matchesParams is the input for the WASM matches method.
+type matchesParams struct {
+	Path string `json:"path"`
+	Base string `json:"base"`
+}
+
+// matchesResult is the output from the WASM matches method.
+type matchesResult struct {
+	Ignored bool `json:"ignored"`
+}
+
+// filterWasm calls the WASM module to filter paths.
+func filterWasm(mod extension.WasmModule, paths []string, base string) []string {
+	params := filterParams{Paths: paths, Base: base}
+	input, err := json.Marshal(params)
+	if err != nil {
+		return filterStub(paths, base)
+	}
+
+	output, err := mod.Call("filter", input)
+	if err != nil {
+		return filterStub(paths, base)
+	}
+
+	var result filterResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return filterStub(paths, base)
+	}
+
+	return result.Paths
+}
+
+// matchWasm calls the WASM module to check if a path is ignored.
+func matchWasm(mod extension.WasmModule, path, base string) bool {
+	params := matchesParams{Path: path, Base: base}
+	input, err := json.Marshal(params)
+	if err != nil {
+		return matchStub(path, base)
+	}
+
+	output, err := mod.Call("matches", input)
+	if err != nil {
+		return matchStub(path, base)
+	}
+
+	var result matchesResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return matchStub(path, base)
+	}
+
+	return result.Ignored
 }

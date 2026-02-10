@@ -7,7 +7,6 @@
 //! gitignore-aware path filtering for star extensions.
 
 use ignore::gitignore::GitignoreBuilder;
-use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
