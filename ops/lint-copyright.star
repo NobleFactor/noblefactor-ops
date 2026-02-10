@@ -10,53 +10,105 @@
 #   star lint copyright           # Check headers (report issues)
 #   star lint copyright --fix     # Add/update headers
 
-def collect_source_files(path, exclude_patterns):
-    """Collect source files (.go, .star, .sh) from path, excluding patterns."""
+def get_comment_style(filepath):
+    """Return comment prefix for file type."""
+    if filepath.endswith(".go") or filepath.endswith(".star"):
+        return "//"
+    elif filepath.endswith(".sh") or filepath.endswith(".bash"):
+        return "#"
+    return None
+
+def build_expected_header(comment, license_id, holder):
+    """Build the expected SPDX header lines."""
+    return [
+        comment + " SPDX-License-Identifier: " + license_id,
+        comment + " Copyright " + holder,
+    ]
+
+def check_header(content, comment, license_id, holder):
+    """Check if content has correct SPDX header. Returns (ok, message)."""
+    lines = content.split("\n")
+    expected = build_expected_header(comment, license_id, holder)
+
+    # Handle shebang for shell scripts
+    start = 0
+    if len(lines) > 0 and lines[0].startswith("#!"):
+        start = 1
+
+    # Check we have enough lines
+    if len(lines) < start + 2:
+        return (False, "missing SPDX header")
+
+    # Check SPDX line
+    if not lines[start].startswith(comment + " SPDX-License-Identifier:"):
+        return (False, "missing SPDX-License-Identifier")
+
+    if lines[start] != expected[0]:
+        return (False, "wrong license identifier (expected " + license_id + ")")
+
+    # Check copyright line
+    if not lines[start + 1].startswith(comment + " Copyright"):
+        return (False, "missing copyright line")
+
+    if holder not in lines[start + 1]:
+        return (False, "wrong copyright holder (expected " + holder + ")")
+
+    return (True, "")
+
+def fix_header(content, comment, license_id, holder):
+    """Fix the SPDX header in content. Returns fixed content."""
+    lines = content.split("\n")
+    expected = build_expected_header(comment, license_id, holder)
+
+    # Handle shebang
+    shebang = ""
+    start = 0
+    if len(lines) > 0 and lines[0].startswith("#!"):
+        shebang = lines[0] + "\n"
+        start = 1
+
+    # Skip existing SPDX/copyright lines if present
+    body_start = start
+    for i in range(start, min(start + 5, len(lines))):
+        line = lines[i]
+        if line.startswith(comment + " SPDX-License-Identifier:"):
+            body_start = i + 1
+            continue
+        if line.startswith(comment + " Copyright"):
+            body_start = i + 1
+            continue
+        if line == "" or line == comment:
+            body_start = i + 1
+            continue
+        break
+
+    # Build fixed content
+    body = "\n".join(lines[body_start:])
+    header = expected[0] + "\n" + expected[1] + "\n"
+
+    if shebang:
+        return shebang + header + "\n" + body
+    return header + "\n" + body
+
+def collect_files(path, exclude):
+    """Collect source files from path, excluding patterns."""
     files = []
-
-    # Collect Go files
-    go_files = file.glob(path + "/**/*.go")
-    for f in go_files:
-        files.append(f)
-
-    # Collect Starlark files
-    star_files = file.glob(path + "/**/*.star")
-    for f in star_files:
-        files.append(f)
-
-    # Collect shell files
-    sh_files = file.glob(path + "/**/*.sh")
-    for f in sh_files:
-        files.append(f)
-
-    bash_files = file.glob(path + "/**/*.bash")
-    for f in bash_files:
-        files.append(f)
-
-    # Filter out excluded patterns
-    filtered = []
-    for f in files:
-        excluded = False
-        for pattern in exclude_patterns:
-            # Simple glob matching
-            if pattern.endswith("/**"):
-                prefix = pattern[:-3]
-                if prefix in f:
-                    excluded = True
-                    break
-            elif "*" in pattern:
-                # Handle simple wildcards
-                if pattern.replace("*", "") in f:
-                    excluded = True
-                    break
-        if not excluded:
-            filtered.append(f)
-
-    return filtered
+    for ext in ["**/*.go", "**/*.star", "**/*.sh", "**/*.bash"]:
+        for f in file.glob(path + "/" + ext):
+            excluded = False
+            for pattern in exclude:
+                if pattern.endswith("/**"):
+                    prefix = pattern[:-3]
+                    if prefix in f:
+                        excluded = True
+                        break
+            if not excluded:
+                files.append(f)
+    return files
 
 def run_copyright(ctx):
     """Check or fix copyright headers in source files."""
-    fix = ctx.args.get("fix", "false") == "true"
+    fix_mode = ctx.args.get("fix", "false") == "true"
     path = ctx.args.get("path", ".")
 
     # Load config
@@ -68,32 +120,28 @@ def run_copyright(ctx):
         warn("Add 'lint.copyright.enabled: true' to enable")
         return
 
-    # Detect license if set to "auto"
-    license = copyright_cfg.license
-    if license == "auto":
-        result = copyright.detect_license("LICENSE")
-        if result.detected:
-            license = result.license
-            note("Detected license: " + license)
+    license_id = copyright_cfg.license
+    if license_id == "auto":
+        # Read LICENSE file to detect
+        if file.exists("LICENSE"):
+            content = file.read("LICENSE")
+            if "MIT License" in content or "Permission is hereby granted" in content:
+                license_id = "MIT"
+            elif "Apache License" in content:
+                license_id = "Apache-2.0"
+            elif "GNU GENERAL PUBLIC LICENSE" in content:
+                license_id = "GPL-3.0"
+            else:
+                fail("Could not detect license. Set lint.copyright.license in star.yaml")
         else:
-            fail("Could not detect license from LICENSE file. Set lint.copyright.license in star.yaml")
+            fail("No LICENSE file found. Set lint.copyright.license in star.yaml")
 
     holder = copyright_cfg.holder
     if not holder:
         fail("Copyright holder not configured. Set lint.copyright.holder in star.yaml")
 
-    # Get patterns (patterns is a dict of structs with match/replace)
-    patterns = {}
-    for lang in ["go", "star", "shell"]:
-        val = copyright_cfg.patterns.get(lang)
-        if val:
-            patterns[lang] = val
-
-    # Get exclude patterns
     exclude = list(copyright_cfg.exclude)
-
-    # Collect files
-    files = collect_source_files(path, exclude)
+    files = collect_files(path, exclude)
 
     if len(files) == 0:
         note("No source files found")
@@ -101,44 +149,39 @@ def run_copyright(ctx):
 
     note("Checking " + str(len(files)) + " source files...")
 
-    if fix:
-        # Fix mode
-        result = copyright.fix(
-            paths=files,
-            license=license,
-            holder=holder,
-            patterns=patterns,
-            dry_run=False,
-        )
+    issues = []
+    fixed = []
 
-        if result.count > 0:
-            success("Fixed " + str(result.count) + " files:")
-            for f in result.fixed:
+    for f in files:
+        comment = get_comment_style(f)
+        if not comment:
+            continue
+
+        content = file.read(f)
+        ok, msg = check_header(content, comment, license_id, holder)
+
+        if not ok:
+            if fix_mode:
+                new_content = fix_header(content, comment, license_id, holder)
+                file.write(f, new_content)
+                fixed.append(f)
+            else:
+                issues.append({"file": f, "message": msg})
+
+    if fix_mode:
+        if len(fixed) > 0:
+            success("Fixed " + str(len(fixed)) + " files:")
+            for f in fixed:
                 note("  " + f)
-
-        # Report errors (files that couldn't be fixed automatically)
-        error_count = len(list(result.errors))
-        if error_count > 0:
-            for e in result.errors:
-                error(e.file + ": " + e.message)
-            fail("Could not fix " + str(error_count) + " files (must be fixed manually)")
-        elif result.count == 0:
+        else:
             success("All files have correct copyright headers")
     else:
-        # Check mode
-        result = copyright.check(
-            paths=files,
-            license=license,
-            holder=holder,
-            patterns=patterns,
-        )
-
-        if result.passed:
+        if len(issues) == 0:
             success("All " + str(len(files)) + " files have correct copyright headers")
         else:
-            for issue in result.issues:
-                error(issue.file + ": " + issue.message)
-            fail("Found " + str(result.count) + " files with copyright issues (run with --fix to repair)")
+            for issue in issues:
+                error(issue["file"] + ": " + issue["message"])
+            fail("Found " + str(len(issues)) + " files with copyright issues (run with --fix to repair)")
 
 command(
     name = "lint.copyright",

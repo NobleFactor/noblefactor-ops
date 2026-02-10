@@ -265,14 +265,6 @@ def run_all(ctx):
     if not md_result:
         failures.append("markdown")
 
-    # Run Copyright lint (if enabled)
-    cfg = config.get()
-    if cfg.lint.copyright.enabled:
-        note("=== Copyright ===")
-        copyright_result = run_copyright_silent(fix)
-        if not copyright_result:
-            failures.append("copyright")
-
     # Summary
     if len(failures) == 0:
         success("All linters passed")
@@ -382,83 +374,6 @@ def run_markdown_silent(fix):
     else:
         error("Markdown lint failed")
         return False
-
-def run_copyright_silent(fix):
-    """Run Copyright lint, return True if passed."""
-    cfg = config.get()
-    copyright_cfg = cfg.lint.copyright
-
-    # Detect license if set to "auto"
-    license = copyright_cfg.license
-    if license == "auto":
-        result = copyright.detect_license("LICENSE")
-        if result.detected:
-            license = result.license
-        else:
-            error("Could not detect license from LICENSE file")
-            return False
-
-    holder = copyright_cfg.holder
-    if not holder:
-        error("Copyright holder not configured in star.yaml")
-        return False
-
-    # Get patterns (patterns is a dict of structs with match/replace)
-    patterns = {}
-    for lang in ["go", "star", "shell"]:
-        val = copyright_cfg.patterns.get(lang)
-        if val:
-            patterns[lang] = val
-
-    # Get exclude patterns
-    exclude = list(copyright_cfg.exclude)
-
-    # Collect files
-    files = []
-    for ext in ["**/*.go", "**/*.star", "**/*.sh"]:
-        for f in file.glob(ext):
-            excluded = False
-            for pattern in exclude:
-                if pattern.endswith("/**"):
-                    prefix = pattern[:-3]
-                    if prefix in f:
-                        excluded = True
-                        break
-            if not excluded:
-                files.append(f)
-
-    if len(files) == 0:
-        success("No source files found")
-        return True
-
-    if fix:
-        result = copyright.fix(
-            paths=files,
-            license=license,
-            holder=holder,
-            patterns=patterns,
-            dry_run=False,
-        )
-        if result.count > 0:
-            success("Fixed " + str(result.count) + " copyright headers")
-        else:
-            success("Copyright headers correct")
-        return True
-    else:
-        result = copyright.check(
-            paths=files,
-            license=license,
-            holder=holder,
-            patterns=patterns,
-        )
-        if result.passed:
-            success("Copyright headers correct")
-            return True
-        else:
-            for issue in result.issues:
-                error(issue.file + ": " + issue.message)
-            error("Copyright lint failed (" + str(result.count) + " issues)")
-            return False
 
 command(
     name = "lint.all",
