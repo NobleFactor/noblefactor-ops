@@ -2,9 +2,9 @@
 // Copyright Noble Factor. All rights reserved.
 
 // Package config provides unified configuration for star commands.
-// Configuration is loaded from a hierarchy of star.yaml files:
-//  1. ./star.yaml (project - highest priority)
-//  2. ${XDG_CONFIG_HOME}/star/star.yaml (user defaults)
+// Configuration is loaded from a hierarchy of config.yaml files:
+//  1. ./star/config.yaml (project - highest priority)
+//  2. ${XDG_CONFIG_HOME}/star/config.yaml (user defaults)
 //  3. Built-in defaults (hardcoded fallback)
 package config
 
@@ -209,7 +209,7 @@ type ConfigSource struct {
 	Exists bool
 }
 
-// userConfigPath returns the path to the user's star.yaml.
+// userConfigPath returns the path to the user's config.yaml.
 func userConfigPath() string {
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
@@ -219,12 +219,12 @@ func userConfigPath() string {
 		}
 		configHome = filepath.Join(home, ".config")
 	}
-	return filepath.Join(configHome, "star", "star.yaml")
+	return filepath.Join(configHome, "star", "config.yaml")
 }
 
-// projectConfigPath returns the path to the project's star.yaml.
+// projectConfigPath returns the path to the project's config.yaml.
 func projectConfigPath() string {
-	return "star.yaml"
+	return filepath.Join("star", "config.yaml")
 }
 
 // loadUserConfig loads the user's star.yaml if it exists.

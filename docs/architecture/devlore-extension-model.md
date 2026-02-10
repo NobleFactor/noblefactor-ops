@@ -15,13 +15,15 @@ This document defines how to extend devlore CLIs with new capabilities.
 Extensions use a reverse domain naming convention and organized directory structure:
 
 ```
-extensions/
-└── com.noblefactor.star.LintCopyright/
-    ├── extension.yaml           # Manifest
-    ├── commands/
-    │   └── lint-copyright.star  # One file per command
-    └── receivers/
-        └── gitignore.wasm       # WASM receiver modules (optional)
+star/
+├── config.yaml                          # Project configuration
+└── extensions/
+    └── com.noblefactor.star.LintCopyright/
+        ├── extension.yaml               # Manifest (single source of truth)
+        ├── commands/
+        │   └── lint-copyright.star      # Implementation (just defines run function)
+        └── receivers/
+            └── gitignore.wasm           # WASM receiver modules (optional)
 ```
 
 ### Directory Naming
@@ -43,6 +45,16 @@ Extensions are discovered by walking up from project to user global:
 ```
 
 Project extensions shadow global ones (first match wins).
+
+### Configuration Hierarchy
+
+Config files are loaded in priority order (highest to lowest):
+
+```
+1. ./star/config.yaml                   # Project config
+2. ~/.config/star/config.yaml           # User config ($XDG_CONFIG_HOME)
+3. Built-in defaults
+```
 
 ## Extension Specification
 
@@ -428,7 +440,7 @@ config:
 
 ### User Configuration
 
-Users override defaults in `star.yaml`:
+Users override defaults in `star/config.yaml`:
 
 ```yaml
 lint:
@@ -453,12 +465,13 @@ if cfg.enabled:
 
 ## Command Implementation
 
-Commands are registered using the `command()` builtin. Each command has its own `.star` file in the `commands/` subdirectory.
+Commands are pure Starlark files that define a `run` function. All metadata (name, help, flags) comes from `extension.yaml`.
 
 ```python
-# extensions/com.noblefactor.star.LintCopyright/commands/lint-copyright.star
+# star/extensions/com.noblefactor.star.LintCopyright/commands/lint-copyright.star
 
 def run(ctx):
+    """Check or fix copyright headers in source files."""
     fix_mode = ctx.args.get("fix", "false") == "true"
     path = ctx.args.get("path", ".")
 
@@ -479,7 +492,7 @@ def run(ctx):
 
     holder = cfg.holder
     if not holder:
-        fail("Set lint.copyright.holder in star.yaml")
+        fail("Set lint.copyright.holder in star/config.yaml")
 
     # Check or fix files
     files = file.glob(path + "/**/*.go")
@@ -503,13 +516,12 @@ def run(ctx):
             for f in issues:
                 error(f + ": missing header")
             fail("Found issues")
-
-command(
-    name = "lint.copyright",
-    help = "Check or fix copyright headers",
-    run = run,
-)
 ```
+
+**Key points:**
+- The `.star` file only defines a `run(ctx)` function
+- All metadata comes from `extension.yaml` (single source of truth)
+- No `command()` builtin registration required
 
 ## Runtime Context
 

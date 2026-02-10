@@ -167,17 +167,14 @@ func setupExtension(t *testing.T, testDir string) (*Runtime, error) {
 	// Clear global extension registry
 	extension.Clear()
 
-	// Create runtime with test directory as working directory
-	r := NewRuntime(filepath.Join(testDir, "ops"))
-
-	// Point to the real extensions directory
-	// We need to find the project root to locate the extensions
+	// Find project root BEFORE changing directories
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		return nil, err
 	}
 
-	r.SetExtensionsDir(filepath.Join(projectRoot, "extensions"))
+	// Create runtime
+	r := NewRuntime()
 
 	// Change to test directory for config loading
 	origDir, err := os.Getwd()
@@ -191,8 +188,9 @@ func setupExtension(t *testing.T, testDir string) (*Runtime, error) {
 		os.Chdir(origDir)
 	})
 
-	// Load extensions
-	if err := r.LoadExtensions(); err != nil {
+	// Load extensions from the project's star/extensions directory
+	extDir := filepath.Join(projectRoot, "star", "extensions")
+	if err := r.LoadExtensionsFrom(extDir); err != nil {
 		return nil, err
 	}
 
@@ -259,7 +257,7 @@ func readFile(t *testing.T, path string) string {
 
 func TestLintCopyright_CheckMode_CorrectHeaders(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "")},
 		{"LICENSE", mitLicenseText},
 		{"main.go", goFileCorrectMIT},
 	})
@@ -277,7 +275,7 @@ func TestLintCopyright_CheckMode_CorrectHeaders(t *testing.T) {
 
 func TestLintCopyright_CheckMode_MissingHeaders(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "")},
 		{"LICENSE", mitLicenseText},
 		{"main.go", goFileNoHeader},
 		{"util.go", goFileNoHeader},
@@ -299,7 +297,7 @@ func TestLintCopyright_CheckMode_MissingHeaders(t *testing.T) {
 
 func TestLintCopyright_CheckMode_WrongLicense(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "MIT")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "MIT")},
 		{"LICENSE", mitLicenseText},
 		{"main.go", goFileWrongLicense}, // Has Apache-2.0
 	})
@@ -317,7 +315,7 @@ func TestLintCopyright_CheckMode_WrongLicense(t *testing.T) {
 
 func TestLintCopyright_CheckMode_WrongHolder(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "MIT")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "MIT")},
 		{"LICENSE", mitLicenseText},
 		{"main.go", goFileWrongHolder}, // Has "Other Corp"
 	})
@@ -335,7 +333,7 @@ func TestLintCopyright_CheckMode_WrongHolder(t *testing.T) {
 
 func TestLintCopyright_FixMode_AddsHeaders(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "MIT")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "MIT")},
 		{"LICENSE", mitLicenseText},
 		{"main.go", goFileNoHeader},
 		{"lib.star", starFileNoHeader},
@@ -373,7 +371,7 @@ func TestLintCopyright_FixMode_AddsHeaders(t *testing.T) {
 
 func TestLintCopyright_FixMode_ShebangHandling(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "MIT")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "MIT")},
 		{"LICENSE", mitLicenseText},
 		{"script.sh", shellFileNoHeader},
 	})
@@ -446,7 +444,7 @@ func TestLintCopyright_LicenseAutoDetection(t *testing.T) {
 			}
 
 			dir := setupTestDir(t, []testFile{
-				{"star.yaml", starYAMLEnabled("Test Corp", "auto")},
+				{"star/config.yaml", starYAMLEnabled("Test Corp", "auto")},
 				{"LICENSE", tt.licenseContent},
 				{"main.go", goFile},
 			})
@@ -466,7 +464,7 @@ func TestLintCopyright_LicenseAutoDetection(t *testing.T) {
 
 func TestLintCopyright_ExclusionPatterns(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLWithExcludes("Test Corp", []string{"vendor/**"})},
+		{"star/config.yaml", starYAMLWithExcludes("Test Corp", []string{"vendor/**"})},
 		{"LICENSE", mitLicenseText},
 		{"main.go", goFileCorrectMIT},
 		{"vendor/dep.go", goFileNoHeader}, // Should be excluded
@@ -486,7 +484,7 @@ func TestLintCopyright_ExclusionPatterns(t *testing.T) {
 
 func TestLintCopyright_CheckMode_ShellScriptCorrect(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "MIT")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "MIT")},
 		{"LICENSE", mitLicenseText},
 		{"script.sh", shellFileCorrect},
 	})
@@ -504,7 +502,7 @@ func TestLintCopyright_CheckMode_ShellScriptCorrect(t *testing.T) {
 
 func TestLintCopyright_FixMode_AlreadyCorrect(t *testing.T) {
 	dir := setupTestDir(t, []testFile{
-		{"star.yaml", starYAMLEnabled("Test Corp", "MIT")},
+		{"star/config.yaml", starYAMLEnabled("Test Corp", "MIT")},
 		{"LICENSE", mitLicenseText},
 		{"main.go", goFileCorrectMIT},
 	})

@@ -456,12 +456,18 @@ func TestLoad_WithProjectConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create temp dir with star.yaml
+	// Create temp dir with star/config.yaml
 	tmpDir := t.TempDir()
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatal(err)
 	}
 	defer os.Chdir(origDir)
+
+	// Create star/ directory
+	starDir := filepath.Join(tmpDir, "star")
+	if err := os.MkdirAll(starDir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	// Write a project config
 	yamlContent := `
@@ -469,7 +475,7 @@ lint:
   go:
     path: "./custom/..."
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "star.yaml"), []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(starDir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
