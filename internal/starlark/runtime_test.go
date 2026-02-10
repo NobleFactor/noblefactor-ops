@@ -14,128 +14,16 @@ import (
 )
 
 // =============================================================================
-// Test: applyFlagDefaults
-// =============================================================================
-
-func TestApplyFlagDefaults(t *testing.T) {
-	tests := []struct {
-		name         string
-		cmdFlags     []Flag
-		specFlags    []extension.FlagSpec
-		wantFlags    []Flag
-		wantFlagsCnt int
-	}{
-		{
-			name:         "empty spec flags - no changes",
-			cmdFlags:     []Flag{{Name: "verbose", Default: "true"}},
-			specFlags:    []extension.FlagSpec{},
-			wantFlags:    []Flag{{Name: "verbose", Default: "true"}},
-			wantFlagsCnt: 1,
-		},
-		{
-			name:     "merge default into empty command flag",
-			cmdFlags: []Flag{{Name: "fix", Default: ""}},
-			specFlags: []extension.FlagSpec{
-				{Name: "fix", Default: "false", Help: "Fix issues"},
-			},
-			wantFlags:    []Flag{{Name: "fix", Default: "false", Help: "Fix issues"}},
-			wantFlagsCnt: 1,
-		},
-		{
-			name:     "preserve existing command flag default",
-			cmdFlags: []Flag{{Name: "fix", Default: "true", Help: "Already set"}},
-			specFlags: []extension.FlagSpec{
-				{Name: "fix", Default: "false", Help: "Spec help"},
-			},
-			wantFlags:    []Flag{{Name: "fix", Default: "true", Help: "Already set"}},
-			wantFlagsCnt: 1,
-		},
-		{
-			name:     "add new flags from spec",
-			cmdFlags: []Flag{{Name: "existing"}},
-			specFlags: []extension.FlagSpec{
-				{Name: "new-flag", Default: "value", Help: "New flag from spec"},
-			},
-			wantFlags: []Flag{
-				{Name: "existing"},
-				{Name: "new-flag", Default: "value", Help: "New flag from spec"},
-			},
-			wantFlagsCnt: 2,
-		},
-		{
-			name:     "merge and add flags",
-			cmdFlags: []Flag{{Name: "fix", Default: ""}},
-			specFlags: []extension.FlagSpec{
-				{Name: "fix", Default: "false", Help: "Fix issues"},
-				{Name: "path", Default: ".", Help: "Path to check"},
-			},
-			wantFlags: []Flag{
-				{Name: "fix", Default: "false", Help: "Fix issues"},
-				{Name: "path", Default: ".", Help: "Path to check"},
-			},
-			wantFlagsCnt: 2,
-		},
-		{
-			name:     "only update help when default already set",
-			cmdFlags: []Flag{{Name: "verbose", Default: "true", Help: ""}},
-			specFlags: []extension.FlagSpec{
-				{Name: "verbose", Default: "false", Help: "Enable verbose output"},
-			},
-			wantFlags:    []Flag{{Name: "verbose", Default: "true", Help: "Enable verbose output"}},
-			wantFlagsCnt: 1,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := NewRuntime("ops")
-			cmd := &Command{Flags: tt.cmdFlags}
-			cmdSpec := &extension.CommandSpec{
-				Name:  "test.cmd",
-				Flags: tt.specFlags,
-			}
-
-			r.applyFlagDefaults(cmd, cmdSpec)
-
-			if len(cmd.Flags) != tt.wantFlagsCnt {
-				t.Errorf("applyFlagDefaults() flag count = %d, want %d", len(cmd.Flags), tt.wantFlagsCnt)
-			}
-
-			// Build map for easier comparison
-			flagsByName := make(map[string]Flag)
-			for _, f := range cmd.Flags {
-				flagsByName[f.Name] = f
-			}
-
-			for _, want := range tt.wantFlags {
-				got, ok := flagsByName[want.Name]
-				if !ok {
-					t.Errorf("applyFlagDefaults() missing flag %q", want.Name)
-					continue
-				}
-				if got.Default != want.Default {
-					t.Errorf("flag %q Default = %q, want %q", want.Name, got.Default, want.Default)
-				}
-				if got.Help != want.Help {
-					t.Errorf("flag %q Help = %q, want %q", want.Name, got.Help, want.Help)
-				}
-			}
-		})
-	}
-}
-
-// =============================================================================
 // Test: LoadExtensions
 // =============================================================================
 
 func TestRuntime_LoadExtensions(t *testing.T) {
 	t.Run("missing extensions directory is not an error", func(t *testing.T) {
-		r := NewRuntime("ops")
-		r.SetExtensionsDir("/nonexistent/path/to/extensions")
+		r := NewRuntime()
 
-		err := r.LoadExtensions()
+		err := r.LoadExtensionsFrom("/nonexistent/path/to/extensions")
 		if err != nil {
-			t.Errorf("LoadExtensions() error = %v, want nil for missing dir", err)
+			t.Errorf("LoadExtensionsFrom() error = %v, want nil for missing dir", err)
 		}
 	})
 
@@ -146,12 +34,11 @@ func TestRuntime_LoadExtensions(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		r := NewRuntime("ops")
-		r.SetExtensionsDir(extDir)
+		r := NewRuntime()
 
-		err := r.LoadExtensions()
+		err := r.LoadExtensionsFrom(extDir)
 		if err != nil {
-			t.Errorf("LoadExtensions() error = %v, want nil", err)
+			t.Errorf("LoadExtensionsFrom() error = %v, want nil", err)
 		}
 	})
 
@@ -192,22 +79,18 @@ commands:
 		}
 
 		// Write minimal .star file in commands/ subdirectory
-		starContent := `command(
-    name = "test.cmd",
-    help = "Test command",
-    run = lambda ctx: None,
-)
+		starContent := `def run(ctx):
+    pass
 `
 		if err := os.WriteFile(filepath.Join(cmdDir, "test-cmd.star"), []byte(starContent), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		r := NewRuntime("ops")
-		r.SetExtensionsDir(extDir)
+		r := NewRuntime()
 
-		err := r.LoadExtensions()
+		err := r.LoadExtensionsFrom(extDir)
 		if err != nil {
-			t.Fatalf("LoadExtensions() error = %v", err)
+			t.Fatalf("LoadExtensionsFrom() error = %v", err)
 		}
 
 		// Verify extension was registered
@@ -256,22 +139,18 @@ config:
 		}
 
 		// Write minimal .star file
-		starContent := `command(
-    name = "cfg.test",
-    help = "Config test",
-    run = lambda ctx: None,
-)
+		starContent := `def run(ctx):
+    pass
 `
 		if err := os.WriteFile(filepath.Join(cmdDir, "cfg-test.star"), []byte(starContent), 0644); err != nil {
 			t.Fatal(err)
 		}
 
-		r := NewRuntime("ops")
-		r.SetExtensionsDir(extDir)
+		r := NewRuntime()
 
-		err := r.LoadExtensions()
+		err := r.LoadExtensionsFrom(extDir)
 		if err != nil {
-			t.Fatalf("LoadExtensions() error = %v", err)
+			t.Fatalf("LoadExtensionsFrom() error = %v", err)
 		}
 
 		// Verify config was registered
@@ -304,11 +183,8 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 		}
 
 		// Write .star file in commands/ subdirectory
-		starContent := `command(
-    name = "lint.copyright",
-    help = "Check copyright headers",
-    run = lambda ctx: None,
-)
+		starContent := `def run(ctx):
+    pass
 `
 		starPath := filepath.Join(cmdDir, "lint-copyright.star")
 		if err := os.WriteFile(starPath, []byte(starContent), 0644); err != nil {
@@ -327,7 +203,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 			},
 		}
 
-		r := NewRuntime("ops")
+		r := NewRuntime()
 		err := r.loadExtensionCommands(spec)
 		if err != nil {
 			t.Fatalf("loadExtensionCommands() error = %v", err)
@@ -348,15 +224,9 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Command that doesn't define default for 'fix' flag
-		starContent := `command(
-    name = "test.ext",
-    help = "Test extension",
-    flags = [
-        {"name": "fix"},
-    ],
-    run = lambda ctx: None,
-)
+		// Command just needs a run function - flags come from extension.yaml
+		starContent := `def run(ctx):
+    pass
 `
 		if err := os.WriteFile(filepath.Join(cmdDir, "test.star"), []byte(starContent), 0644); err != nil {
 			t.Fatal(err)
@@ -378,7 +248,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 			},
 		}
 
-		r := NewRuntime("ops")
+		r := NewRuntime()
 		err := r.loadExtensionCommands(spec)
 		if err != nil {
 			t.Fatalf("loadExtensionCommands() error = %v", err)
@@ -415,7 +285,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 	})
 
 	t.Run("no commands is no-op", func(t *testing.T) {
-		r := NewRuntime("ops")
+		r := NewRuntime()
 		spec := &extension.ExtensionSpec{
 			Extension: "com.example.NoCommand",
 			Commands:  nil,
@@ -428,7 +298,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 	})
 
 	t.Run("empty implementation is skipped", func(t *testing.T) {
-		r := NewRuntime("ops")
+		r := NewRuntime()
 		spec := &extension.ExtensionSpec{
 			Extension: "com.example.EmptyImpl",
 			Commands: []extension.CommandSpec{
@@ -454,18 +324,12 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Write two .star files
-		star1 := `command(
-    name = "multi.one",
-    help = "First command",
-    run = lambda ctx: None,
-)
+		// Write two .star files - each just needs a run function
+		star1 := `def run(ctx):
+    pass
 `
-		star2 := `command(
-    name = "multi.two",
-    help = "Second command",
-    run = lambda ctx: None,
-)
+		star2 := `def run(ctx):
+    pass
 `
 		if err := os.WriteFile(filepath.Join(cmdDir, "one.star"), []byte(star1), 0644); err != nil {
 			t.Fatal(err)
@@ -483,7 +347,7 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 			},
 		}
 
-		r := NewRuntime("ops")
+		r := NewRuntime()
 		err := r.loadExtensionCommands(spec)
 		if err != nil {
 			t.Fatalf("loadExtensionCommands() error = %v", err)
@@ -500,26 +364,11 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 }
 
 // =============================================================================
-// Test: SetExtensionsDir and ExtensionsConfig
+// Test: Config
 // =============================================================================
 
-func TestRuntime_SetExtensionsDir(t *testing.T) {
-	r := NewRuntime("ops")
-
-	// Default value
-	if r.extensionsDir != "extensions" {
-		t.Errorf("default extensionsDir = %q, want %q", r.extensionsDir, "extensions")
-	}
-
-	// Set custom value
-	r.SetExtensionsDir("/custom/path")
-	if r.extensionsDir != "/custom/path" {
-		t.Errorf("extensionsDir = %q, want %q", r.extensionsDir, "/custom/path")
-	}
-}
-
 func TestRuntime_Config(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 
 	// Initially nil
 	if r.config != nil {
@@ -544,16 +393,15 @@ func TestRuntime_Config(t *testing.T) {
 // =============================================================================
 
 func TestRuntime_buildPredeclared(t *testing.T) {
-	r := NewRuntime("ops")
-	collector := &commandCollector{commands: make(map[string]*Command)}
+	r := NewRuntime()
 
-	predeclared := r.buildPredeclared(collector, nil)
+	predeclared := r.buildPredeclared(nil)
 
 	// Verify essential modules are present
 	requiredModules := []string{
 		"file", "json", "yaml", "schema", "go", "shell",
 		"lint", "regexp", "config", "setup", "starlark_parse",
-		"commands", "command", "note", "warn", "error", "success", "fail",
+		"commands", "note", "warn", "error", "success", "fail",
 	}
 
 	for _, name := range requiredModules {

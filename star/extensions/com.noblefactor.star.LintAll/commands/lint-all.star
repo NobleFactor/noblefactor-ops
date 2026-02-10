@@ -55,9 +55,3 @@ def run(ctx):
         fail("Linters failed: " + ", ".join([n.split(".")[-1] for n in failures]))
     else:
         success("All " + str(len(passed)) + " linters passed")
-
-command(
-    name = "lint.all",
-    help = "Run all configured linters",
-    run = run,
-)

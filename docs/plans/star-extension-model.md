@@ -4,7 +4,7 @@ description: "Plan for implementing star's extension architecture and migrating 
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/29
 status: in-progress
 created: 2025-02-07
-updated: 2025-02-07
+updated: 2025-02-10
 ---
 
 # Plan: Star Extension Model
@@ -409,11 +409,26 @@ Review and remove:
 | `internal/config/loader.go` | Replaced by root.go |
 | `internal/config/extensions.go` | Replaced by extension package |
 
-## Backward Compatibility
+## Current State (Phase 4 Complete)
 
-### star.yaml Format
+### Directory Structure
 
-The `star.yaml` format remains unchanged. Users configure extensions the same way:
+**Implemented:**
+
+```
+project/
+└── star/
+    ├── config.yaml              # Project configuration (was star.yaml)
+    └── extensions/              # Extensions (was extensions/)
+        └── com.noblefactor.star.LintGo/
+            ├── extension.yaml   # Single source of truth
+            └── commands/
+                └── lint-go.star # Just defines run(ctx)
+```
+
+### star/config.yaml Format
+
+The config format remains unchanged, but the file moved from `star.yaml` to `star/config.yaml`:
 
 ```yaml
 lint:
@@ -435,28 +450,53 @@ if cfg.enabled:
     license = cfg.license
 ```
 
+### Command Registration
+
+**Before (removed):**
+```python
+def run(ctx):
+    # implementation
+
+command(
+    name = "lint.go",
+    help = "Run Go linters",
+    run = run,
+)
+```
+
+**After (current):**
+```python
+def run(ctx):
+    """Implementation - all metadata comes from extension.yaml."""
+    # implementation
+```
+
+The `command()` builtin has been removed. All metadata comes from `extension.yaml` (single source of truth).
+
 ### Breaking Changes
 
-1. **Go code accessing config**: Must use `ConfigAccessor` or `Navigate()` instead of direct struct field access
-2. **Custom extensions**: Must provide extension YAML spec
+1. **Config path**: `star.yaml` → `star/config.yaml`
+2. **Extensions path**: `extensions/` → `star/extensions/`
+3. **Command registration**: `command()` builtin removed, `.star` files just define `run(ctx)`
+4. **ops/ directory**: Deleted (all functionality in extensions)
 
 ## Testing Strategy
 
-1. **Unit tests**: Each new file gets comprehensive unit tests
+1. **Unit tests**: All test files updated for new paths
 2. **Integration tests**: Extension loading and registration
-3. **Regression tests**: Existing `ops/*.star` scripts continue to work
-4. **End-to-end tests**: `star lint all`, `star setup config`, `star hook pre-commit`
+3. **End-to-end tests**: `star lint all`, `star setup config`, `star hook pre-commit`
 
 ## Rollout Plan
 
-1. **Phase 1-2**: Build infrastructure without breaking existing code
-2. **Phase 3**: Migrate commands one at a time, validate each
-3. **Phase 4**: Switch runtime to use new system
-4. **Phase 5**: Remove legacy code after validation
-5. **Phase 6**: Documentation and final testing
+1. **Phase 1-2**: Build infrastructure ✅
+2. **Phase 3**: Migrate commands to extensions ✅
+3. **Phase 4**: Switch runtime to use new system ✅
+4. **Phase 5**: Directory consolidation ✅ (completed in Phase 4)
+5. **Phase 6**: Documentation updates (in progress)
 
-## Open Questions (Resolved)
+## Resolved Decisions
 
 1. ~~Config validation at load time or access time?~~ → Load time
 2. ~~Config schema conflicts between extensions?~~ → Last registration wins, warning emitted
 3. ~~Receivers declaring config in Go?~~ → No, config is Starlark/YAML only
+4. ~~One or two paths for declaring extensions?~~ → One path only: extension.yaml

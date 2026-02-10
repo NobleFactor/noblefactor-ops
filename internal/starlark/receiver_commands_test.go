@@ -10,7 +10,7 @@ import (
 )
 
 func TestCommandsReceiver_Attr(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 	cmds := NewCommandsReceiver(r)
 
 	tests := []string{"parent", "siblings", "children", "query", "get", "run", "current"}
@@ -36,7 +36,7 @@ func TestCommandsReceiver_Attr(t *testing.T) {
 }
 
 func TestCommandsReceiver_AttrNames(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 	cmds := NewCommandsReceiver(r)
 
 	names := cmds.AttrNames()
@@ -187,7 +187,7 @@ func TestCommandRef_Type(t *testing.T) {
 }
 
 func TestCommandsReceiver_Current(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 	cmds := NewCommandsReceiver(r)
 	cmds.SetCurrentCommand("lint.all")
 
@@ -207,7 +207,7 @@ func TestCommandsReceiver_Current(t *testing.T) {
 }
 
 func TestCommandsReceiver_Parent(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 	cmds := NewCommandsReceiver(r)
 	cmds.SetCurrentCommand("lint.all")
 
@@ -227,7 +227,7 @@ func TestCommandsReceiver_Parent(t *testing.T) {
 }
 
 func TestCommandsReceiver_Siblings(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 
 	// Register some commands
 	r.commands["lint go"] = &Command{Name: "lint.go", Help: "Go linter"}
@@ -263,7 +263,7 @@ func TestCommandsReceiver_Siblings(t *testing.T) {
 }
 
 func TestCommandsReceiver_Query(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 
 	// Register some commands
 	r.commands["lint go"] = &Command{Name: "lint.go", Help: "Go linter"}
@@ -289,7 +289,7 @@ func TestCommandsReceiver_Query(t *testing.T) {
 }
 
 func TestCommandsReceiver_Get(t *testing.T) {
-	r := NewRuntime("ops")
+	r := NewRuntime()
 	r.commands["lint go"] = &Command{Name: "lint.go", Help: "Go linter"}
 
 	cmds := NewCommandsReceiver(r)

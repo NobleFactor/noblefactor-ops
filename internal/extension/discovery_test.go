@@ -360,9 +360,10 @@ func TestDefaultSearchPaths(t *testing.T) {
 		t.Errorf("len(DefaultSearchPaths()) = %d, want >= 2", len(paths))
 	}
 
-	// First should be project-local
-	if paths[0] != "extensions" {
-		t.Errorf("paths[0] = %q, want %q", paths[0], "extensions")
+	// First should be project-local star/extensions
+	want := filepath.Join("star", "extensions")
+	if paths[0] != want {
+		t.Errorf("paths[0] = %q, want %q", paths[0], want)
 	}
 }
 
@@ -433,8 +434,8 @@ func TestFindExtensionDir_Found(t *testing.T) {
 	// Create a temp directory structure that matches DefaultSearchPaths
 	dir := t.TempDir()
 
-	// Create extensions/com.example.LintCopyright/extension.yaml
-	extDir := filepath.Join(dir, "extensions", "com.example.LintCopyright")
+	// Create star/extensions/com.example.LintCopyright/extension.yaml
+	extDir := filepath.Join(dir, "star", "extensions", "com.example.LintCopyright")
 	cmdDir := filepath.Join(extDir, "commands")
 	if err := os.MkdirAll(cmdDir, 0755); err != nil {
 		t.Fatalf("mkdir failed: %v", err)
@@ -450,7 +451,7 @@ commands:
 		t.Fatalf("write failed: %v", err)
 	}
 
-	// Change to temp dir so "extensions" is found
+	// Change to temp dir so "star/extensions" is found
 	oldWd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("chdir failed: %v", err)
@@ -470,8 +471,8 @@ commands:
 func TestFindExtensionDir_FoundYml(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create extensions/com.example.TestExt/extension.yml (note .yml not .yaml)
-	extDir := filepath.Join(dir, "extensions", "com.example.TestExt")
+	// Create star/extensions/com.example.TestExt/extension.yml (note .yml not .yaml)
+	extDir := filepath.Join(dir, "star", "extensions", "com.example.TestExt")
 	cmdDir := filepath.Join(extDir, "commands")
 	if err := os.MkdirAll(cmdDir, 0755); err != nil {
 		t.Fatalf("mkdir failed: %v", err)

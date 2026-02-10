@@ -105,17 +105,23 @@ func LoadAll(dirs ...string) (int, error) {
 
 // DefaultSearchPaths returns the standard directories to search for extensions.
 // The paths are:
-//   - ./extensions (project local)
-//   - ~/.star/extensions (user extensions)
+//   - ./star/extensions (project local)
+//   - ${XDG_DATA_HOME}/star/extensions (user extensions, defaults to ~/.local/share)
 //   - /usr/local/share/star/extensions (system-wide)
 func DefaultSearchPaths() []string {
 	paths := []string{
-		"extensions",
+		filepath.Join("star", "extensions"),
 	}
 
-	// User extensions directory
-	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".star", "extensions"))
+	// User extensions directory (XDG_DATA_HOME)
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dataHome = filepath.Join(home, ".local", "share")
+		}
+	}
+	if dataHome != "" {
+		paths = append(paths, filepath.Join(dataHome, "star", "extensions"))
 	}
 
 	// System-wide extensions (Unix-like systems)

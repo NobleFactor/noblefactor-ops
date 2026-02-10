@@ -28,10 +28,8 @@ var DryRun bool
 
 // Runtime manages Starlark script execution.
 type Runtime struct {
-	commands      map[string]*Command
-	opsDir        string
-	extensionsDir string         // Path to extensions directory
-	config        *config.Config // Unified config for builtin and extension config
+	commands map[string]*Command
+	config   *config.Config // Unified config for builtin and extension config
 
 	// wasmHosts maps extension name to its WASM host.
 	// Each extension gets its own host with its receiver's capabilities.
@@ -43,19 +41,12 @@ type Runtime struct {
 }
 
 // NewRuntime creates a new Starlark runtime.
-func NewRuntime(opsDir string) *Runtime {
+func NewRuntime() *Runtime {
 	return &Runtime{
 		commands:      make(map[string]*Command),
-		opsDir:        opsDir,
-		extensionsDir: "extensions",
 		wasmHosts:     make(map[string]*wasm.WasmHost),
 		wasmReceivers: make(map[string]*WasmReceiver),
 	}
-}
-
-// SetExtensionsDir sets the extensions directory path.
-func (r *Runtime) SetExtensionsDir(dir string) {
-	r.extensionsDir = dir
 }
 
 // Config returns the unified config, initializing if needed.
@@ -71,52 +62,36 @@ func (r *Runtime) Config() *config.Config {
 	return r.config
 }
 
-// LoadAll loads extensions first, then all .star files from the ops directory.
+// LoadAll loads extensions from all default search paths.
 func (r *Runtime) LoadAll() error {
-	// Load extensions first (before ops/*.star files)
-	if err := r.LoadExtensions(); err != nil {
-		return fmt.Errorf("loading extensions: %w", err)
-	}
-
-	// Then walk ops directory for traditional star files
-	return filepath.WalkDir(r.opsDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			if os.IsNotExist(err) {
-				return nil // No ops directory is fine
-			}
-			return err
-		}
-
-		// Skip directories and non-.star files
-		if d.IsDir() || filepath.Ext(d.Name()) != ".star" {
-			return nil
-		}
-
-		// Load the star file
-		relPath, relErr := filepath.Rel(r.opsDir, path)
-		if relErr != nil {
-			relPath = path // Fall back to absolute path
-		}
-		if err := r.Load(path); err != nil {
-			return fmt.Errorf("loading %s: %w", relPath, err)
-		}
-		return nil
-	})
+	return r.LoadExtensions()
 }
 
-// LoadExtensions discovers and loads extensions from the extensions directory.
-// This should be called before LoadAll() to ensure extension commands
-// are available when ops/*.star files execute.
+// LoadExtensions discovers and loads extensions from all default search paths.
 func (r *Runtime) LoadExtensions() error {
-	// Skip if extensions directory doesn't exist
-	if _, err := os.Stat(r.extensionsDir); os.IsNotExist(err) {
-		return nil // No extensions directory is fine
-	}
+	return r.loadExtensionsFromPaths(extension.DefaultSearchPaths()...)
+}
 
-	// Discover extensions
-	specs, err := extension.Discover(r.extensionsDir)
-	if err != nil {
-		return fmt.Errorf("discover extensions: %w", err)
+// LoadExtensionsFrom loads extensions from a specific directory.
+func (r *Runtime) LoadExtensionsFrom(dir string) error {
+	return r.loadExtensionsFromPaths(dir)
+}
+
+// loadExtensionsFromPaths discovers and loads extensions from the given paths.
+func (r *Runtime) loadExtensionsFromPaths(paths ...string) error {
+	// Discover extensions from all search paths
+	var specs []*extension.ExtensionSpec
+	for _, dir := range paths {
+		// Skip non-existent directories
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
+
+		dirSpecs, err := extension.Discover(dir)
+		if err != nil {
+			return fmt.Errorf("discover extensions in %s: %w", dir, err)
+		}
+		specs = append(specs, dirSpecs...)
 	}
 
 	// Register extensions and load their commands
@@ -235,6 +210,7 @@ func (r *Runtime) loadExtensionCommands(spec *extension.ExtensionSpec) error {
 }
 
 // loadExtensionCommand loads a single command from an extension.
+// The .star file must define a `run` function. All metadata comes from extension.yaml.
 func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *extension.CommandSpec, extDir string) error {
 	// Build path to implementation file
 	implPath := filepath.Join(extDir, cmdSpec.Implementation)
@@ -245,11 +221,8 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
 	}
 
-	// Create collector for command() calls
-	collector := &commandCollector{commands: make(map[string]*Command)}
-
 	// Build predeclared environment with extension-specific context
-	predeclared := r.buildPredeclared(collector, spec)
+	predeclared := r.buildPredeclared(spec)
 
 	// Execute the script with extended dialect options
 	fileOpts := syntax.FileOptions{
@@ -264,112 +237,45 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 		return fmt.Errorf("exec %s: %w", implPath, err)
 	}
 
-	// Register commands with proper names
-	for name, cmd := range collector.commands {
-		cmd.globals = globals
-		cmd.predeclared = predeclared
-		cmd.runtime = r // Set runtime reference for command tree access
-
-		// Apply flag defaults from command spec
-		r.applyFlagDefaults(cmd, cmdSpec)
-
-		// Use the command spec name if script didn't specify one
-		cmdName := name
-		if cmdName == "" || cmdName == cmdSpec.Name {
-			// Convert "lint.copyright" to "lint copyright"
-			cmdName = strings.ReplaceAll(cmdSpec.Name, ".", " ")
-		}
-
-		r.commands[cmdName] = cmd
+	// Look for the run function
+	runVal, ok := globals["run"]
+	if !ok {
+		return fmt.Errorf("%s: missing 'run' function", implPath)
+	}
+	runFunc, ok := runVal.(starlark.Callable)
+	if !ok {
+		return fmt.Errorf("%s: 'run' is not callable", implPath)
 	}
 
-	return nil
-}
-
-// applyFlagDefaults merges flag defaults from command spec into command flags.
-func (r *Runtime) applyFlagDefaults(cmd *Command, cmdSpec *extension.CommandSpec) {
-	if len(cmdSpec.Flags) == 0 {
-		return
+	// Build command from extension.yaml metadata
+	cmd := &Command{
+		Name:        cmdSpec.Name,
+		Help:        cmdSpec.Help,
+		RunFunc:     runFunc,
+		globals:     globals,
+		predeclared: predeclared,
+		runtime:     r,
 	}
 
-	// Build a map of spec flags for quick lookup
-	specFlags := make(map[string]*extension.FlagSpec)
-	for i := range cmdSpec.Flags {
-		specFlags[cmdSpec.Flags[i].Name] = &cmdSpec.Flags[i]
+	// Build flags from command spec
+	for _, flagSpec := range cmdSpec.Flags {
+		cmd.Flags = append(cmd.Flags, Flag{
+			Name:    flagSpec.Name,
+			Help:    flagSpec.Help,
+			Default: flagSpec.Default,
+		})
 	}
 
-	// Update existing command flags with spec defaults
-	for i := range cmd.Flags {
-		if specFlag, ok := specFlags[cmd.Flags[i].Name]; ok {
-			// Only set default if command flag has no default
-			if cmd.Flags[i].Default == "" && specFlag.Default != "" {
-				cmd.Flags[i].Default = specFlag.Default
-			}
-			// Update help if not set
-			if cmd.Flags[i].Help == "" && specFlag.Help != "" {
-				cmd.Flags[i].Help = specFlag.Help
-			}
-		}
-	}
-
-	// Add flags from spec that aren't already defined in command
-	existingFlags := make(map[string]bool)
-	for _, f := range cmd.Flags {
-		existingFlags[f.Name] = true
-	}
-
-	for _, specFlag := range cmdSpec.Flags {
-		if !existingFlags[specFlag.Name] {
-			cmd.Flags = append(cmd.Flags, Flag{
-				Name:    specFlag.Name,
-				Help:    specFlag.Help,
-				Default: specFlag.Default,
-			})
-		}
-	}
-}
-
-// Load loads a single .star file and registers its commands.
-func (r *Runtime) Load(path string) error {
-	// Create thread with print function
-	thread := &starlark.Thread{
-		Name:  filepath.Base(path),
-		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
-	}
-
-	// Create collector for command() calls
-	collector := &commandCollector{commands: make(map[string]*Command)}
-
-	// Build predeclared environment (no extension spec for legacy files)
-	predeclared := r.buildPredeclared(collector, nil)
-
-	// Execute the script with extended dialect options
-	fileOpts := syntax.FileOptions{
-		Set:             true, // Enable set() built-in
-		While:           true, // Enable while loops
-		TopLevelControl: true, // Enable top-level if/for/while
-		GlobalReassign:  true, // Enable reassignment to top-level names
-		Recursion:       true, // Enable recursive functions
-	}
-	globals, err := starlark.ExecFileOptions(&fileOpts, thread, path, nil, predeclared)
-	if err != nil {
-		return fmt.Errorf("exec %s: %w", path, err)
-	}
-
-	// Store globals for later use by run functions
-	for name, cmd := range collector.commands {
-		cmd.globals = globals
-		cmd.predeclared = predeclared
-		cmd.runtime = r // Set runtime reference for command tree access
-		r.commands[name] = cmd
-	}
+	// Register with space-separated name (e.g., "lint.go" -> "lint go")
+	cmdName := strings.ReplaceAll(cmdSpec.Name, ".", " ")
+	r.commands[cmdName] = cmd
 
 	return nil
 }
 
 // buildPredeclared constructs the predeclared environment for Starlark execution.
 // If spec is non-nil, it may provide extension-specific bindings (WASM receivers).
-func (r *Runtime) buildPredeclared(collector *commandCollector, spec *extension.ExtensionSpec) starlark.StringDict {
+func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.StringDict {
 	predeclared := starlark.StringDict{
 		// Receiver-pattern bindings (all modules use HasAttrs pattern)
 		"file":           File,
@@ -386,9 +292,6 @@ func (r *Runtime) buildPredeclared(collector *commandCollector, spec *extension.
 
 		// Command tree navigation (current command set at runtime)
 		"commands": NewCommandsReceiver(r),
-
-		// Command registration
-		"command": starlark.NewBuiltin("command", collector.commandBuiltin),
 
 		// Output functions in global namespace
 		"note":    starlark.NewBuiltin("note", noteBuiltin),

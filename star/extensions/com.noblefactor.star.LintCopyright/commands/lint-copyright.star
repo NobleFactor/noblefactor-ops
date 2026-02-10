@@ -370,9 +370,3 @@ def run(ctx):
             for issue in issues:
                 error(issue["file"] + ": " + issue["message"])
             fail("Found " + str(len(issues)) + " files with copyright issues (run with --fix to repair)")
-
-command(
-    name = "lint.copyright",
-    help = "Check or fix copyright headers in source files",
-    run = run,
-)
