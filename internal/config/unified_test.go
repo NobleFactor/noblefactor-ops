@@ -124,7 +124,7 @@ func TestConfig_Sync(t *testing.T) {
 				},
 			},
 		},
-		extensions: newExtensionsConfig("star.yaml"),
+		extensions: newExtensionsConfig("star/config.yaml"),
 	}
 
 	result, err := cfg.Sync()
@@ -437,7 +437,7 @@ func TestUnifiedConfigValue_Attr_NilBuiltin(t *testing.T) {
 	// Create config with nil builtin
 	cfg := &Config{
 		builtin:    nil,
-		extensions: newExtensionsConfig("star.yaml"),
+		extensions: newExtensionsConfig("star/config.yaml"),
 	}
 
 	v := &unifiedConfigValue{config: cfg}
@@ -450,18 +450,12 @@ func TestUnifiedConfigValue_Attr_NilBuiltin(t *testing.T) {
 }
 
 func TestLoad_WithProjectConfig(t *testing.T) {
-	// Save current dir
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	// Create temp dir with star/config.yaml
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(origDir)
+
+	// Set git workspace root to temp dir for this test
+	SetGitWorkspaceRoot(tmpDir)
+	defer ResetGitWorkspaceRoot()
 
 	// Create star/ directory
 	starDir := filepath.Join(tmpDir, "star")

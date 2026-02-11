@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/noblefactor-ops/internal/config"
 )
 
 func TestDiscover(t *testing.T) {
@@ -360,10 +362,11 @@ func TestDefaultSearchPaths(t *testing.T) {
 		t.Errorf("len(DefaultSearchPaths()) = %d, want >= 2", len(paths))
 	}
 
-	// First should be project-local star/extensions
-	want := filepath.Join("star", "extensions")
-	if paths[0] != want {
-		t.Errorf("paths[0] = %q, want %q", paths[0], want)
+	// First should be project-local star/extensions (absolute path from git root)
+	// Check it ends with star/extensions
+	wantSuffix := filepath.Join("star", "extensions")
+	if !strings.HasSuffix(paths[0], wantSuffix) {
+		t.Errorf("paths[0] = %q, want suffix %q", paths[0], wantSuffix)
 	}
 }
 
@@ -434,6 +437,12 @@ func TestFindExtensionDir_Found(t *testing.T) {
 	// Create a temp directory structure that matches DefaultSearchPaths
 	dir := t.TempDir()
 
+	// Set git workspace root to temp dir so project-local extensions are found
+	config.SetGitWorkspaceRoot(dir)
+	t.Cleanup(func() {
+		config.ResetGitWorkspaceRoot()
+	})
+
 	// Create star/extensions/com.example.LintCopyright/extension.yaml
 	extDir := filepath.Join(dir, "star", "extensions", "com.example.LintCopyright")
 	cmdDir := filepath.Join(extDir, "commands")
@@ -451,13 +460,6 @@ commands:
 		t.Fatalf("write failed: %v", err)
 	}
 
-	// Change to temp dir so "star/extensions" is found
-	oldWd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir failed: %v", err)
-	}
-	defer os.Chdir(oldWd)
-
 	foundDir, err := FindExtensionDir("com.example.LintCopyright")
 	if err != nil {
 		t.Fatalf("FindExtensionDir failed: %v", err)
@@ -470,6 +472,12 @@ commands:
 
 func TestFindExtensionDir_FoundYml(t *testing.T) {
 	dir := t.TempDir()
+
+	// Set git workspace root to temp dir so project-local extensions are found
+	config.SetGitWorkspaceRoot(dir)
+	t.Cleanup(func() {
+		config.ResetGitWorkspaceRoot()
+	})
 
 	// Create star/extensions/com.example.TestExt/extension.yml (note .yml not .yaml)
 	extDir := filepath.Join(dir, "star", "extensions", "com.example.TestExt")
@@ -487,12 +495,6 @@ commands:
 	if err := os.WriteFile(filepath.Join(extDir, "extension.yml"), []byte(yaml), 0644); err != nil {
 		t.Fatalf("write failed: %v", err)
 	}
-
-	oldWd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir failed: %v", err)
-	}
-	defer os.Chdir(oldWd)
 
 	foundDir, err := FindExtensionDir("com.example.TestExt")
 	if err != nil {

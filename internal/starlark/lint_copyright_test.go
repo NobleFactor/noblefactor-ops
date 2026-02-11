@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/noblefactor-ops/internal/config"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 )
 
@@ -144,6 +145,12 @@ type testFile struct {
 func setupTestDir(t *testing.T, files []testFile) string {
 	t.Helper()
 	dir := t.TempDir()
+
+	// Set git workspace root to temp dir so config loading works
+	config.SetGitWorkspaceRoot(dir)
+	t.Cleanup(func() {
+		config.ResetGitWorkspaceRoot()
+	})
 
 	for _, f := range files {
 		path := filepath.Join(dir, f.path)

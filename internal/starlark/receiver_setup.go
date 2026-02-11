@@ -170,13 +170,19 @@ func (r *SetupReceiver) precommitCheck(_ *starlark.Thread, _ *starlark.Builtin, 
 	precommitPath, _ := exec.LookPath("pre-commit")
 	precommitAvailable := precommitPath != ""
 
+	// Use git workspace root for all paths
+	root := config.GitWorkspaceRoot()
+	if root == "" {
+		root = "."
+	}
+
 	configExists := false
-	if _, err := os.Stat(".pre-commit-config.yaml"); err == nil {
+	if _, err := os.Stat(filepath.Join(root, ".pre-commit-config.yaml")); err == nil {
 		configExists = true
 	}
 
 	hooksInstalled := false
-	hookPath := ".git/hooks/pre-commit"
+	hookPath := filepath.Join(root, ".git", "hooks", "pre-commit")
 	if info, err := os.Stat(hookPath); err == nil && info.Size() > 0 {
 		content, err := os.ReadFile(hookPath)
 		if err == nil && len(content) > 0 {
@@ -197,7 +203,13 @@ func (r *SetupReceiver) precommitInstall(_ *starlark.Thread, _ *starlark.Builtin
 		return nil, err
 	}
 
-	if _, err := os.Stat(".pre-commit-config.yaml"); os.IsNotExist(err) {
+	// Use git workspace root for all paths
+	root := config.GitWorkspaceRoot()
+	if root == "" {
+		root = "."
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".pre-commit-config.yaml")); os.IsNotExist(err) {
 		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 			"success":           starlark.Bool(false),
 			"message":           starlark.String("No .pre-commit-config.yaml found"),
@@ -214,7 +226,7 @@ func (r *SetupReceiver) precommitInstall(_ *starlark.Thread, _ *starlark.Builtin
 		}), nil
 	}
 
-	hookPath := ".git/hooks/pre-commit"
+	hookPath := filepath.Join(root, ".git", "hooks", "pre-commit")
 	if _, err := os.Stat(hookPath); err == nil {
 		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 			"success":           starlark.Bool(true),
@@ -258,16 +270,27 @@ func (r *SetupReceiver) initConfig(_ *starlark.Thread, _ *starlark.Builtin, args
 		return nil, err
 	}
 
-	starYAMLCreated := false
-	starYAMLPath := "star.yaml"
+	// Use git workspace root for all paths
+	root := config.GitWorkspaceRoot()
+	if root == "" {
+		root = "."
+	}
+
+	starConfigCreated := false
+	starConfigPath := filepath.Join(root, "star", "config.yaml")
 	var configsSynced []starlark.Value
 
-	if _, err := os.Stat(starYAMLPath); os.IsNotExist(err) {
+	if _, err := os.Stat(starConfigPath); os.IsNotExist(err) {
 		if DryRun {
-			cli.Note("[dry-run] would create %s", starYAMLPath)
-			starYAMLCreated = true
+			cli.Note("[dry-run] would create %s", starConfigPath)
+			starConfigCreated = true
 		} else {
-			defaultConfig := `# star.yaml - NobleFactor project configuration
+			// Ensure star/ directory exists
+			starDir := filepath.Join(root, "star")
+			if err := os.MkdirAll(starDir, 0o755); err != nil {
+				return nil, fmt.Errorf("creating star directory: %w", err)
+			}
+			defaultConfig := `# star/config.yaml - NobleFactor project configuration
 lint:
   go:
     path: "./..."
@@ -285,11 +308,11 @@ lint:
         - title
         - description
 `
-			if err := os.WriteFile(starYAMLPath, []byte(defaultConfig), 0o644); err != nil {
-				return nil, fmt.Errorf("creating star.yaml: %w", err)
+			if err := os.WriteFile(starConfigPath, []byte(defaultConfig), 0o644); err != nil {
+				return nil, fmt.Errorf("creating star/config.yaml: %w", err)
 			}
-			starYAMLCreated = true
-			cli.Success("Created %s", starYAMLPath)
+			starConfigCreated = true
+			cli.Success("Created %s", starConfigPath)
 		}
 	}
 
@@ -318,9 +341,9 @@ lint:
 	}
 
 	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"star_yaml_created": starlark.Bool(starYAMLCreated),
-		"star_yaml_path":    starlark.String(starYAMLPath),
-		"configs_synced":    starlark.NewList(configsSynced),
+		"config_created": starlark.Bool(starConfigCreated),
+		"config_path":    starlark.String(starConfigPath),
+		"configs_synced": starlark.NewList(configsSynced),
 	}), nil
 }
 
@@ -351,7 +374,13 @@ func (r *SetupReceiver) installHook(_ *starlark.Thread, _ *starlark.Builtin, arg
 		return nil, fmt.Errorf("invalid hook name: %s (valid: pre-commit, pre-push, commit-msg, post-commit)", name)
 	}
 
-	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+	// Use git workspace root for all paths
+	root := config.GitWorkspaceRoot()
+	if root == "" {
+		root = "."
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".git")); os.IsNotExist(err) {
 		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 			"success":           starlark.Bool(false),
 			"message":           starlark.String("Not a git repository (no .git directory)"),
@@ -359,7 +388,7 @@ func (r *SetupReceiver) installHook(_ *starlark.Thread, _ *starlark.Builtin, arg
 		}), nil
 	}
 
-	hookPath := filepath.Join(".git", "hooks", name)
+	hookPath := filepath.Join(root, ".git", "hooks", name)
 	hookContent := nativeHookScript(name)
 
 	if data, err := os.ReadFile(hookPath); err == nil {
@@ -379,7 +408,7 @@ func (r *SetupReceiver) installHook(_ *starlark.Thread, _ *starlark.Builtin, arg
 		}
 	}
 
-	hooksDir := filepath.Join(".git", "hooks")
+	hooksDir := filepath.Join(root, ".git", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating hooks directory: %w", err)
 	}
@@ -410,7 +439,13 @@ func (r *SetupReceiver) uninstallHook(_ *starlark.Thread, _ *starlark.Builtin, a
 		return nil, err
 	}
 
-	hookPath := filepath.Join(".git", "hooks", name)
+	// Use git workspace root for all paths
+	root := config.GitWorkspaceRoot()
+	if root == "" {
+		root = "."
+	}
+
+	hookPath := filepath.Join(root, ".git", "hooks", name)
 
 	data, err := os.ReadFile(hookPath)
 	if os.IsNotExist(err) {
@@ -454,7 +489,13 @@ func (r *SetupReceiver) checkHook(_ *starlark.Thread, _ *starlark.Builtin, args 
 		return nil, err
 	}
 
-	hookPath := filepath.Join(".git", "hooks", name)
+	// Use git workspace root for all paths
+	root := config.GitWorkspaceRoot()
+	if root == "" {
+		root = "."
+	}
+
+	hookPath := filepath.Join(root, ".git", "hooks", name)
 
 	data, err := os.ReadFile(hookPath)
 	if os.IsNotExist(err) {
