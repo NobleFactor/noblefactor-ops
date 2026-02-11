@@ -8,9 +8,6 @@ receivers:
   - name: gitignore
     wasm: receivers/gitignore.wasm
     description: Match paths against .gitignore patterns
-    functions:
-      matches: Check if a path matches gitignore patterns
-      filter: Filter a list of paths, returning non-ignored ones
     capabilities:
       fs:
         read:

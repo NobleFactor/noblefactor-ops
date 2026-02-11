@@ -167,15 +167,8 @@ func (r *Runtime) loadWasmReceivers(spec *extension.ExtensionSpec) error {
 			return fmt.Errorf("load WASM module %s: %w", recv.Name, err)
 		}
 
-		// Get function names from spec (or use module's exported functions)
-		var functions []string
-		if len(recv.Functions) > 0 {
-			for fn := range recv.Functions {
-				functions = append(functions, fn)
-			}
-		} else {
-			functions = module.Functions()
-		}
+		// Auto-discover functions from WASM exports
+		functions := module.Functions()
 
 		// Create WasmReceiver
 		receiver := NewWasmReceiver(recv.Name, module, functions)

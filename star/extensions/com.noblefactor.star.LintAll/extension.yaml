@@ -9,18 +9,10 @@ receivers:
     builtin: true
     type: CommandsReceiver
     description: Command tree query and execution
-    functions:
-      siblings: Get sibling commands
-      children: Get child commands
-      query: Query commands by pattern
-      get: Get command by name
-      run: Execute a command
   - name: config
     builtin: true
     type: ConfigReceiver
     description: Configuration access
-    functions:
-      get: Load merged config
 
 commands:
   - name: lint.all

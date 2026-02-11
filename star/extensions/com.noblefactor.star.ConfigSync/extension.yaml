@@ -9,8 +9,6 @@ receivers:
     builtin: true
     type: ConfigReceiver
     description: Configuration access
-    functions:
-      sync: Write tool-specific config files
 
 commands:
   - name: config.sync

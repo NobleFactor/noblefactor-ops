@@ -9,8 +9,6 @@ receivers:
     builtin: true
     type: SetupReceiver
     description: Repository setup functions
-    functions:
-      install_hook: Install git hooks
 
 commands:
   - name: setup.hooks

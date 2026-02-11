@@ -9,8 +9,6 @@ receivers:
     builtin: true
     type: LintReceiver
     description: Lint tool checking
-    functions:
-      ensure_tools: Check lint tool availability
 
 commands:
   - name: lint.tools

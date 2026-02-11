@@ -9,8 +9,6 @@ receivers:
     builtin: true
     type: ConfigReceiver
     description: Configuration access
-    functions:
-      show: Show config with sources
 
 commands:
   - name: config.show

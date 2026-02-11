@@ -128,6 +128,16 @@ func (h *WasmHost) LoadModule(wasmPath string) (extension.WasmModule, error) {
 		return nil, fmt.Errorf("compile wasm: %w", err)
 	}
 
+	// Validate reactor contract: all modules loaded by star must be WASI reactors
+	if _, ok := compiled.ExportedFunctions()["_initialize"]; !ok {
+		_ = compiled.Close(h.ctx)
+		return nil, fmt.Errorf("wasm module %s: missing required export '_initialize' (reactor mode)", wasmPath)
+	}
+	if _, ok := compiled.ExportedMemories()["memory"]; !ok {
+		_ = compiled.Close(h.ctx)
+		return nil, fmt.Errorf("wasm module %s: missing required export 'memory'", wasmPath)
+	}
+
 	module := &WasmModule{
 		path:     absPath,
 		compiled: compiled,
@@ -165,9 +175,13 @@ func (h *WasmHost) Callbacks() HostCallbacks {
 func (h *WasmHost) Close() error {
 	var errs []error
 
-	// Close all cached modules
+	// Close all cached modules (and their persistent instances)
 	h.modules.Range(func(key, value any) bool {
 		if m, ok := value.(*WasmModule); ok {
+			// Close reactor instance first (if cached)
+			if err := m.closeInstance(); err != nil {
+				errs = append(errs, fmt.Errorf("close instance %s: %w", key, err))
+			}
 			if err := m.compiled.Close(h.ctx); err != nil {
 				errs = append(errs, fmt.Errorf("close module %s: %w", key, err))
 			}

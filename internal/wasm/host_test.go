@@ -5,7 +5,6 @@ package wasm
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -149,94 +148,6 @@ func TestEnsureCacheDir(t *testing.T) {
 	// Verify path structure
 	if !filepath.IsAbs(cacheDir) {
 		t.Errorf("cache dir should be absolute: %s", cacheDir)
-	}
-}
-
-func TestProtocol_EncodeDecodeRequest(t *testing.T) {
-	params := map[string]string{"key": "value"}
-
-	encoded, err := EncodeRequest(42, "test_method", params)
-	if err != nil {
-		t.Fatalf("EncodeRequest() error = %v", err)
-	}
-
-	decoded, err := DecodeRequest(encoded)
-	if err != nil {
-		t.Fatalf("DecodeRequest() error = %v", err)
-	}
-
-	if decoded.ID != 42 {
-		t.Errorf("Request ID = %d, want 42", decoded.ID)
-	}
-	if decoded.Method != "test_method" {
-		t.Errorf("Request Method = %q, want %q", decoded.Method, "test_method")
-	}
-
-	var decodedParams map[string]string
-	if err := json.Unmarshal(decoded.Params, &decodedParams); err != nil {
-		t.Fatalf("Unmarshal params error = %v", err)
-	}
-	if decodedParams["key"] != "value" {
-		t.Errorf("Request Params = %v, want key=value", decodedParams)
-	}
-}
-
-func TestProtocol_EncodeDecodeResponse(t *testing.T) {
-	result := map[string]int{"count": 5}
-
-	encoded, err := EncodeResponse(42, result, nil)
-	if err != nil {
-		t.Fatalf("EncodeResponse() error = %v", err)
-	}
-
-	decoded, err := DecodeResponse(encoded)
-	if err != nil {
-		t.Fatalf("DecodeResponse() error = %v", err)
-	}
-
-	if decoded.ID != 42 {
-		t.Errorf("Response ID = %d, want 42", decoded.ID)
-	}
-	if decoded.Error != nil {
-		t.Errorf("Response Error = %v, want nil", decoded.Error)
-	}
-
-	var decodedResult map[string]int
-	if err := json.Unmarshal(decoded.Result, &decodedResult); err != nil {
-		t.Fatalf("Unmarshal result error = %v", err)
-	}
-	if decodedResult["count"] != 5 {
-		t.Errorf("Response Result = %v, want count=5", decodedResult)
-	}
-}
-
-func TestProtocol_EncodeDecodeResponse_WithError(t *testing.T) {
-	wasmErr := NewWasmError(ErrCodeInternal, "something went wrong")
-
-	encoded, err := EncodeResponse(42, nil, wasmErr)
-	if err != nil {
-		t.Fatalf("EncodeResponse() error = %v", err)
-	}
-
-	decoded, err := DecodeResponse(encoded)
-	if err != nil {
-		t.Fatalf("DecodeResponse() error = %v", err)
-	}
-
-	if decoded.ID != 42 {
-		t.Errorf("Response ID = %d, want 42", decoded.ID)
-	}
-	if decoded.Result != nil {
-		t.Errorf("Response Result = %v, want nil", decoded.Result)
-	}
-	if decoded.Error == nil {
-		t.Fatal("Response Error is nil, want error")
-	}
-	if decoded.Error.Code != ErrCodeInternal {
-		t.Errorf("Response Error.Code = %d, want %d", decoded.Error.Code, ErrCodeInternal)
-	}
-	if decoded.Error.Message != "something went wrong" {
-		t.Errorf("Response Error.Message = %q, want %q", decoded.Error.Message, "something went wrong")
 	}
 }
 
