@@ -15,8 +15,6 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
-
-	"github.com/NobleFactor/noblefactor-ops/internal/starlark/devlore"
 )
 
 // GoReceiver provides Go source parsing operations.
@@ -41,8 +39,6 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("go.parse_execution_ops", r.parseExecutionOps), nil
 	case "parse_execution_schema":
 		return MakeAttr("go.parse_execution_schema", r.parseExecutionSchema), nil
-	case "parse_devlore_api":
-		return MakeAttr("go.parse_devlore_api", devlore.GoParseDevloreAPI), nil
 	case "metrics":
 		return MakeAttr("go.metrics", r.metrics), nil
 	case "deps":
@@ -54,7 +50,7 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 
 // AttrNames implements starlark.HasAttrs.
 func (r *GoReceiver) AttrNames() []string {
-	return []string{"deps", "metrics", "parse_devlore_api", "parse_execution_ops", "parse_execution_schema", "parse_migrate_knowledge", "parse_starlark_bindings"}
+	return []string{"deps", "metrics", "parse_execution_ops", "parse_execution_schema", "parse_migrate_knowledge", "parse_starlark_bindings"}
 }
 
 // =============================================================================
