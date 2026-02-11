@@ -46,7 +46,7 @@ func newInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command 
 	var shells []string
 
 	cmd := &cobra.Command{
-		Use:   "install <root-directory>",
+		Use:   "install [root-directory]",
 		Short: "Install star and supporting files to specified directory",
 		Long: `Install ` + info.Name + ` and all supporting files to the specified root directory.
 
@@ -54,21 +54,31 @@ This command:
   1. Copies the binary to <root>/bin/` + info.Name + `
   2. Installs man pages to <root>/share/man/man1/ (if man command exists)
   3. Installs shell completions (auto-detects bash, fish, powershell, zsh or use --shell)
-  4. Copies ops/ directory to <root>/share/` + info.Name + `/ops/ (for Starlark commands)
+  4. Copies extensions to <root>/share/` + info.Name + `/extensions/ (if star/extensions/ exists)
 
 Shell completions are auto-detected by default. Use --shell to override:
   ` + info.Name + ` self install --shell bash --shell zsh ~/.local
 
 Example:
+  ` + info.Name + ` self install           # defaults to ~/.local
   ` + info.Name + ` self install ~/.local
   ` + info.Name + ` self install /usr/local
 
 After installation, ensure <root>/bin is in your PATH.
 `,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := args[0]
-			root = expandTilde(root)
+			var root string
+			if len(args) > 0 {
+				root = args[0]
+			} else {
+				// Default to ~/.local
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("cannot determine home directory: %w", err)
+				}
+				root = filepath.Join(home, ".local")
+			}
 
 			return runSelfInstall(rootCmd, root, info, installFlags{
 				Shells: shells,
@@ -134,12 +144,12 @@ func runSelfInstall(rootCmd *cobra.Command, root string, info SelfInstallInfo, f
 		installedShells = shells
 	}
 
-	// 5. Install ops/ directory for Starlark commands
-	opsInstalled, err := installOpsDir(root, info.Name)
+	// 5. Install extensions from star/extensions/ (if exists)
+	extInstalled, err := installExtensionsDir(root, info.Name)
 	if err != nil {
-		Warn("Failed to install ops directory: %v", err)
-	} else if opsInstalled != "" {
-		installed = append(installed, fmt.Sprintf("Ops dir:     %s", opsInstalled))
+		Warn("Failed to install extensions: %v", err)
+	} else if extInstalled != "" {
+		installed = append(installed, fmt.Sprintf("Extensions:  %s", extInstalled))
 	}
 
 	// Print summary
@@ -194,60 +204,85 @@ func installBinary(root, name string) (string, error) {
 	return targetPath, nil
 }
 
-// installOpsDir copies the ops/ directory to the installation location.
-func installOpsDir(root, name string) (string, error) {
-	// Find source ops directory
-	srcOpsDir := findOpsDir()
-	if srcOpsDir == "" {
-		return "", nil // No ops directory to install
+// installExtensionsDir copies the star/extensions/ directory to the installation location.
+func installExtensionsDir(root, name string) (string, error) {
+	// Find source extensions directory
+	srcExtDir := findExtensionsDir()
+	if srcExtDir == "" {
+		return "", nil // No extensions directory to install
 	}
 
-	// Target directory: <root>/share/<name>/ops/
-	targetOpsDir := filepath.Join(root, "share", name, "ops")
-	if err := os.MkdirAll(targetOpsDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create ops directory: %w", err)
+	// Target directory: <root>/share/<name>/extensions/
+	targetExtDir := filepath.Join(root, "share", name, "extensions")
+
+	// Copy entire extensions directory tree
+	if err := copyDir(srcExtDir, targetExtDir); err != nil {
+		return "", fmt.Errorf("failed to copy extensions: %w", err)
 	}
 
-	// Copy all .star files
-	entries, err := os.ReadDir(srcOpsDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to read ops directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".star" {
-			continue
-		}
-		src := filepath.Join(srcOpsDir, entry.Name())
-		dst := filepath.Join(targetOpsDir, entry.Name())
-		if err := copyFile(src, dst); err != nil {
-			return "", fmt.Errorf("failed to copy %s: %w", entry.Name(), err)
-		}
-	}
-
-	return targetOpsDir, nil
+	return targetExtDir, nil
 }
 
-// findOpsDir looks for the ops/ directory relative to cwd or executable.
-func findOpsDir() string {
-	if info, err := os.Stat("ops"); err == nil && info.IsDir() {
-		return "ops"
+// findExtensionsDir looks for the star/extensions/ directory.
+func findExtensionsDir() string {
+	// Check relative to cwd (project-local)
+	if info, err := os.Stat(filepath.Join("star", "extensions")); err == nil && info.IsDir() {
+		return filepath.Join("star", "extensions")
 	}
 
+	// Check relative to executable
 	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Join(filepath.Dir(exe), "ops")
-		if info, err := os.Stat(dir); err == nil && info.IsDir() {
-			return dir
-		}
-		// Also check share/<name>/ops relative to bin
 		exeDir := filepath.Dir(exe)
-		shareOps := filepath.Join(filepath.Dir(exeDir), "share", "star", "ops")
-		if info, err := os.Stat(shareOps); err == nil && info.IsDir() {
-			return shareOps
+		// Check share/<name>/extensions relative to bin
+		shareExt := filepath.Join(filepath.Dir(exeDir), "share", "star", "extensions")
+		if info, err := os.Stat(shareExt); err == nil && info.IsDir() {
+			return shareExt
 		}
 	}
 
 	return ""
+}
+
+// copyDir recursively copies a directory tree.
+func copyDir(src, dst string) error {
+	src = filepath.Clean(src)
+	dst = filepath.Clean(dst)
+
+	// Get source info
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("%s is not a directory", src)
+	}
+
+	// Create destination
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // installManPagesTo generates and installs man pages.
@@ -403,20 +438,6 @@ func detectShells() []string {
 func hasMan() bool {
 	_, err := exec.LookPath("man")
 	return err == nil
-}
-
-// expandTilde expands ~ to $HOME in a path.
-func expandTilde(path string) string {
-	if path == "" {
-		return ""
-	}
-	if len(path) >= 2 && path[:2] == "~/" {
-		return filepath.Join(os.Getenv("HOME"), path[2:])
-	}
-	if path == "~" {
-		return os.Getenv("HOME")
-	}
-	return path
 }
 
 // copyFile copies a file from src to dst.
