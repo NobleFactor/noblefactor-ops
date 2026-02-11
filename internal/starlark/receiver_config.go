@@ -80,7 +80,7 @@ func (r *ConfigReceiver) show(_ *starlark.Thread, _ *starlark.Builtin, args star
 	}), nil
 }
 
-// sync writes tool-specific config files from star.yaml.
+// sync writes tool-specific config files from star/config.yaml.
 func (r *ConfigReceiver) sync(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	if err := starlark.UnpackArgs("config.sync", args, kwargs); err != nil {
 		return nil, err

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NobleFactor/noblefactor-ops/internal/config"
 )
 
 // Discover scans a directory for extension specifications.
@@ -105,12 +107,16 @@ func LoadAll(dirs ...string) (int, error) {
 
 // DefaultSearchPaths returns the standard directories to search for extensions.
 // The paths are:
-//   - ./star/extensions (project local)
+//   - ${GIT_WORKSPACE_ROOT}/star/extensions (project local)
 //   - ${XDG_DATA_HOME}/star/extensions (user extensions, defaults to ~/.local/share)
 //   - /usr/local/share/star/extensions (system-wide)
 func DefaultSearchPaths() []string {
-	paths := []string{
-		filepath.Join("star", "extensions"),
+	var paths []string
+
+	// Project-local extensions (use git workspace root)
+	root := config.GitWorkspaceRoot()
+	if root != "" {
+		paths = append(paths, filepath.Join(root, "star", "extensions"))
 	}
 
 	// User extensions directory (XDG_DATA_HOME)

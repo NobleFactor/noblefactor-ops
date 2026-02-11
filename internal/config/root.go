@@ -25,7 +25,7 @@ type ConfigSpec struct {
 // This is private - consumers should use the unified Config type.
 type extensionsConfig struct {
 	ConfigElement                  // path = "", children = top-level sections
-	source        string           // filename, e.g., "star.yaml"
+	source        string           // filename, e.g., "star/config.yaml"
 	dirty         bool             // modified since load
 	specs         map[string]ConfigSpec // registered extension specs by path
 }

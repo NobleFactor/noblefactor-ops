@@ -15,7 +15,7 @@ type Config struct {
 	extensions *extensionsConfig
 }
 
-// Load loads the unified configuration from star.yaml files.
+// Load loads the unified configuration from star/config.yaml files.
 // This loads both builtin config and prepares for extension registration.
 func Load() (*Config, error) {
 	builtin, err := loadBuiltin()
@@ -25,7 +25,7 @@ func Load() (*Config, error) {
 
 	return &Config{
 		builtin:    builtin,
-		extensions: newExtensionsConfig("star.yaml"),
+		extensions: newExtensionsConfig("star/config.yaml"),
 	}, nil
 }
 
@@ -38,7 +38,7 @@ func LoadWithSources() (*Config, []ConfigSource, error) {
 
 	return &Config{
 		builtin:    builtin,
-		extensions: newExtensionsConfig("star.yaml"),
+		extensions: newExtensionsConfig("star/config.yaml"),
 	}, sources, nil
 }
 
@@ -53,7 +53,7 @@ func (c *Config) GetSpec(path string) (ConfigSpec, bool) {
 	return c.extensions.getSpec(path)
 }
 
-// Sync generates tool-specific config files from star.yaml.
+// Sync generates tool-specific config files from star/config.yaml.
 func (c *Config) Sync() (*SyncResult, error) {
 	return c.builtin.Sync()
 }

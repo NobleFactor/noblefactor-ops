@@ -3,7 +3,7 @@
 
 // Package config provides unified configuration for star commands.
 // Configuration is loaded from a hierarchy of config.yaml files:
-//  1. ./star/config.yaml (project - highest priority)
+//  1. ${GIT_TOPLEVEL}/star/config.yaml (project - highest priority)
 //  2. ${XDG_CONFIG_HOME}/star/config.yaml (user defaults)
 //  3. Built-in defaults (hardcoded fallback)
 package config
@@ -11,9 +11,77 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
+	"github.com/go-git/go-git/v5"
 	"gopkg.in/yaml.v3"
 )
+
+// gitWorkspaceRoot caches the git repository root path.
+// Empty string means not in a git repo (or git not available).
+var (
+	gitWorkspaceRoot     string
+	gitWorkspaceRootOnce sync.Once
+	gitWorkspaceRootSet  bool // true if explicitly set (for testing)
+)
+
+// initGitWorkspaceRoot finds the git repository root once using go-git.
+// Returns empty string if not in a git repo.
+func initGitWorkspaceRoot() string {
+	gitWorkspaceRootOnce.Do(func() {
+		if gitWorkspaceRootSet {
+			return // Already set by SetGitWorkspaceRoot
+		}
+
+		// Start from current directory and search up for .git
+		cwd, err := os.Getwd()
+		if err != nil {
+			gitWorkspaceRoot = ""
+			return
+		}
+
+		// PlainOpenWithOptions with DetectDotGit walks up the directory tree
+		repo, err := git.PlainOpenWithOptions(cwd, &git.PlainOpenOptions{
+			DetectDotGit: true,
+		})
+		if err != nil {
+			gitWorkspaceRoot = ""
+			return
+		}
+
+		// Get the worktree to find the root path
+		wt, err := repo.Worktree()
+		if err != nil {
+			gitWorkspaceRoot = ""
+			return
+		}
+
+		gitWorkspaceRoot = wt.Filesystem.Root()
+	})
+	return gitWorkspaceRoot
+}
+
+// GitWorkspaceRoot returns the cached git repository root.
+// Returns empty string if not in a git repo.
+func GitWorkspaceRoot() string {
+	return initGitWorkspaceRoot()
+}
+
+// SetGitWorkspaceRoot sets the git workspace root for testing.
+// Call ResetGitWorkspaceRoot to restore normal behavior.
+func SetGitWorkspaceRoot(path string) {
+	gitWorkspaceRoot = path
+	gitWorkspaceRootSet = true
+	gitWorkspaceRootOnce.Do(func() {}) // Mark as done
+}
+
+// ResetGitWorkspaceRoot resets the git workspace root cache.
+// The next call to GitWorkspaceRoot will re-detect from git.
+func ResetGitWorkspaceRoot() {
+	gitWorkspaceRoot = ""
+	gitWorkspaceRootSet = false
+	gitWorkspaceRootOnce = sync.Once{}
+}
 
 // builtinConfig is the top-level configuration structure for star commands.
 // This is private - consumers should use the unified Config type.
@@ -134,7 +202,7 @@ func defaultBuiltinConfig() *builtinConfig {
 	}
 }
 
-// loadBuiltin loads builtin configuration from the hierarchy of star.yaml files.
+// loadBuiltin loads builtin configuration from the hierarchy of config.yaml files.
 // Project config overrides user config, which overrides defaults.
 func loadBuiltin() (*builtinConfig, error) {
 	cfg := defaultBuiltinConfig()
@@ -186,18 +254,20 @@ func loadBuiltinWithSources() (*builtinConfig, []ConfigSource, error) {
 		}
 	}
 
-	// Load project config
+	// Load project config (only if in a git repo)
 	projectPath := projectConfigPath()
-	projectCfg, err := loadBuiltinFile(projectPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	sources = append(sources, ConfigSource{
-		Path:   projectPath,
-		Exists: projectCfg != nil,
-	})
-	if projectCfg != nil {
-		cfg = merge(cfg, projectCfg)
+	if projectPath != "" {
+		projectCfg, err := loadBuiltinFile(projectPath)
+		if err != nil {
+			return nil, nil, err
+		}
+		sources = append(sources, ConfigSource{
+			Path:   projectPath,
+			Exists: projectCfg != nil,
+		})
+		if projectCfg != nil {
+			cfg = merge(cfg, projectCfg)
+		}
 	}
 
 	return cfg, sources, nil
@@ -223,11 +293,16 @@ func userConfigPath() string {
 }
 
 // projectConfigPath returns the path to the project's config.yaml.
+// Returns empty string if not in a git repository.
 func projectConfigPath() string {
-	return filepath.Join("star", "config.yaml")
+	root := GitWorkspaceRoot()
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "star", "config.yaml")
 }
 
-// loadUserConfig loads the user's star.yaml if it exists.
+// loadUserConfig loads the user's config.yaml if it exists.
 func loadUserConfig() (*builtinConfig, error) {
 	path := userConfigPath()
 	if path == "" {
@@ -236,9 +311,14 @@ func loadUserConfig() (*builtinConfig, error) {
 	return loadBuiltinFile(path)
 }
 
-// loadProjectConfig loads the project's star.yaml if it exists.
+// loadProjectConfig loads the project's config.yaml if it exists.
+// Returns nil if not in a git repository.
 func loadProjectConfig() (*builtinConfig, error) {
-	return loadBuiltinFile(projectConfigPath())
+	path := projectConfigPath()
+	if path == "" {
+		return nil, nil
+	}
+	return loadBuiltinFile(path)
 }
 
 // loadBuiltinFile loads a builtin config file, returning nil if it doesn't exist.

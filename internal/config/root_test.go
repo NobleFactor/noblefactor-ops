@@ -12,10 +12,10 @@ import (
 )
 
 func TestNewExtensionsConfig(t *testing.T) {
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
-	if cfg.Source() != "star.yaml" {
-		t.Errorf("Source() = %q, want 'star.yaml'", cfg.Source())
+	if cfg.Source() != "star/config.yaml" {
+		t.Errorf("Source() = %q, want 'star/config.yaml'", cfg.Source())
 	}
 	if cfg.Path() != "" {
 		t.Errorf("Path() = %q, want ''", cfg.Path())
@@ -26,7 +26,7 @@ func TestNewExtensionsConfig(t *testing.T) {
 }
 
 func TestExtensionsConfig_SetDirty(t *testing.T) {
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
 	cfg.SetDirty(true)
 	if !cfg.IsDirty() {
@@ -43,7 +43,7 @@ func TestExtensionsConfig_RegisterExtension_Simple(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
 	spec := ConfigSpec{
 		Fields: map[string]string{
@@ -81,7 +81,7 @@ func TestExtensionsConfig_RegisterExtension_Nested(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
 	spec := ConfigSpec{
 		Fields: map[string]string{
@@ -122,7 +122,7 @@ func TestExtensionsConfig_RegisterExtension_Nested(t *testing.T) {
 }
 
 func TestExtensionsConfig_RegisterExtension_EmptyPath(t *testing.T) {
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
 	err := cfg.registerExtension("", ConfigSpec{})
 	if err == nil {
@@ -134,7 +134,7 @@ func TestExtensionsConfig_GetSpec(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
 	spec := ConfigSpec{
 		Type: "TestConfig",
@@ -160,7 +160,7 @@ func TestExtensionsConfig_GetSpec(t *testing.T) {
 }
 
 func TestExtensionsConfig_Accessor_Invalid(t *testing.T) {
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
 	acc := cfg.accessor("missing.path")
 	if acc.IsValid() {
@@ -169,7 +169,7 @@ func TestExtensionsConfig_Accessor_Invalid(t *testing.T) {
 }
 
 func TestLoadExtensions_FileNotExist(t *testing.T) {
-	cfg, err := loadExtensions("/nonexistent/path/star.yaml")
+	cfg, err := loadExtensions("/nonexistent/path/star/config.yaml")
 	if err != nil {
 		t.Fatalf("loadExtensions should not error for missing file: %v", err)
 	}
@@ -183,7 +183,11 @@ func TestLoadExtensions_ValidYAML(t *testing.T) {
 	defer ClearTypeCache()
 
 	tmpDir := t.TempDir()
-	yamlPath := filepath.Join(tmpDir, "star.yaml")
+	starDir := filepath.Join(tmpDir, "star")
+	if err := os.MkdirAll(starDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yamlPath := filepath.Join(starDir, "config.yaml")
 
 	yamlContent := `
 lint:
@@ -232,7 +236,11 @@ func TestLoadExtensionsWithSpecs(t *testing.T) {
 	defer ClearTypeCache()
 
 	tmpDir := t.TempDir()
-	yamlPath := filepath.Join(tmpDir, "star.yaml")
+	starDir := filepath.Join(tmpDir, "star")
+	if err := os.MkdirAll(starDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yamlPath := filepath.Join(starDir, "config.yaml")
 
 	yamlContent := `
 lint:
@@ -275,7 +283,11 @@ func TestExtensionsConfig_Save(t *testing.T) {
 	defer ClearTypeCache()
 
 	tmpDir := t.TempDir()
-	yamlPath := filepath.Join(tmpDir, "star.yaml")
+	starDir := filepath.Join(tmpDir, "star")
+	if err := os.MkdirAll(starDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yamlPath := filepath.Join(starDir, "config.yaml")
 
 	cfg := newExtensionsConfig(yamlPath)
 	spec := ConfigSpec{
@@ -307,7 +319,7 @@ func TestExtensionsConfig_RegisterExtension_WithNestedTypes(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg := newExtensionsConfig("star.yaml")
+	cfg := newExtensionsConfig("star/config.yaml")
 
 	spec := ConfigSpec{
 		Fields: map[string]string{
