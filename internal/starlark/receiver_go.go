@@ -974,13 +974,11 @@ func (r *GoReceiver) goComposites(_ *starlark.Thread, _ *starlark.Builtin, args 
 				for _, elem := range v.Elts {
 					if lit, ok := elem.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						elems = append(elems, starlark.String(strings.Trim(lit.Value, `"`)))
+					} else {
+						elems = append(elems, starlark.String(typeToString(elem)))
 					}
 				}
-				if len(elems) > 0 {
-					fields[key.Name] = starlark.NewList(elems)
-				} else {
-					fields[key.Name] = starlark.String(typeToString(kv.Value))
-				}
+				fields[key.Name] = starlark.NewList(elems)
 			default:
 				fields[key.Name] = starlark.String(typeToString(kv.Value))
 			}
