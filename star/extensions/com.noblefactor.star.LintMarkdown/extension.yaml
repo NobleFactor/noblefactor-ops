@@ -27,3 +27,17 @@ commands:
         type: bool
         default: "false"
         help: Auto-fix issues where possible
+
+config:
+  path: lint.markdown
+  type: MarkdownLintConfig
+  fields:
+    path: string
+    exclude: "[]string"
+    config: "map[string]interface{}"
+  defaults:
+    path: "."
+    exclude:
+      - node_modules
+      - vendor
+      - .git

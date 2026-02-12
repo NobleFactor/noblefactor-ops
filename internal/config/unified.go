@@ -4,42 +4,113 @@
 package config
 
 import (
+	"fmt"
+	"os"
+
 	"go.starlark.net/starlark"
+	"gopkg.in/yaml.v3"
 )
 
 // Config provides a unified view of all configuration.
-// It combines builtin config (lint, precommit) with extension-registered config.
-// Consumers should use this type - the underlying implementation is private.
+// Extensions register their config specs, then LoadFromFiles() merges
+// values from star/config.yaml files into the registered hierarchy.
 type Config struct {
-	builtin    *builtinConfig
 	extensions *extensionsConfig
 }
 
-// Load loads the unified configuration from star/config.yaml files.
-// This loads both builtin config and prepares for extension registration.
+// New creates a Config with an empty extension hierarchy.
+// Call RegisterExtension() to add config specs, then LoadFromFiles() to populate.
+func New() *Config {
+	return &Config{
+		extensions: newExtensionsConfig("star/config.yaml"),
+	}
+}
+
+// Load creates a Config, registers no extensions, and loads from files.
+// This is a convenience wrapper for tests and standalone use.
 func Load() (*Config, error) {
-	builtin, err := loadBuiltin()
-	if err != nil {
+	c := New()
+	if err := c.LoadFromFiles(); err != nil {
 		return nil, err
 	}
-
-	return &Config{
-		builtin:    builtin,
-		extensions: newExtensionsConfig("star/config.yaml"),
-	}, nil
+	return c, nil
 }
 
 // LoadWithSources loads configuration and returns the source of each file.
 func LoadWithSources() (*Config, []ConfigSource, error) {
-	builtin, sources, err := loadBuiltinWithSources()
-	if err != nil {
+	c := New()
+
+	var sources []ConfigSource
+	sources = append(sources, ConfigSource{
+		Path:   "<defaults>",
+		Exists: true,
+	})
+
+	userPath := userConfigPath()
+	if userPath != "" {
+		_, err := os.Stat(userPath)
+		sources = append(sources, ConfigSource{
+			Path:   userPath,
+			Exists: err == nil,
+		})
+	}
+
+	projectPath := projectConfigPath()
+	if projectPath != "" {
+		_, err := os.Stat(projectPath)
+		sources = append(sources, ConfigSource{
+			Path:   projectPath,
+			Exists: err == nil,
+		})
+	}
+
+	if err := c.LoadFromFiles(); err != nil {
 		return nil, nil, err
 	}
 
-	return &Config{
-		builtin:    builtin,
-		extensions: newExtensionsConfig("star/config.yaml"),
-	}, sources, nil
+	return c, sources, nil
+}
+
+// LoadFromFiles reads user and project star/config.yaml files and merges
+// values into the registered extension hierarchy. Extensions must be
+// registered before calling this.
+func (c *Config) LoadFromFiles() error {
+	// Load user config from XDG_CONFIG_HOME
+	userPath := userConfigPath()
+	if userPath != "" {
+		if err := c.loadFile(userPath); err != nil {
+			return fmt.Errorf("load user config: %w", err)
+		}
+	}
+
+	// Load project config from git workspace root
+	projectPath := projectConfigPath()
+	if projectPath != "" {
+		if err := c.loadFile(projectPath); err != nil {
+			return fmt.Errorf("load project config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// loadFile reads a YAML file and merges values into the extension hierarchy.
+func (c *Config) loadFile(path string) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse %s: %w", path, err)
+	}
+
+	c.extensions.mergeRaw(raw)
+	return nil
 }
 
 // RegisterExtension registers an extension's config at a dotted path.
@@ -53,108 +124,17 @@ func (c *Config) GetSpec(path string) (ConfigSpec, bool) {
 	return c.extensions.getSpec(path)
 }
 
+// Accessor returns a typed accessor for a section at the given path.
+func (c *Config) Accessor(path string) *ConfigAccessor {
+	return c.extensions.accessor(path)
+}
+
 // Sync generates tool-specific config files from star/config.yaml.
 func (c *Config) Sync() (*SyncResult, error) {
-	return c.builtin.Sync()
+	return syncFromConfig(c)
 }
 
 // ToStarlark returns the config wrapped for Starlark access.
-// This provides a unified view of both builtin and extension config.
 func (c *Config) ToStarlark() starlark.Value {
-	return &unifiedConfigValue{config: c}
-}
-
-// Builtin returns the builtin config for direct typed access.
-// This is primarily for internal use by builtin modules.
-func (c *Config) Builtin() *builtinConfig {
-	return c.builtin
-}
-
-// unifiedConfigValue wraps Config for Starlark attribute access.
-// It checks extensions first, then falls back to builtin config.
-type unifiedConfigValue struct {
-	config *Config
-}
-
-// Ensure unifiedConfigValue implements the required interfaces.
-var (
-	_ starlark.Value    = (*unifiedConfigValue)(nil)
-	_ starlark.HasAttrs = (*unifiedConfigValue)(nil)
-)
-
-// String returns a string representation.
-func (v *unifiedConfigValue) String() string {
-	return "config"
-}
-
-// Type returns the Starlark type name.
-func (v *unifiedConfigValue) Type() string {
-	return "config"
-}
-
-// Freeze makes the value immutable.
-func (v *unifiedConfigValue) Freeze() {}
-
-// Truth returns the Starlark truth value.
-func (v *unifiedConfigValue) Truth() starlark.Bool {
-	return starlark.True
-}
-
-// Hash returns a hash for the value.
-func (v *unifiedConfigValue) Hash() (uint32, error) {
-	return 0, nil
-}
-
-// Attr returns the value of the named attribute.
-// Checks extensions first, then builtin config.
-func (v *unifiedConfigValue) Attr(name string) (starlark.Value, error) {
-	// Check extensions first
-	if v.config.extensions != nil {
-		if child := v.config.extensions.Get(name); child != nil {
-			return goToStarlarkReflect(child)
-		}
-	}
-
-	// Fall back to builtin config
-	if v.config.builtin != nil {
-		return v.attrFromBuiltin(name)
-	}
-
-	return nil, starlark.NoSuchAttrError(name)
-}
-
-// attrFromBuiltin gets an attribute from the builtin config.
-func (v *unifiedConfigValue) attrFromBuiltin(name string) (starlark.Value, error) {
-	switch name {
-	case "lint":
-		return v.config.builtin.Lint.ToStarlark(), nil
-	case "precommit":
-		return v.config.builtin.Precommit.ToStarlark(), nil
-	default:
-		return nil, starlark.NoSuchAttrError(name)
-	}
-}
-
-// AttrNames returns the names of all available attributes.
-func (v *unifiedConfigValue) AttrNames() []string {
-	names := []string{"lint", "precommit"}
-
-	// Add extension config names
-	if v.config.extensions != nil {
-		for name := range v.config.extensions.Children() {
-			// Avoid duplicates
-			found := false
-			for _, n := range names {
-				if n == name {
-					found = true
-					break
-				}
-			}
-			if !found {
-				names = append(names, name)
-			}
-		}
-	}
-
-	return names
+	return WrapAsStarlarkValue(c.extensions)
 }

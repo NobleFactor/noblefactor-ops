@@ -33,12 +33,27 @@ commands:
         help: Path to check
 
 config:
+  path: lint.copyright
   type: CopyrightConfig
   fields:
     enabled: bool
     license: string
     holder: string
+    patterns: "map[string]interface{}"
     exclude: "[]string"
   defaults:
     enabled: false
     license: "auto"
+    patterns:
+      go:
+        match: '// SPDX-License-Identifier: \S+\s*\n// Copyright.*All rights reserved\.'
+        replace: "// SPDX-License-Identifier: {license}\n// Copyright {holder}. All rights reserved."
+      star:
+        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
+        replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved."
+      shell:
+        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
+        replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved."
+    exclude:
+      - "**/testdata/**"
+      - "**/vendor/**"
