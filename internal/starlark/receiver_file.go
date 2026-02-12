@@ -50,6 +50,8 @@ func (r *FileReceiver) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("file.parent", r.parent), nil
 	case "glob":
 		return MakeAttr("file.glob", r.glob), nil
+	case "walk_tree":
+		return MakeAttr("file.walk_tree", r.walkTree), nil
 	case "mkdir":
 		return MakeAttr("file.mkdir", r.mkdir), nil
 	case "remove":
@@ -76,6 +78,7 @@ func (r *FileReceiver) AttrNames() []string {
 		"read",
 		"remove",
 		"remove_all",
+		"walk_tree",
 		"write",
 	}
 }
@@ -152,9 +155,14 @@ func (r *FileReceiver) isFile(_ *starlark.Thread, _ *starlark.Builtin, args star
 }
 
 // list lists the contents of a directory.
+// By default, respects .gitignore files. Use gitignore=False to disable.
 func (r *FileReceiver) list(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
-	if err := starlark.UnpackArgs("file.list", args, kwargs, "path", &path); err != nil {
+	respectGitignore := true
+	if err := starlark.UnpackArgs("file.list", args, kwargs,
+		"path", &path,
+		"gitignore?", &respectGitignore,
+	); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(path)
@@ -162,8 +170,24 @@ func (r *FileReceiver) list(_ *starlark.Thread, _ *starlark.Builtin, args starla
 		return nil, fmt.Errorf("file.list: %w", err)
 	}
 
+	var tracker *ignore.Tracker
+	if respectGitignore {
+		tracker = newTrackerForPath(path)
+	}
+
 	var items []starlark.Value
 	for _, entry := range entries {
+		if tracker != nil {
+			absPath, _ := filepath.Abs(path)
+			entryRel, relErr := filepath.Rel(tracker.Root(), filepath.Join(absPath, entry.Name()))
+			if relErr == nil {
+				ignored, _ := tracker.IsIgnored(entryRel, entry.IsDir())
+				if ignored {
+					continue
+				}
+			}
+		}
+
 		entryPath := filepath.Join(path, entry.Name())
 		item := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 			"name":   starlark.String(entry.Name()),
@@ -247,35 +271,109 @@ func (r *FileReceiver) glob(_ *starlark.Thread, _ *starlark.Builtin, args starla
 	return starlark.NewList(items), nil
 }
 
+// walkTree walks a directory tree, calling a Starlark callback for each entry.
+// By default, respects .gitignore rules. The callback receives a struct with
+// path (relative), name (base), and is_dir fields. Return "skip" to skip a
+// directory's children, "stop" to terminate the walk.
+func (r *FileReceiver) walkTree(thread *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var root string
+	var callback starlark.Callable
+	respectGitignore := true
+
+	if err := starlark.UnpackArgs("file.walk_tree", args, kwargs,
+		"root", &root,
+		"callback", &callback,
+		"gitignore?", &respectGitignore,
+	); err != nil {
+		return nil, err
+	}
+
+	var tracker *ignore.Tracker
+	if respectGitignore {
+		var err error
+		tracker, err = ignore.NewTracker(root)
+		if err != nil {
+			tracker = nil // walk without filtering on error
+		}
+	}
+
+	err := ignore.WalkTree(ignore.WalkOptions{
+		Root:    root,
+		Tracker: tracker,
+		Callback: func(path string, isDir bool) error {
+			entry := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"path":   starlark.String(path),
+				"name":   starlark.String(filepath.Base(path)),
+				"is_dir": starlark.Bool(isDir),
+			})
+
+			res, callErr := starlark.Call(thread, callback, starlark.Tuple{entry}, nil)
+			if callErr != nil {
+				return callErr
+			}
+
+			if str, ok := res.(starlark.String); ok {
+				switch str.GoString() {
+				case "skip":
+					if isDir {
+						return filepath.SkipDir
+					}
+					return nil
+				case "stop":
+					return ignore.ErrWalkStopped
+				}
+			}
+
+			return nil
+		},
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("file.walk_tree: %w", err)
+	}
+
+	return starlark.None, nil
+}
+
 // filterByGitignore filters out paths that match .gitignore patterns.
 func filterByGitignore(paths []string) []string {
 	if len(paths) == 0 {
 		return paths
 	}
 
-	// Determine base directory from first path
-	baseDir := "."
-	if len(paths) > 0 {
-		baseDir = filepath.Dir(paths[0])
-		// Walk up to find a reasonable base
-		for baseDir != "." && baseDir != "/" {
-			if _, err := os.Stat(filepath.Join(baseDir, ".gitignore")); err == nil {
-				break
-			}
-			if _, err := os.Stat(filepath.Join(baseDir, ".git")); err == nil {
-				break
-			}
-			baseDir = filepath.Dir(baseDir)
-		}
-	}
+	// Find git root by walking up from first path's directory
+	baseDir := filepath.Dir(paths[0])
+	gitRoot := findGitRoot(baseDir)
 
-	matcher, err := ignore.New(baseDir)
+	tracker, err := ignore.NewTracker(gitRoot)
 	if err != nil {
-		// If we can't load gitignore, return all paths
 		return paths
 	}
 
-	return matcher.Filter(paths)
+	// Push intermediate directories for proper gitignore scoping
+	result := make([]string, 0, len(paths))
+	for _, p := range paths {
+		relPath, relErr := filepath.Rel(gitRoot, p)
+		if relErr != nil {
+			result = append(result, p)
+			continue
+		}
+
+		// Push the directory containing this file to load its .gitignore
+		dir := filepath.Dir(relPath)
+		if dir != "." {
+			pushPath(tracker, dir)
+		}
+
+		info, statErr := os.Stat(p)
+		isDir := statErr == nil && info.IsDir()
+
+		ignored, _ := tracker.IsIgnored(relPath, isDir)
+		if !ignored {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // fileRecursiveGlob handles patterns with ** for recursive directory matching.
@@ -367,4 +465,53 @@ func (r *FileReceiver) removeAll(_ *starlark.Thread, _ *starlark.Builtin, args s
 		return nil, fmt.Errorf("file.remove_all: %w", err)
 	}
 	return starlark.None, nil
+}
+
+// findGitRoot walks up from start to find the nearest .git directory.
+func findGitRoot(start string) string {
+	absStart, err := filepath.Abs(start)
+	if err != nil {
+		return start
+	}
+	dir := absStart
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return absStart
+		}
+		dir = parent
+	}
+}
+
+// newTrackerForPath creates a tracker rooted at the git root above path,
+// with intermediate directories pushed for proper gitignore scoping.
+func newTrackerForPath(path string) *ignore.Tracker {
+	absPath, _ := filepath.Abs(path)
+	gitRoot := findGitRoot(absPath)
+
+	tracker, err := ignore.NewTracker(gitRoot)
+	if err != nil {
+		return nil
+	}
+
+	// Push intermediate directories from gitRoot to path
+	relPath, err := filepath.Rel(gitRoot, absPath)
+	if err != nil || relPath == "." {
+		return tracker
+	}
+
+	pushPath(tracker, relPath)
+	return tracker
+}
+
+// pushPath pushes all intermediate directories onto the tracker.
+func pushPath(tracker *ignore.Tracker, relPath string) {
+	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	for i := range parts {
+		dir := strings.Join(parts[:i+1], "/")
+		tracker.Push(dir)
+	}
 }

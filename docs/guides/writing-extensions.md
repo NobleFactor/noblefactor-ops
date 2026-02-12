@@ -474,6 +474,16 @@ star config show
 yamllint extensions/your-extension/extension.yaml
 ```
 
+## Example: WASM Receiver (Rust)
+
+A complete working example of a WASM receiver extension is available at
+[docs/guides/examples/wasm-receiver/](examples/wasm-receiver/). It includes:
+
+- `extension.yaml` — receiver declaration with filesystem capabilities
+- `Cargo.toml` — Rust crate config targeting `wasm32-wasip1`
+- `src/lib.rs` — shared-memory reactor pattern with `alloc`/`dealloc` exports
+- `build.mk` — Makefile targets for building and packaging
+
 ## Next Steps
 
 - See existing extensions in `extensions/` for more examples
