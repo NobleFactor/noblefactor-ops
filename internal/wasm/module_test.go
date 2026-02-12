@@ -404,8 +404,8 @@ func TestNewWasmErrorf(t *testing.T) {
 // This is a regression guard — the star runtime calls WithStartFunctions("_initialize")
 // and silently skips modules that only export _start.
 func TestGitignoreWasm_ExportsInitialize(t *testing.T) {
-	wasmPath := filepath.Join("..", "..", "star", "extensions",
-		"com.noblefactor.star.Gitignore", "receivers", "gitignore.wasm")
+	wasmPath := filepath.Join("..", "..", "docs", "guides", "examples",
+		"wasm-receiver", "receivers", "gitignore.wasm")
 	assertWasmReactor(t, wasmPath)
 }
 
@@ -443,8 +443,8 @@ func assertWasmReactor(t *testing.T, wasmPath string) {
 // works as a shared memory reactor: persistent instance, named exports,
 // alloc/dealloc memory management.
 func TestGitignoreWasm_ReactorProtocol(t *testing.T) {
-	wasmPath := filepath.Join("..", "..", "star", "extensions",
-		"com.noblefactor.star.Gitignore", "receivers", "gitignore.wasm")
+	wasmPath := filepath.Join("..", "..", "docs", "guides", "examples",
+		"wasm-receiver", "receivers", "gitignore.wasm")
 
 	ctx := context.Background()
 	host, err := NewHost(ctx, extension.Capabilities{
