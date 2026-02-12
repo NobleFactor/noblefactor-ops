@@ -11,7 +11,7 @@ updated: 2025-02-10
 
 ## Summary
 
-Replace the existing star configuration system with the extension model defined in `docs/architecture/devlore-extension-model.md`. All star commands will be implemented as extensions, using:
+Replace the existing star configuration system with the extension model defined in `docs/architecture/star-extensions.md`. All star commands will be implemented as extensions, using:
 
 1. **Extension YAML specs** - Describe command, flags, and config schema
 2. **Starlark implementations** - Command logic in `ops/*.star`
@@ -27,7 +27,7 @@ Replace the existing star configuration system with the extension model defined 
 
 ## Architecture Reference
 
-See `docs/architecture/devlore-extension-model.md` for:
+See `docs/architecture/star-extensions.md` for:
 - Extension YAML specification format
 - ConfigElement and Config hierarchy
 - ConfigValue Starlark adapter

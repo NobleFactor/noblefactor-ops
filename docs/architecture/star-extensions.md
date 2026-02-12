@@ -1,14 +1,14 @@
 ---
-title: "Devlore Extension Model"
-description: "Architecture for extending devlore CLIs with new capabilities via YAML specs, Starlark commands, and Go bindings"
+title: "Star Extensions"
+description: "Architecture for extending star CLI with new capabilities via YAML specs, Starlark commands, and Go bindings"
 status: draft
 created: 2025-02-07
-updated: 2025-02-10
+updated: 2026-02-11
 ---
 
-# Devlore Extension Model
+# Star Extensions
 
-This document defines how to extend devlore CLIs with new capabilities.
+This document defines how to extend the star CLI with new capabilities.
 
 ## Extension Source Structure
 

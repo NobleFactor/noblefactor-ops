@@ -6,5 +6,8 @@
 .markdownlint-cli2.yaml
 .pre-commit-config.yaml
 
+# Built binaries
+bin/
+
 # Rust build artifacts (WASM extensions)
 **/target/

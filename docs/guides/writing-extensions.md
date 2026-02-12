@@ -1,6 +1,3 @@
-# SPDX-License-Identifier: MIT
-# Copyright Noble Factor. All rights reserved.
-
 ---
 title: "Writing Extensions"
 description: "A step-by-step guide to creating star extensions"
@@ -248,8 +245,37 @@ These receivers are always available:
 |----------|-----------|---------|
 | `config` | `get()` | Load merged configuration |
 | `fs` | `glob(pattern)` | Find files matching pattern |
+| `go` | `structs()`, `const_groups()`, `methods()`, `funcs()`, `calls()`, `composites()`, `return_string()`, `raw_string()`, `metrics()`, `deps()` | Go source analysis and AST queries |
 | `lint` | `go()`, `shell()`, `markdown()` | Run linters |
 | `copyright` | `check()`, `fix()`, `detect_license()` | Copyright header operations |
+
+### Go Source Analysis (`go`)
+
+The `go` receiver provides Go AST query primitives for static analysis of Go source code.
+
+#### Struct and type queries
+
+- `go.structs(path)` — list struct definitions with fields, tags, comments
+- `go.const_groups(path, type=None)` — list typed const groups, optionally filtered by type name
+
+#### Function and method queries
+
+- `go.methods(path, name=None, receiver_type=None, returns=None)` — find methods with optional filters
+- `go.funcs(path, name=None)` — find functions (non-method)
+
+#### Scope queries (within a function/method body)
+
+Methods and funcs return a `.scope` attribute — an opaque string. Pass it to these functions to query within the function body:
+
+- `go.calls(scope, name=None)` — find function calls, each with `.args[]` containing `.string_value` and `.ident_name`
+- `go.composites(scope, type=None)` — find composite literals with `.fields`
+- `go.return_string(scope)` — extract string from `return "..."` statement
+- `go.raw_string(scope)` — extract first backtick string literal
+
+#### Code metrics
+
+- `go.metrics(path)` — LOC, functions, structs, etc.
+- `go.deps(path)` — import analysis
 
 ## Configuration Schema
 
@@ -452,4 +478,4 @@ yamllint extensions/your-extension/extension.yaml
 
 - See existing extensions in `extensions/` for more examples
 - Read [Configuration Guide](./configuration.md) for configuration details
-- Check [Architecture](../architecture/devlore-extension-model.md) for full technical details
+- Check [Architecture](../architecture/star-extensions.md) for full technical details

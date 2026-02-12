@@ -552,7 +552,7 @@ The directory structure has been consolidated. All paths now use the `star/` pre
 ### Phase 6: Documentation and Testing (Worker 4)
 
 **Update:**
-- `docs/architecture/devlore-extension-model.md` - Updated for `star/` paths and run function convention
+- `docs/architecture/star-extensions.md` - Updated for `star/` paths and run function convention
 - `docs/plans/star-extension-model.md` - Update for new structure
 
 **Create:**
@@ -611,7 +611,7 @@ opus (architectural decisions, integration coordination)
 
 ## Key Documents
 Read these before starting:
-- docs/architecture/devlore-extension-model.md (canonical architecture)
+- docs/architecture/star-extensions.md (canonical architecture)
 - docs/plans/star-extension-model.md (implementation phases)
 - docs/plans/star-agent-team-refactor.md (this plan)
 
@@ -649,7 +649,7 @@ from YAML extension specs.
 
 ## Key Documents
 Read these before starting:
-- docs/architecture/devlore-extension-model.md
+- docs/architecture/star-extensions.md
   - Section: "Configuration Architecture" (ConfigElement, Config root)
   - Section: "Runtime Type Generation" (reflect.StructOf)
   - Section: "ConfigValue (Starlark Adapter)"
@@ -715,7 +715,7 @@ to load extensions and use the new config system.
 
 ## Key Documents
 Read these before starting:
-- docs/architecture/devlore-extension-model.md
+- docs/architecture/star-extensions.md
   - Section: "Binding Functions (Go)" (receiver pattern)
   - Section: "Receiver Registration"
   - Section: "Command (Starlark)"
@@ -785,7 +785,7 @@ them with the config and runtime systems.
 
 ## Key Documents
 Read these before starting:
-- docs/architecture/devlore-extension-model.md
+- docs/architecture/star-extensions.md
   - Section: "Extension Specification" (YAML format)
   - Section: "Registration from YAML"
 - docs/plans/star-agent-team-refactor.md
@@ -871,7 +871,7 @@ implementations to work with the extension system.
 
 ## Key Documents
 Read these before starting:
-- docs/architecture/devlore-extension-model.md
+- docs/architecture/star-extensions.md
   - Section: "Extension Specification" (canonical YAML format)
   - Section: "Command (Starlark)" (command implementation)
 - docs/plans/star-agent-team-refactor.md
@@ -972,7 +972,7 @@ Wasm modules with sandboxed capabilities.
 
 ## Key Documents
 Read these before starting:
-- docs/architecture/devlore-extension-model.md
+- docs/architecture/star-extensions.md
   - Section: "Extension Distribution" (Wasm rationale, real-world examples)
 - docs/plans/star-agent-team-refactor.md
   - Section: "Extension Distribution" (Wasm model, runtime options)
@@ -1096,5 +1096,5 @@ Each command should work identically to its current behavior. The refactoring pa
 ## Related Documents
 
 - [Star Extension Model](./star-extension-model.md) - Implementation plan
-- [Devlore Extension Model](../architecture/devlore-extension-model.md) - Architecture
+- [Star Extensions](../architecture/star-extensions.md) - Architecture
 - Issue #29 - Star extension model tracking
