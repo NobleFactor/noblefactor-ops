@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -21,6 +22,13 @@ import (
 // Implements starlark.Value and starlark.HasAttrs.
 type GoReceiver struct {
 	BaseReceiver
+	fileCache sync.Map // path → *parsedFile
+}
+
+// parsedFile holds a cached parsed Go file.
+type parsedFile struct {
+	fset *token.FileSet
+	node *ast.File
 }
 
 // NewGoReceiver creates a new GoReceiver.
@@ -28,21 +36,128 @@ func NewGoReceiver() *GoReceiver {
 	return &GoReceiver{BaseReceiver: NewBaseReceiver("go")}
 }
 
+// parseFile parses a Go file with caching.
+func (r *GoReceiver) parseFile(path string) (*token.FileSet, *ast.File, error) {
+	if cached, ok := r.fileCache.Load(path); ok {
+		pf := cached.(*parsedFile)
+		return pf.fset, pf.node, nil
+	}
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if err != nil {
+		return nil, nil, err
+	}
+	r.fileCache.Store(path, &parsedFile{fset: fset, node: node})
+	return fset, node, nil
+}
+
+// encodeScope creates an opaque scope string from a file path and function name.
+func encodeScope(filePath, name string) string {
+	return filePath + "::" + name
+}
+
+// decodeScope splits a scope string into file path and function name.
+func decodeScope(scope string) (string, string, error) {
+	parts := strings.SplitN(scope, "::", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("invalid scope: %s", scope)
+	}
+	return parts[0], parts[1], nil
+}
+
+// findScopeBody resolves a scope string to the function/method body AST node.
+func (r *GoReceiver) findScopeBody(scope string) (*token.FileSet, *ast.BlockStmt, error) {
+	filePath, name, err := decodeScope(scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	fset, node, err := r.parseFile(filePath)
+	if err != nil {
+		return nil, nil, err
+	}
+	parts := strings.SplitN(name, ".", 2)
+	for _, decl := range node.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name == nil {
+			continue
+		}
+		if len(parts) == 2 {
+			if fn.Name.Name != parts[1] || fn.Recv == nil || len(fn.Recv.List) == 0 {
+				continue
+			}
+			recvType := receiverTypeName(fn.Recv.List[0].Type)
+			if strings.TrimPrefix(recvType, "*") == strings.TrimPrefix(parts[0], "*") {
+				return fset, fn.Body, nil
+			}
+		} else {
+			if fn.Name.Name == name && fn.Recv == nil {
+				return fset, fn.Body, nil
+			}
+		}
+	}
+	return nil, nil, fmt.Errorf("scope not found: %s", scope)
+}
+
+// receiverTypeName extracts the type name from a receiver expression.
+func receiverTypeName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return "*" + ident.Name
+		}
+	case *ast.Ident:
+		return t.Name
+	}
+	return ""
+}
+
+// returnTypeString formats a function's return type list as a string.
+func returnTypeString(results *ast.FieldList) string {
+	if results == nil || len(results.List) == 0 {
+		return ""
+	}
+	if len(results.List) == 1 {
+		return typeToString(results.List[0].Type)
+	}
+	var types []string
+	for _, r := range results.List {
+		types = append(types, typeToString(r.Type))
+	}
+	return "(" + strings.Join(types, ", ") + ")"
+}
+
+// optionalString extracts a Go string from an optional Starlark value.
+func optionalString(v starlark.Value) string {
+	if v == nil || v == starlark.None {
+		return ""
+	}
+	s, _ := starlark.AsString(v)
+	return s
+}
+
 // Attr implements starlark.HasAttrs.
 func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
-	case "parse_starlark_bindings":
-		return MakeAttr("go.parse_starlark_bindings", r.parseStarlarkBindings), nil
-	case "parse_migrate_knowledge":
-		return MakeAttr("go.parse_migrate_knowledge", r.parseMigrateKnowledge), nil
-	case "parse_execution_ops":
-		return MakeAttr("go.parse_execution_ops", r.parseExecutionOps), nil
-	case "parse_execution_schema":
-		return MakeAttr("go.parse_execution_schema", r.parseExecutionSchema), nil
-	case "metrics":
-		return MakeAttr("go.metrics", r.metrics), nil
+	case "calls":
+		return MakeAttr("go.calls", r.goCalls), nil
+	case "composites":
+		return MakeAttr("go.composites", r.goComposites), nil
+	case "const_groups":
+		return MakeAttr("go.const_groups", r.constGroups), nil
 	case "deps":
 		return MakeAttr("go.deps", r.deps), nil
+	case "funcs":
+		return MakeAttr("go.funcs", r.goFuncs), nil
+	case "methods":
+		return MakeAttr("go.methods", r.goMethods), nil
+	case "metrics":
+		return MakeAttr("go.metrics", r.metrics), nil
+	case "raw_string":
+		return MakeAttr("go.raw_string", r.goRawString), nil
+	case "return_string":
+		return MakeAttr("go.return_string", r.goReturnString), nil
+	case "structs":
+		return MakeAttr("go.structs", r.goStructs), nil
 	default:
 		return nil, NoSuchAttrError("go", name)
 	}
@@ -50,325 +165,7 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 
 // AttrNames implements starlark.HasAttrs.
 func (r *GoReceiver) AttrNames() []string {
-	return []string{"deps", "metrics", "parse_execution_ops", "parse_execution_schema", "parse_migrate_knowledge", "parse_starlark_bindings"}
-}
-
-// =============================================================================
-// STARLARK BINDINGS PARSING
-// =============================================================================
-
-// Binding represents a discovered Starlark binding.
-type Binding struct {
-	Namespace string // Parent namespace (e.g., "plan.package")
-	Name      string // Method name (e.g., "install")
-	FullName  string // Full binding name (e.g., "plan.package.install")
-	Line      int    // Line number in source file
-	Handler   string // Handler function name (e.g., "packageInstallBuiltin")
-	Mutates   bool   // True if the handler creates execution.Node or modifies graph
-}
-
-// Namespace represents a discovered Starlark namespace.
-type Namespace struct {
-	Name   string // Namespace name (e.g., "plan", "system.platform")
-	Parent string // Parent namespace if nested
-	Line   int    // Line number in source file
-}
-
-// parseStarlarkBindings parses Go source files and extracts Starlark binding definitions.
-func (r *GoReceiver) parseStarlarkBindings(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path string
-	if err := starlark.UnpackArgs("go.parse_starlark_bindings", args, kwargs, "path", &path); err != nil {
-		return nil, err
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("go.parse_starlark_bindings: %w", err)
-	}
-
-	var files []string
-	if info.IsDir() {
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			return nil, fmt.Errorf("go.parse_starlark_bindings: reading dir: %w", err)
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
-				files = append(files, filepath.Join(path, entry.Name()))
-			}
-		}
-	} else {
-		files = []string{path}
-	}
-
-	var allBindings []starlark.Value
-	var allNamespaces []starlark.Value
-	seenBindings := make(map[string]bool)
-	seenNamespaces := make(map[string]bool)
-
-	for _, file := range files {
-		bindings, namespaces, err := parseGoFile(file)
-		if err != nil {
-			return nil, fmt.Errorf("go.parse_starlark_bindings: parsing %s: %w", file, err)
-		}
-
-		for _, b := range bindings {
-			key := b.FullName
-			if !seenBindings[key] {
-				seenBindings[key] = true
-				allBindings = append(allBindings, bindingToStarlark(b, file))
-			}
-		}
-
-		for _, ns := range namespaces {
-			if !seenNamespaces[ns.Name] {
-				seenNamespaces[ns.Name] = true
-				allNamespaces = append(allNamespaces, namespaceToStarlark(ns, file))
-			}
-		}
-	}
-
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"bindings":   starlark.NewList(allBindings),
-		"namespaces": starlark.NewList(allNamespaces),
-	}), nil
-}
-
-// parseGoFile parses a single Go file and extracts binding information.
-func parseGoFile(path string) ([]Binding, []Namespace, error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	contentStr := string(content)
-
-	mutatingFuncs := findMutatingFunctions(node, fset, contentStr)
-	v := newBindingVisitor(fset, contentStr, mutatingFuncs)
-	ast.Walk(v, node)
-	v.inferNamespaces()
-
-	return v.bindings, v.namespaces, nil
-}
-
-// bindingVisitor implements ast.Visitor to extract Starlark bindings.
-type bindingVisitor struct {
-	fset             *token.FileSet
-	lines            []string
-	mutatingFuncs    map[string]bool
-	currentNamespace string
-	newBuiltinRe     *regexp.Regexp
-	fromStringDictRe *regexp.Regexp
-	bindings         []Binding
-	namespaces       []Namespace
-}
-
-func newBindingVisitor(fset *token.FileSet, content string, mutatingFuncs map[string]bool) *bindingVisitor {
-	return &bindingVisitor{
-		fset:             fset,
-		lines:            strings.Split(content, "\n"),
-		mutatingFuncs:    mutatingFuncs,
-		newBuiltinRe:     regexp.MustCompile(`NewBuiltin\s*\(\s*"([^"]+)"\s*,\s*(?:(\w+\.)?(\w+)\s*\)|func\s*\()`),
-		fromStringDictRe: regexp.MustCompile(`FromStringDict\s*\(\s*starlark\.String\s*\(\s*"([^"]+)"`),
-	}
-}
-
-func (v *bindingVisitor) Visit(n ast.Node) ast.Visitor {
-	if n == nil {
-		return nil
-	}
-	switch x := n.(type) {
-	case *ast.FuncDecl:
-		v.visitFuncDecl(x)
-	case *ast.CallExpr:
-		v.visitCallExpr(x)
-	}
-	return v
-}
-
-func (v *bindingVisitor) visitFuncDecl(fn *ast.FuncDecl) {
-	if fn.Name == nil {
-		return
-	}
-	name := fn.Name.Name
-	if strings.HasSuffix(name, "Struct") || strings.HasSuffix(name, "Module") {
-		baseName := strings.TrimSuffix(strings.TrimSuffix(name, "Struct"), "Module")
-		v.currentNamespace = camelToSnake(baseName)
-	}
-}
-
-func (v *bindingVisitor) visitCallExpr(call *ast.CallExpr) {
-	line := v.fset.Position(call.Pos()).Line
-	if line <= 0 || line > len(v.lines) {
-		return
-	}
-	lineContent := v.lines[line-1]
-
-	v.extractBinding(lineContent, line)
-	v.extractNamespace(lineContent, line)
-}
-
-func (v *bindingVisitor) extractBinding(lineContent string, line int) {
-	matches := v.newBuiltinRe.FindStringSubmatch(lineContent)
-	if len(matches) <= 1 {
-		return
-	}
-
-	bindingName := matches[1]
-	handlerName := ""
-	if len(matches) > 3 && matches[3] != "" {
-		handlerName = matches[3]
-	}
-
-	isInlineFunc := strings.Contains(lineContent, ", func(")
-
-	binding := Binding{
-		Name:     extractMethodName(bindingName),
-		FullName: bindingName,
-		Line:     line,
-		Handler:  handlerName,
-		Mutates:  !isInlineFunc && v.mutatingFuncs[handlerName],
-	}
-
-	if idx := strings.LastIndex(bindingName, "."); idx > 0 {
-		binding.Namespace = bindingName[:idx]
-	}
-
-	v.bindings = append(v.bindings, binding)
-}
-
-func (v *bindingVisitor) extractNamespace(lineContent string, line int) {
-	matches := v.fromStringDictRe.FindStringSubmatch(lineContent)
-	if len(matches) <= 1 {
-		return
-	}
-
-	nsName := matches[1]
-	ns := Namespace{
-		Name: nsName,
-		Line: line,
-	}
-
-	if v.currentNamespace != "" && v.currentNamespace != nsName {
-		ns.Parent = v.currentNamespace
-		ns.Name = v.currentNamespace + "." + nsName
-	}
-
-	v.namespaces = append(v.namespaces, ns)
-}
-
-func (v *bindingVisitor) inferNamespaces() {
-	seen := make(map[string]bool)
-	for _, ns := range v.namespaces {
-		seen[ns.Name] = true
-	}
-
-	for _, b := range v.bindings {
-		if b.Namespace == "" {
-			continue
-		}
-		parts := strings.Split(b.Namespace, ".")
-		for i := range parts {
-			ns := strings.Join(parts[:i+1], ".")
-			if !seen[ns] {
-				seen[ns] = true
-				v.namespaces = append(v.namespaces, Namespace{Name: ns, Line: 0})
-			}
-		}
-	}
-}
-
-func findMutatingFunctions(node *ast.File, fset *token.FileSet, content string) map[string]bool {
-	mutating := make(map[string]bool)
-
-	directMutationPatterns := []string{
-		"execution.Node", "execution.Edge", "graph.Nodes", "graph.Edges",
-		"b.graph.Nodes", "s.graph.Nodes", "&execution.Node",
-	}
-
-	interfaceMutationPatterns := []string{
-		"s.PackageInstall", "s.PackageUpgrade", "s.PackageRemove", "s.PackageUpdate",
-		"s.Configure", "s.Link", "s.Copy", "s.Mkdir", "s.Write", "s.Remove",
-		"s.Download", "s.ArchiveExtract", "s.GitClone", "s.GitCheckout", "s.GitPull",
-		"s.Service", "s.Shell", "s.DependsOn", ".bindings.",
-	}
-
-	ast.Inspect(node, func(n ast.Node) bool {
-		fn, ok := n.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
-			return true
-		}
-
-		funcName := fn.Name.Name
-		start := fset.Position(fn.Body.Pos()).Offset
-		end := fset.Position(fn.Body.End()).Offset
-
-		if start >= 0 && end <= len(content) {
-			bodyContent := content[start:end]
-
-			for _, pattern := range directMutationPatterns {
-				if strings.Contains(bodyContent, pattern) {
-					mutating[funcName] = true
-					return true
-				}
-			}
-
-			for _, pattern := range interfaceMutationPatterns {
-				if strings.Contains(bodyContent, pattern) {
-					mutating[funcName] = true
-					return true
-				}
-			}
-		}
-
-		return true
-	})
-
-	return mutating
-}
-
-func extractMethodName(fullName string) string {
-	if idx := strings.LastIndex(fullName, "."); idx >= 0 {
-		return fullName[idx+1:]
-	}
-	return fullName
-}
-
-func camelToSnake(s string) string {
-	var result strings.Builder
-	for i, r := range s {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			result.WriteRune('_')
-		}
-		result.WriteRune(r)
-	}
-	return strings.ToLower(result.String())
-}
-
-func bindingToStarlark(b Binding, file string) starlark.Value {
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"namespace": starlark.String(b.Namespace),
-		"name":      starlark.String(b.Name),
-		"full_name": starlark.String(b.FullName),
-		"file":      starlark.String(filepath.Base(file)),
-		"line":      starlark.MakeInt(b.Line),
-		"handler":   starlark.String(b.Handler),
-		"mutates":   starlark.Bool(b.Mutates),
-	})
-}
-
-func namespaceToStarlark(ns Namespace, file string) starlark.Value {
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"name":   starlark.String(ns.Name),
-		"parent": starlark.String(ns.Parent),
-		"file":   starlark.String(filepath.Base(file)),
-		"line":   starlark.MakeInt(ns.Line),
-	})
+	return []string{"calls", "composites", "const_groups", "deps", "funcs", "methods", "metrics", "raw_string", "return_string", "structs"}
 }
 
 // =============================================================================
@@ -771,386 +568,477 @@ func mapKeysToStarlarkList(m map[string]bool) starlark.Value {
 }
 
 // =============================================================================
-// MIGRATION KNOWLEDGE PARSING
+// AST QUERY PRIMITIVES
 // =============================================================================
 
-// MigrateKnowledge holds extracted migration knowledge from Go source.
-type MigrateKnowledge struct {
-	SourceSystems     []TypeConstant
-	EncryptionSystems []TypeConstant
-	RepoLayers        []TypeConstant
-	Platforms         []string
-	SystemPrompt      string
-}
-
-// TypeConstant represents a typed const declaration.
-type TypeConstant struct {
-	Name     string
-	Value    string
-	TypeName string
-	Line     int
-	File     string
-}
-
-func (r *GoReceiver) parseMigrateKnowledge(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+// goStructs returns struct definitions from Go source files.
+func (r *GoReceiver) goStructs(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
-	if err := starlark.UnpackArgs("go.parse_migrate_knowledge", args, kwargs, "path", &path); err != nil {
+	if err := starlark.UnpackArgs("go.structs", args, kwargs, "path", &path); err != nil {
 		return nil, err
 	}
 
-	info, err := os.Stat(path)
+	files, err := collectGoFiles(path)
 	if err != nil {
-		return nil, fmt.Errorf("go.parse_migrate_knowledge: %w", err)
+		return nil, fmt.Errorf("go.structs: %w", err)
 	}
 
-	if !info.IsDir() {
-		return nil, fmt.Errorf("go.parse_migrate_knowledge: path must be a directory")
-	}
-
-	knowledge := &MigrateKnowledge{}
-
-	analysisPath := filepath.Join(path, "analysis.go")
-	if _, err := os.Stat(analysisPath); err == nil {
-		if err := parseAnalysisFile(analysisPath, knowledge); err != nil {
-			return nil, fmt.Errorf("go.parse_migrate_knowledge: parsing analysis.go: %w", err)
+	var result []starlark.Value
+	for _, file := range files {
+		fset, node, err := r.parseFile(file)
+		if err != nil {
+			continue
 		}
-	}
-
-	planPath := filepath.Join(path, "plan.go")
-	if _, err := os.Stat(planPath); err == nil {
-		if err := parsePlanFile(planPath, knowledge); err != nil {
-			return nil, fmt.Errorf("go.parse_migrate_knowledge: parsing plan.go: %w", err)
-		}
-	}
-
-	return knowledgeToStarlark(knowledge), nil
-}
-
-func parseAnalysisFile(path string, knowledge *MigrateKnowledge) error {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		return err
-	}
-
-	filename := filepath.Base(path)
-
-	ast.Inspect(node, func(n ast.Node) bool {
-		genDecl, ok := n.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.CONST {
+		ast.Inspect(node, func(n ast.Node) bool {
+			genDecl, ok := n.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.TYPE {
+				return true
+			}
+			for _, spec := range genDecl.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok {
+					continue
+				}
+				st, ok := ts.Type.(*ast.StructType)
+				if !ok {
+					continue
+				}
+				var fields []starlark.Value
+				for _, field := range st.Fields.List {
+					if len(field.Names) == 0 {
+						continue
+					}
+					jsonName := ""
+					required := false
+					if field.Tag != nil {
+						tag := strings.Trim(field.Tag.Value, "`")
+						jsonName, required = parseJSONTag(tag)
+					}
+					if jsonName == "-" {
+						continue
+					}
+					desc := ""
+					if field.Comment != nil {
+						desc = strings.TrimSpace(field.Comment.Text())
+					} else if field.Doc != nil {
+						desc = strings.TrimSpace(field.Doc.Text())
+					}
+					fields = append(fields, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+						"name":        starlark.String(field.Names[0].Name),
+						"json_name":   starlark.String(jsonName),
+						"type":        starlark.String(typeToString(field.Type)),
+						"required":    starlark.Bool(required),
+						"description": starlark.String(desc),
+					}))
+				}
+				result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+					"name":   starlark.String(ts.Name.Name),
+					"file":   starlark.String(filepath.Base(file)),
+					"line":   starlark.MakeInt(fset.Position(ts.Pos()).Line),
+					"fields": starlark.NewList(fields),
+				}))
+			}
 			return true
-		}
-
-		var currentType string
-
-		for _, spec := range genDecl.Specs {
-			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-
-			if valueSpec.Type != nil {
-				if ident, ok := valueSpec.Type.(*ast.Ident); ok {
-					currentType = ident.Name
-				}
-			}
-
-			for i, name := range valueSpec.Names {
-				if i >= len(valueSpec.Values) {
-					continue
-				}
-
-				basicLit, ok := valueSpec.Values[i].(*ast.BasicLit)
-				if !ok || basicLit.Kind != token.STRING {
-					continue
-				}
-
-				value := strings.Trim(basicLit.Value, `"`)
-				line := fset.Position(name.Pos()).Line
-
-				tc := TypeConstant{
-					Name:     name.Name,
-					Value:    value,
-					TypeName: currentType,
-					Line:     line,
-					File:     filename,
-				}
-
-				switch currentType {
-				case "SourceSystem":
-					knowledge.SourceSystems = append(knowledge.SourceSystems, tc)
-				case "EncryptionSystem":
-					knowledge.EncryptionSystems = append(knowledge.EncryptionSystems, tc)
-				case "RepoLayer":
-					knowledge.RepoLayers = append(knowledge.RepoLayers, tc)
-				}
-			}
-		}
-
-		return true
-	})
-
-	return nil
+		})
+	}
+	return starlark.NewList(result), nil
 }
 
-func parsePlanFile(path string, knowledge *MigrateKnowledge) error {
-	content, err := os.ReadFile(path)
+// constGroups returns typed const groups from Go source files.
+func (r *GoReceiver) constGroups(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	var typeFilter starlark.Value
+	if err := starlark.UnpackArgs("go.const_groups", args, kwargs, "path", &path, "type?", &typeFilter); err != nil {
+		return nil, err
+	}
+	typeF := optionalString(typeFilter)
+
+	files, err := collectGoFiles(path)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("go.const_groups: %w", err)
 	}
 
-	contentStr := string(content)
-
-	promptStart := strings.Index(contentStr, "func buildSystemPrompt() string {")
-	if promptStart == -1 {
-		return nil
+	type constEntry struct {
+		name  string
+		value string
+		line  int
+	}
+	type group struct {
+		typeName string
+		file     string
+		consts   []constEntry
 	}
 
-	searchStart := promptStart
-	backtickStart := strings.Index(contentStr[searchStart:], "`")
-	if backtickStart == -1 {
-		return nil
-	}
-	backtickStart += searchStart
-
-	backtickEnd := strings.Index(contentStr[backtickStart+1:], "`")
-	if backtickEnd == -1 {
-		return nil
-	}
-	backtickEnd += backtickStart + 1
-
-	knowledge.SystemPrompt = contentStr[backtickStart+1 : backtickEnd]
-
-	lines := strings.Split(knowledge.SystemPrompt, "\n")
-	inPlatformSection := false
-	for i, line := range lines {
-		if strings.Contains(line, "Known platforms:") {
-			colonIdx := strings.Index(line, ":")
-			if colonIdx != -1 {
-				platformStr := strings.TrimSpace(line[colonIdx+1:])
-				if platformStr != "" {
-					platforms := strings.Split(platformStr, ",")
-					for _, p := range platforms {
-						p = strings.TrimSpace(p)
-						if p != "" {
-							knowledge.Platforms = append(knowledge.Platforms, p)
+	var groups []group
+	for _, file := range files {
+		fset, node, err := r.parseFile(file)
+		if err != nil {
+			continue
+		}
+		ast.Inspect(node, func(n ast.Node) bool {
+			genDecl, ok := n.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.CONST {
+				return true
+			}
+			var currentType string
+			var currentConsts []constEntry
+			for _, spec := range genDecl.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+				if vs.Type != nil {
+					if ident, ok := vs.Type.(*ast.Ident); ok {
+						if currentType != "" && currentType != ident.Name && len(currentConsts) > 0 {
+							if typeF == "" || typeF == currentType {
+								groups = append(groups, group{typeName: currentType, file: filepath.Base(file), consts: currentConsts})
+							}
+							currentConsts = nil
+						}
+						currentType = ident.Name
+					}
+				}
+				if currentType == "" {
+					continue
+				}
+				for i, name := range vs.Names {
+					var value string
+					if i < len(vs.Values) {
+						if lit, ok := vs.Values[i].(*ast.BasicLit); ok {
+							value = strings.Trim(lit.Value, `"`)
 						}
 					}
-					break
+					currentConsts = append(currentConsts, constEntry{
+						name:  name.Name,
+						value: value,
+						line:  fset.Position(name.Pos()).Line,
+					})
 				}
 			}
-			inPlatformSection = true
-			continue
-		}
-
-		if inPlatformSection {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "- ") {
-				entry := strings.TrimPrefix(trimmed, "- ")
-				platform := entry
-				if spaceIdx := strings.Index(entry, " "); spaceIdx > 0 {
-					platform = entry[:spaceIdx]
-				}
-				if parenIdx := strings.Index(platform, "("); parenIdx > 0 {
-					platform = platform[:parenIdx]
-				}
-				platform = strings.TrimSpace(platform)
-				if platform != "" {
-					knowledge.Platforms = append(knowledge.Platforms, platform)
-				}
-			} else if trimmed == "" || !strings.HasPrefix(trimmed, "-") {
-				if i+1 < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i+1]), "##") {
-					inPlatformSection = false
-				} else if trimmed != "" && !strings.HasPrefix(trimmed, "-") {
-					inPlatformSection = false
+			if currentType != "" && len(currentConsts) > 0 {
+				if typeF == "" || typeF == currentType {
+					groups = append(groups, group{typeName: currentType, file: filepath.Base(file), consts: currentConsts})
 				}
 			}
+			return true
+		})
+	}
+
+	var result []starlark.Value
+	for _, g := range groups {
+		var constsList []starlark.Value
+		for _, c := range g.consts {
+			constsList = append(constsList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"name":  starlark.String(c.name),
+				"value": starlark.String(c.value),
+				"line":  starlark.MakeInt(c.line),
+			}))
 		}
-	}
-
-	return nil
-}
-
-func knowledgeToStarlark(k *MigrateKnowledge) starlark.Value {
-	var sourceSystems []starlark.Value
-	for _, s := range k.SourceSystems {
-		sourceSystems = append(sourceSystems, typeConstToStarlark(s))
-	}
-
-	var encryptionSystems []starlark.Value
-	for _, e := range k.EncryptionSystems {
-		encryptionSystems = append(encryptionSystems, typeConstToStarlark(e))
-	}
-
-	var repoLayers []starlark.Value
-	for _, r := range k.RepoLayers {
-		repoLayers = append(repoLayers, typeConstToStarlark(r))
-	}
-
-	var platforms []starlark.Value
-	for _, p := range k.Platforms {
-		platforms = append(platforms, starlark.String(p))
-	}
-
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"source_systems":     starlark.NewList(sourceSystems),
-		"encryption_systems": starlark.NewList(encryptionSystems),
-		"repo_layers":        starlark.NewList(repoLayers),
-		"platforms":          starlark.NewList(platforms),
-		"system_prompt":      starlark.String(k.SystemPrompt),
-	})
-}
-
-func typeConstToStarlark(tc TypeConstant) starlark.Value {
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"name":      starlark.String(tc.Name),
-		"value":     starlark.String(tc.Value),
-		"type_name": starlark.String(tc.TypeName),
-		"file":      starlark.String(tc.File),
-		"line":      starlark.MakeInt(tc.Line),
-	})
-}
-
-// =============================================================================
-// EXECUTION OPERATIONS PARSING
-// =============================================================================
-
-// ExecutionOp represents an execution operation extracted from Go source.
-type ExecutionOp struct {
-	Name     string
-	TypeName string
-	Line     int
-	File     string
-}
-
-func (r *GoReceiver) parseExecutionOps(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path string
-	if err := starlark.UnpackArgs("go.parse_execution_ops", args, kwargs, "path", &path); err != nil {
-		return nil, err
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("go.parse_execution_ops: %w", err)
-	}
-
-	var files []string
-	if info.IsDir() {
-		opsPath := filepath.Join(path, "ops.go")
-		if _, err := os.Stat(opsPath); err == nil {
-			files = append(files, opsPath)
-		}
-		entries, err := os.ReadDir(path)
-		if err != nil {
-			return nil, fmt.Errorf("go.parse_execution_ops: reading dir: %w", err)
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") &&
-				!strings.HasSuffix(entry.Name(), "_test.go") &&
-				entry.Name() != "ops.go" {
-				files = append(files, filepath.Join(path, entry.Name()))
-			}
-		}
-	} else {
-		files = []string{path}
-	}
-
-	var ops []ExecutionOp
-	seen := make(map[string]bool)
-
-	for _, file := range files {
-		fileOps, err := parseOpsFile(file)
-		if err != nil {
-			continue
-		}
-		for _, op := range fileOps {
-			if !seen[op.Name] {
-				seen[op.Name] = true
-				ops = append(ops, op)
-			}
-		}
-	}
-
-	sortOps(ops)
-
-	var opsList []starlark.Value
-	for _, op := range ops {
-		opsList = append(opsList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-			"name":      starlark.String(op.Name),
-			"type_name": starlark.String(op.TypeName),
-			"file":      starlark.String(op.File),
-			"line":      starlark.MakeInt(op.Line),
+		result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"type_name": starlark.String(g.typeName),
+			"file":      starlark.String(g.file),
+			"constants": starlark.NewList(constsList),
 		}))
 	}
-
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"operations": starlark.NewList(opsList),
-		"count":      starlark.MakeInt(len(ops)),
-	}), nil
+	return starlark.NewList(result), nil
 }
 
-func parseOpsFile(path string) ([]ExecutionOp, error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
+// goMethods returns method declarations from Go source files.
+func (r *GoReceiver) goMethods(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	var nameFilter, recvTypeFilter, returnsFilter starlark.Value
+	if err := starlark.UnpackArgs("go.methods", args, kwargs,
+		"path", &path, "name?", &nameFilter, "receiver_type?", &recvTypeFilter, "returns?", &returnsFilter); err != nil {
 		return nil, err
 	}
+	nameF := optionalString(nameFilter)
+	recvF := optionalString(recvTypeFilter)
+	retF := optionalString(returnsFilter)
 
-	filename := filepath.Base(path)
-	var ops []ExecutionOp
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.methods: %w", err)
+	}
 
-	ast.Inspect(node, func(n ast.Node) bool {
-		fn, ok := n.(*ast.FuncDecl)
+	var result []starlark.Value
+	for _, file := range files {
+		fset, node, err := r.parseFile(file)
+		if err != nil {
+			continue
+		}
+		for _, decl := range node.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 || fn.Name == nil {
+				continue
+			}
+			if nameF != "" && fn.Name.Name != nameF {
+				continue
+			}
+			recvType := receiverTypeName(fn.Recv.List[0].Type)
+			if recvF != "" {
+				if strings.HasPrefix(recvF, "*") {
+					if recvType != recvF {
+						continue
+					}
+				} else {
+					if strings.TrimPrefix(recvType, "*") != recvF {
+						continue
+					}
+				}
+			}
+			returns := returnTypeString(fn.Type.Results)
+			if retF != "" && returns != retF {
+				continue
+			}
+			doc := ""
+			if fn.Doc != nil {
+				doc = strings.TrimSpace(fn.Doc.Text())
+			}
+			scope := encodeScope(file, strings.TrimPrefix(recvType, "*")+"."+fn.Name.Name)
+			result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"name":          starlark.String(fn.Name.Name),
+				"receiver_type": starlark.String(recvType),
+				"returns":       starlark.String(returns),
+				"file":          starlark.String(filepath.Base(file)),
+				"line":          starlark.MakeInt(fset.Position(fn.Pos()).Line),
+				"doc":           starlark.String(doc),
+				"scope":         starlark.String(scope),
+			}))
+		}
+	}
+	return starlark.NewList(result), nil
+}
+
+// goFuncs returns function declarations (non-method) from Go source files.
+func (r *GoReceiver) goFuncs(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	var nameFilter starlark.Value
+	if err := starlark.UnpackArgs("go.funcs", args, kwargs, "path", &path, "name?", &nameFilter); err != nil {
+		return nil, err
+	}
+	nameF := optionalString(nameFilter)
+
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.funcs: %w", err)
+	}
+
+	var result []starlark.Value
+	for _, file := range files {
+		fset, node, err := r.parseFile(file)
+		if err != nil {
+			continue
+		}
+		for _, decl := range node.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv != nil || fn.Name == nil {
+				continue
+			}
+			if nameF != "" && fn.Name.Name != nameF {
+				continue
+			}
+			returns := returnTypeString(fn.Type.Results)
+			doc := ""
+			if fn.Doc != nil {
+				doc = strings.TrimSpace(fn.Doc.Text())
+			}
+			scope := encodeScope(file, fn.Name.Name)
+			result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"name":    starlark.String(fn.Name.Name),
+				"returns": starlark.String(returns),
+				"file":    starlark.String(filepath.Base(file)),
+				"line":    starlark.MakeInt(fset.Position(fn.Pos()).Line),
+				"doc":     starlark.String(doc),
+				"scope":   starlark.String(scope),
+			}))
+		}
+	}
+	return starlark.NewList(result), nil
+}
+
+// goCalls returns function/method calls within a scope.
+func (r *GoReceiver) goCalls(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var scope string
+	var nameFilter starlark.Value
+	if err := starlark.UnpackArgs("go.calls", args, kwargs, "scope", &scope, "name?", &nameFilter); err != nil {
+		return nil, err
+	}
+	nameF := optionalString(nameFilter)
+
+	fset, body, err := r.findScopeBody(scope)
+	if err != nil {
+		return nil, fmt.Errorf("go.calls: %w", err)
+	}
+
+	var result []starlark.Value
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
-
-		if fn.Recv == nil || len(fn.Recv.List) == 0 {
-			return true
-		}
-
-		if fn.Name == nil || fn.Name.Name != "Name" {
-			return true
-		}
-
-		recvType := ""
-		switch t := fn.Recv.List[0].Type.(type) {
-		case *ast.StarExpr:
-			if ident, ok := t.X.(*ast.Ident); ok {
-				recvType = ident.Name
-			}
+		var funcName, qualifier, fullName string
+		switch fn := call.Fun.(type) {
 		case *ast.Ident:
-			recvType = t.Name
+			funcName = fn.Name
+			fullName = fn.Name
+		case *ast.SelectorExpr:
+			funcName = fn.Sel.Name
+			if x, ok := fn.X.(*ast.Ident); ok {
+				qualifier = x.Name
+			}
+			fullName = typeToString(call.Fun)
 		}
-
-		if recvType == "" || !strings.HasSuffix(recvType, "Op") {
+		if funcName == "" {
 			return true
 		}
-
-		if fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
+		if nameF != "" && funcName != nameF {
 			return true
 		}
-		if ident, ok := fn.Type.Results.List[0].Type.(*ast.Ident); !ok || ident.Name != "string" {
-			return true
+		var argsList []starlark.Value
+		for i, arg := range call.Args {
+			strVal := ""
+			if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				strVal = strings.Trim(lit.Value, `"`)
+			}
+			identName := ""
+			switch a := arg.(type) {
+			case *ast.Ident:
+				identName = a.Name
+			case *ast.SelectorExpr:
+				identName = a.Sel.Name
+			}
+			argsList = append(argsList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"position":     starlark.MakeInt(i),
+				"string_value": starlark.String(strVal),
+				"ident_name":   starlark.String(identName),
+			}))
 		}
-
-		opName := extractReturnString(fn.Body)
-		if opName == "" {
-			return true
-		}
-
-		ops = append(ops, ExecutionOp{
-			Name:     opName,
-			TypeName: recvType,
-			Line:     fset.Position(fn.Pos()).Line,
-			File:     filename,
-		})
-
+		result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"name":      starlark.String(funcName),
+			"qualifier": starlark.String(qualifier),
+			"full_name": starlark.String(fullName),
+			"line":      starlark.MakeInt(fset.Position(call.Pos()).Line),
+			"args":      starlark.NewList(argsList),
+		}))
 		return true
 	})
-
-	return ops, nil
+	return starlark.NewList(result), nil
 }
+
+// goComposites returns composite literals within a scope.
+func (r *GoReceiver) goComposites(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var scope string
+	var typeFilter starlark.Value
+	if err := starlark.UnpackArgs("go.composites", args, kwargs, "scope", &scope, "type?", &typeFilter); err != nil {
+		return nil, err
+	}
+	typeF := optionalString(typeFilter)
+
+	fset, body, err := r.findScopeBody(scope)
+	if err != nil {
+		return nil, fmt.Errorf("go.composites: %w", err)
+	}
+
+	var result []starlark.Value
+	ast.Inspect(body, func(n ast.Node) bool {
+		comp, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		typeName := ""
+		if comp.Type != nil {
+			typeName = typeToString(comp.Type)
+		}
+		if typeF != "" && typeName != typeF {
+			return true
+		}
+		fields := starlark.StringDict{}
+		for _, elt := range comp.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok {
+				continue
+			}
+			switch v := kv.Value.(type) {
+			case *ast.BasicLit:
+				if v.Kind == token.STRING {
+					fields[key.Name] = starlark.String(strings.Trim(v.Value, `"`))
+				} else {
+					fields[key.Name] = starlark.String(v.Value)
+				}
+			case *ast.CompositeLit:
+				var elems []starlark.Value
+				for _, elem := range v.Elts {
+					if lit, ok := elem.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						elems = append(elems, starlark.String(strings.Trim(lit.Value, `"`)))
+					}
+				}
+				if len(elems) > 0 {
+					fields[key.Name] = starlark.NewList(elems)
+				} else {
+					fields[key.Name] = starlark.String(typeToString(kv.Value))
+				}
+			default:
+				fields[key.Name] = starlark.String(typeToString(kv.Value))
+			}
+		}
+		result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+			"type_name": starlark.String(typeName),
+			"line":      starlark.MakeInt(fset.Position(comp.Pos()).Line),
+			"fields":    starlarkstruct.FromStringDict(starlarkstruct.Default, fields),
+		}))
+		return true
+	})
+	return starlark.NewList(result), nil
+}
+
+// goReturnString extracts the string literal from a return statement in a scope.
+func (r *GoReceiver) goReturnString(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var scope string
+	if err := starlark.UnpackArgs("go.return_string", args, kwargs, "scope", &scope); err != nil {
+		return nil, err
+	}
+	_, body, err := r.findScopeBody(scope)
+	if err != nil {
+		return nil, fmt.Errorf("go.return_string: %w", err)
+	}
+	return starlark.String(extractReturnString(body)), nil
+}
+
+// goRawString extracts the first backtick string literal from a scope.
+func (r *GoReceiver) goRawString(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var scope string
+	if err := starlark.UnpackArgs("go.raw_string", args, kwargs, "scope", &scope); err != nil {
+		return nil, err
+	}
+	_, body, err := r.findScopeBody(scope)
+	if err != nil {
+		return nil, fmt.Errorf("go.raw_string: %w", err)
+	}
+	var rawStr string
+	ast.Inspect(body, func(n ast.Node) bool {
+		if rawStr != "" {
+			return false
+		}
+		lit, ok := n.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return true
+		}
+		if strings.HasPrefix(lit.Value, "`") {
+			rawStr = strings.Trim(lit.Value, "`")
+			return false
+		}
+		return true
+	})
+	return starlark.String(rawStr), nil
+}
+
+// =============================================================================
+// SHARED HELPERS
+// =============================================================================
 
 func extractReturnString(body *ast.BlockStmt) string {
 	if body == nil || len(body.List) == 0 {
@@ -1172,200 +1060,6 @@ func extractReturnString(body *ast.BlockStmt) string {
 	}
 
 	return ""
-}
-
-func sortOps(ops []ExecutionOp) {
-	for i := 0; i < len(ops)-1; i++ {
-		for j := i + 1; j < len(ops); j++ {
-			if ops[i].Name > ops[j].Name {
-				ops[i], ops[j] = ops[j], ops[i]
-			}
-		}
-	}
-}
-
-// =============================================================================
-// EXECUTION SCHEMA PARSING
-// =============================================================================
-
-// StructField represents a field extracted from a Go struct.
-type StructField struct {
-	Name        string
-	JSONName    string
-	Type        string
-	Required    bool
-	Description string
-}
-
-// StructDef represents a Go struct definition.
-type StructDef struct {
-	Name   string
-	Fields []StructField
-}
-
-// ConstValue represents a const value extracted from Go.
-type ConstValue struct {
-	Name  string
-	Value string
-}
-
-func (r *GoReceiver) parseExecutionSchema(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	var path string
-	if err := starlark.UnpackArgs("go.parse_execution_schema", args, kwargs, "path", &path); err != nil {
-		return nil, err
-	}
-
-	graphPath := filepath.Join(path, "graph.go")
-	structs, consts, err := parseStructDefs(graphPath)
-	if err != nil {
-		return nil, fmt.Errorf("go.parse_execution_schema: parsing graph.go: %w", err)
-	}
-
-	var ops []ExecutionOp
-	seen := make(map[string]bool)
-
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, fmt.Errorf("go.parse_execution_schema: reading dir: %w", err)
-	}
-
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), "ops") && strings.HasSuffix(entry.Name(), ".go") &&
-			!strings.HasSuffix(entry.Name(), "_test.go") {
-			fileOps, err := parseOpsFile(filepath.Join(path, entry.Name()))
-			if err != nil {
-				continue
-			}
-			for _, op := range fileOps {
-				if !seen[op.Name] {
-					seen[op.Name] = true
-					ops = append(ops, op)
-				}
-			}
-		}
-	}
-	sortOps(ops)
-
-	result := starlark.StringDict{}
-
-	for name, def := range structs {
-		result[toSnakeCase(name)] = structDefToStarlark(def)
-	}
-
-	for typeName, values := range consts {
-		var enumList []starlark.Value
-		for _, v := range values {
-			enumList = append(enumList, starlark.String(v.Value))
-		}
-		result[toSnakeCase(typeName)+"s"] = starlark.NewList(enumList)
-	}
-
-	var opsList []starlark.Value
-	for _, op := range ops {
-		opsList = append(opsList, starlark.String(op.Name))
-	}
-	result["operations"] = starlark.NewList(opsList)
-
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, result), nil
-}
-
-func parseStructDefs(path string) (structs map[string]StructDef, consts map[string][]ConstValue, err error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	structs = make(map[string]StructDef)
-	consts = make(map[string][]ConstValue)
-
-	var currentConstType string
-
-	ast.Inspect(node, func(n ast.Node) bool {
-		x, ok := n.(*ast.GenDecl)
-		if ok {
-			if x.Tok == token.TYPE {
-				for _, spec := range x.Specs {
-					typeSpec, ok := spec.(*ast.TypeSpec)
-					if !ok {
-						continue
-					}
-
-					structType, ok := typeSpec.Type.(*ast.StructType)
-					if !ok {
-						continue
-					}
-
-					def := StructDef{Name: typeSpec.Name.Name}
-					for _, field := range structType.Fields.List {
-						if len(field.Names) == 0 {
-							continue
-						}
-
-						sf := StructField{
-							Name: field.Names[0].Name,
-							Type: typeToString(field.Type),
-						}
-
-						if field.Tag != nil {
-							tag := strings.Trim(field.Tag.Value, "`")
-							sf.JSONName, sf.Required = parseJSONTag(tag)
-						}
-
-						if field.Comment != nil {
-							sf.Description = strings.TrimSpace(field.Comment.Text())
-						} else if field.Doc != nil {
-							sf.Description = strings.TrimSpace(field.Doc.Text())
-						}
-
-						if sf.JSONName == "-" {
-							continue
-						}
-
-						def.Fields = append(def.Fields, sf)
-					}
-
-					structs[def.Name] = def
-				}
-			} else if x.Tok == token.CONST {
-				for _, spec := range x.Specs {
-					valueSpec, ok := spec.(*ast.ValueSpec)
-					if !ok {
-						continue
-					}
-
-					if valueSpec.Type != nil {
-						if ident, ok := valueSpec.Type.(*ast.Ident); ok {
-							currentConstType = ident.Name
-						}
-					}
-
-					for i, name := range valueSpec.Names {
-						if currentConstType == "" {
-							continue
-						}
-
-						var value string
-						if i < len(valueSpec.Values) {
-							if lit, ok := valueSpec.Values[i].(*ast.BasicLit); ok {
-								value = strings.Trim(lit.Value, `"`)
-							}
-						}
-
-						if value != "" {
-							consts[currentConstType] = append(consts[currentConstType], ConstValue{
-								Name:  name.Name,
-								Value: value,
-							})
-						}
-					}
-				}
-			}
-		}
-		return true
-	})
-
-	return structs, consts, nil
 }
 
 func typeToString(expr ast.Expr) string {
@@ -1405,31 +1099,3 @@ func parseJSONTag(tag string) (name string, required bool) {
 	return name, required
 }
 
-func toSnakeCase(s string) string {
-	var result strings.Builder
-	for i, r := range s {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			result.WriteRune('_')
-		}
-		result.WriteRune(r)
-	}
-	return strings.ToLower(result.String())
-}
-
-func structDefToStarlark(def StructDef) starlark.Value {
-	var fieldsList []starlark.Value
-	for _, f := range def.Fields {
-		fieldsList = append(fieldsList, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-			"name":        starlark.String(f.Name),
-			"json_name":   starlark.String(f.JSONName),
-			"type":        starlark.String(f.Type),
-			"required":    starlark.Bool(f.Required),
-			"description": starlark.String(f.Description),
-		}))
-	}
-
-	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"name":   starlark.String(def.Name),
-		"fields": starlark.NewList(fieldsList),
-	})
-}

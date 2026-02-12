@@ -1,284 +1,248 @@
 ---
 title: "Star Configuration"
 description: "Canonical configuration mechanism for star CLI including built-in and extension-defined sections"
-status: draft
+status: active
 created: 2025-02-07
 updated: 2026-02-11
 ---
 
 # Star Configuration
 
-This document defines the canonical mechanism for configuration in the star CLI. All configuration sections—whether built-in or extension-defined—follow this model.
+This document defines the canonical mechanism for configuration in the star CLI. All configuration sections — whether declared in extension.yaml or registered programmatically — follow this model.
 
 ## Overview
 
-Configuration in devlore CLIs follows a hierarchical merge pattern with typed access:
+Configuration follows a hierarchical merge pattern with typed access:
 
 ```
-Built-in Defaults → User Config → Project Config → Environment Variables → CLI Flags
+Extension Defaults → User Config → Project Config → Environment Variables → CLI Flags
 ```
 
-Lower layers override higher layers. The final merged configuration is accessible via `config.Get()` in Go or `config.get()` in Starlark.
+Higher-priority layers override lower ones. The final merged configuration is accessible via `config.get()` in Starlark or `ConfigAccessor` in Go.
 
-## Package API
+## Core Types
 
-### Creating a Config Registry
+| Type | File | Purpose |
+|------|------|---------|
+| `Config` | `unified.go` | Unified entry point — loads, registers, and provides access to all config |
+| `ConfigSpec` | `root.go` | Schema definition for a config section: field names, types, and defaults |
+| `ConfigElement` | `element.go` | Hierarchical composition node — forms the config tree |
+| `ConfigAccessor` | `accessor.go` | Typed field access via reflection — reads values from generated structs |
+| `ConfigValue` | `starlark.go` | Starlark adapter — wraps any Go struct for `cfg.lint.copyright.enabled` access |
 
-Each CLI creates a config registry with its name:
+## Declaring Configuration
+
+### In extension.yaml (Declarative)
+
+Extensions declare their config section in `extension.yaml` with a `config:` block. The `path` field determines where the section lives in `star/config.yaml`:
+
+```yaml
+# star/extensions/com.noblefactor.star.LintGo/extension.yaml
+
+extension: com.noblefactor.star.LintGo
+description: Run Go lint checks
+
+commands:
+  - name: lint.go
+    help: Run Go lint checks
+    implementation: commands/lint-go.star
+
+config:
+  path: lint.go
+  fields:
+    path: string
+    skip_mod_tidy: bool
+    config: "map[string]any"
+  defaults:
+    path: "./..."
+    skip_mod_tidy: false
+```
+
+The runtime calls `cfg.RegisterExtension("lint.go", spec.ToConfigSpec())` automatically when loading extensions.
+
+### In Go (Programmatic)
+
+For config sections not owned by any extension, register directly:
 
 ```go
-import "github.com/NobleFactor/devlore/config"
-
-// Create registry for "star" CLI
-// This determines the config filename: star.yaml
-cfg := config.New("star")
-```
-
-### Registering Configuration Sections
-
-Sections are registered with a dotted path and a schema defining fields and defaults:
-
-```go
-cfg.Section("lint.go", config.Schema{
-    "path":          config.String("./..."),
-    "skip_mod_tidy": config.Bool(false),
-    "config":        config.Map(nil),
+cfg.RegisterExtension("lint.go", config.ConfigSpec{
+    Fields: map[string]string{
+        "path":          "string",
+        "skip_mod_tidy": "bool",
+        "config":        "map[string]any",
+    },
+    Defaults: map[string]interface{}{
+        "path":          "./...",
+        "skip_mod_tidy": false,
+    },
 })
 ```
 
-### Schema Field Types
+### ConfigSpec Field Types
 
-| Type | Function | Example |
-|------|----------|---------|
-| `config.String(default)` | String value | `config.String("./...")` |
-| `config.Bool(default)` | Boolean value | `config.Bool(false)` |
-| `config.Int(default)` | Integer value | `config.Int(4)` |
-| `config.StringSlice(default)` | List of strings | `config.StringSlice([]string{"a", "b"})` |
-| `config.Map(default)` | Arbitrary map | `config.Map(nil)` |
-| `config.Struct(schema)` | Nested structure | `config.Struct(config.Schema{...})` |
+| Type String | Go Type | Example |
+|-------------|---------|---------|
+| `"string"` | `string` | `"path": "string"` |
+| `"bool"` | `bool` | `"enabled": "bool"` |
+| `"int"` | `int` | `"indent": "int"` |
+| `"float64"` | `float64` | `"threshold": "float64"` |
+| `"[]string"` | `[]string` | `"exclude": "[]string"` |
+| `"map[string]any"` | `map[string]interface{}` | `"config": "map[string]any"` |
 
-### Loading Configuration
-
-After registering all sections, load from the file hierarchy:
+Nested types use the `Nested` field in ConfigSpec:
 
 ```go
-if err := cfg.Load(); err != nil {
-    return fmt.Errorf("config: %w", err)
+config.ConfigSpec{
+    Fields: map[string]string{
+        "required": "[]string",
+        "optional": "[]string",
+    },
+    Defaults: map[string]interface{}{
+        "required": []string{"title", "description"},
+    },
 }
 ```
 
-This loads and merges:
-1. Built-in defaults (from registered schemas)
-2. User config: `~/.config/star/star.yaml`
-3. Project config: `./star.yaml`
-
-### Accessing Values
+## Loading Configuration
 
 ```go
-// Get typed values by path
-enabled := cfg.Get("lint.copyright.enabled").Bool()
-license := cfg.Get("lint.copyright.license").String()
-exclude := cfg.Get("lint.copyright.exclude").StringSlice()
-indent := cfg.Get("lint.shell.indent").Int()
-
-// Get with fallback if not set
-severity := cfg.Get("lint.shell.severity").StringOr("warning")
-
-// Check if value exists
-if cfg.Has("lint.copyright.holder") {
-    holder := cfg.Get("lint.copyright.holder").String()
-}
+cfg, err := config.Load()
 ```
 
-### Unmarshaling to Structs
+`Load()` creates a `Config`, then the runtime registers extensions and merges YAML values:
 
-For complex sections, unmarshal to a typed struct:
+1. Extensions register their `ConfigSpec` via `RegisterExtension(path, spec)` — this creates a typed struct at each path with default values
+2. User config (`~/.config/star/config.yaml`) is merged via `mergeRaw()`
+3. Project config (`${GIT_TOPLEVEL}/star/config.yaml`) is merged via `mergeRaw()`
+
+## Accessing Values in Go
+
+Navigate the `ConfigElement` hierarchy and use `ConfigAccessor` for typed reads:
 
 ```go
-type CopyrightConfig struct {
-    Enabled  bool              `yaml:"enabled"`
-    License  string            `yaml:"license"`
-    Holder   string            `yaml:"holder"`
-    Patterns map[string]Pattern `yaml:"patterns"`
-    Exclude  []string          `yaml:"exclude"`
+// Navigate to a section
+elem := cfg.Navigate("lint.copyright")
+acc := config.NewAccessor(elem)
+
+// Typed access
+enabled := acc.Bool("enabled")
+license := acc.String("license")
+exclude := acc.StringSlice("exclude")
+indent := acc.Int("indent")
+
+// With fallbacks
+severity := acc.StringOr("severity", "warning")
+
+// Check existence
+if acc.Has("holder") {
+    holder := acc.String("holder")
 }
 
-var copyrightCfg CopyrightConfig
-if err := cfg.Unmarshal("lint.copyright", &copyrightCfg); err != nil {
-    return err
-}
+// Nested struct access
+frontmatter := acc.Struct("frontmatter")
+required := frontmatter.StringSlice("required")
+
+// Raw map access
+patterns := acc.Map("patterns")
 ```
 
-## Complete Example: Star CLI
+## Starlark Access
 
-This example shows how the `star` CLI registers all its configuration sections.
+Configuration is exposed to Starlark via the `config` receiver. `Config.ToStarlark()` returns a `ConfigValue` that uses `goToStarlarkReflect()` for reflection-based attribute access:
 
-### Bootstrap Code
+```python
+cfg = config.get()
 
-```go
-// cmd/star/main.go
+# Attribute-style access through ConfigValue
+if cfg.lint.copyright.enabled:
+    license = cfg.lint.copyright.license
+    holder = cfg.lint.copyright.holder
 
-package main
-
-import (
-    "fmt"
-    "os"
-
-    "github.com/NobleFactor/devlore/config"
-    "github.com/NobleFactor/devlore/starlark"
-)
-
-func main() {
-    if err := run(); err != nil {
-        fmt.Fprintf(os.Stderr, "error: %v\n", err)
-        os.Exit(1)
-    }
-}
-
-func run() error {
-    // Create config registry for star CLI
-    cfg := config.New("star")
-
-    // Register all configuration sections
-    registerLintConfig(cfg)
-    registerPrecommitConfig(cfg)
-
-    // Load configuration from hierarchy
-    if err := cfg.Load(); err != nil {
-        return fmt.Errorf("loading config: %w", err)
-    }
-
-    // Create Starlark runtime
-    rt := starlark.NewRuntime("ops")
-    rt.SetConfig(cfg)
-
-    // Register extension receivers
-    starlark.RegisterReceiver("copyright", &CopyrightChecker{})
-
-    // Load Starlark commands
-    if err := rt.LoadAll(); err != nil {
-        return fmt.Errorf("loading commands: %w", err)
-    }
-
-    // Run CLI
-    return rt.Run(os.Args[1:])
-}
+    for lang, pattern in cfg.lint.copyright.patterns.items():
+        match = pattern.match
+        replace = pattern.replace
 ```
 
-### Registering Lint Configuration
+`ConfigValue` wraps any Go struct (including runtime-generated types from `reflect.StructOf`) and implements `starlark.HasAttrs`. No type-specific conversion code is needed — reflection handles everything.
 
-```go
-// cmd/star/config.go
+## Extension Configuration Examples
 
-package main
+### All Lint Sections
 
-import "github.com/NobleFactor/devlore/config"
-
-func registerLintConfig(cfg *config.Registry) {
-    // lint.go section
-    cfg.Section("lint.go", config.Schema{
-        "path":          config.String("./..."),
-        "skip_mod_tidy": config.Bool(false),
-        "config":        config.Map(nil), // Inline golangci-lint config
-    })
-
-    // lint.shell section
-    cfg.Section("lint.shell", config.Schema{
-        "path":     config.String("."),
-        "severity": config.String("warning"),
-        "indent":   config.Int(4),
-    })
-
-    // lint.markdown section
-    cfg.Section("lint.markdown", config.Schema{
-        "path":    config.String("."),
-        "exclude": config.StringSlice([]string{"node_modules", "vendor", ".git"}),
-        "config":  config.Map(nil), // Inline markdownlint config
-        "frontmatter": config.Struct(config.Schema{
-            "required": config.StringSlice([]string{"title", "description"}),
-            "optional": config.StringSlice(nil),
-        }),
-    })
-
-    // lint.copyright section
-    cfg.Section("lint.copyright", config.Schema{
-        "enabled": config.Bool(false),
-        "license": config.String("auto"),
-        "holder":  config.String(""),
-        "patterns": config.Map(map[string]interface{}{
-            "go": map[string]string{
-                "match":   `// SPDX-License-Identifier: \S+\s*\n// Copyright.*All rights reserved\.`,
-                "replace": "// SPDX-License-Identifier: {license}\n// Copyright {holder}. All rights reserved.",
-            },
-            "star": map[string]string{
-                "match":   `# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.`,
-                "replace": "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved.",
-            },
-            "shell": map[string]string{
-                "match":   `# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.`,
-                "replace": "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved.",
-            },
-        }),
-        "exclude": config.StringSlice([]string{"**/testdata/**", "**/vendor/**"}),
-    })
-}
-
-func registerPrecommitConfig(cfg *config.Registry) {
-    // precommit section
-    cfg.Section("precommit", config.Schema{
-        "hooks": config.Slice(config.Struct(config.Schema{
-            "id":             config.String(""),
-            "name":           config.String(""),
-            "entry":          config.String(""),
-            "language":       config.String("system"),
-            "pass_filenames": config.Bool(false),
-            "types":          config.StringSlice([]string{"file"}),
-            "stages":         config.StringSlice([]string{"pre-commit"}),
-        })),
-    })
-}
-```
-
-### Using Configuration in a Command
-
-```go
-// internal/lint/copyright.go
-
-package lint
-
-import "github.com/NobleFactor/devlore/config"
-
-func RunCopyrightLint(cfg *config.Registry, fix bool) error {
-    // Check if enabled
-    if !cfg.Get("lint.copyright.enabled").Bool() {
-        return nil // Disabled, nothing to do
-    }
-
-    // Get configuration values
-    license := cfg.Get("lint.copyright.license").String()
-    holder := cfg.Get("lint.copyright.holder").String()
-    exclude := cfg.Get("lint.copyright.exclude").StringSlice()
-
-    // Get patterns as map
-    patterns := cfg.Get("lint.copyright.patterns").Map()
-
-    // Or unmarshal to struct for complex access
-    var copyrightCfg CopyrightConfig
-    if err := cfg.Unmarshal("lint.copyright", &copyrightCfg); err != nil {
-        return err
-    }
-
-    // Implementation...
-    return nil
-}
-```
-
-### Configuration File
-
-Users configure star in `star.yaml`:
+Each lint extension declares its own config section:
 
 ```yaml
-# star.yaml
+# LintGo
+config:
+  path: lint.go
+  fields:
+    path: string
+    skip_mod_tidy: bool
+    config: "map[string]any"
+  defaults:
+    path: "./..."
+    skip_mod_tidy: false
+
+# LintShell
+config:
+  path: lint.shell
+  fields:
+    path: string
+    severity: string
+    indent: int
+  defaults:
+    path: "."
+    severity: "warning"
+    indent: 4
+
+# LintMarkdown
+config:
+  path: lint.markdown
+  fields:
+    path: string
+    exclude: "[]string"
+    config: "map[string]any"
+  defaults:
+    path: "."
+    exclude:
+      - node_modules
+      - vendor
+      - .git
+
+# LintCopyright
+config:
+  path: lint.copyright
+  fields:
+    enabled: bool
+    license: string
+    holder: string
+    patterns: "map[string]any"
+    exclude: "[]string"
+  defaults:
+    enabled: false
+    license: "auto"
+    exclude:
+      - "**/testdata/**"
+      - "**/vendor/**"
+```
+
+### Precommit Section
+
+```yaml
+# ConfigSync (or HookPreCommit)
+config:
+  path: precommit
+  fields:
+    hooks: "[]any"
+  defaults: {}
+```
+
+## Configuration File
+
+Users configure star in `star/config.yaml`:
+
+```yaml
+# star/config.yaml
 
 lint:
   go:
@@ -298,8 +262,9 @@ lint:
     exclude:
       - node_modules
       - vendor
-    frontmatter:
-      required: [title, description]
+    config:
+      MD013: false
+      MD033: false
 
   copyright:
     enabled: true
@@ -318,45 +283,17 @@ precommit:
       pass_filenames: false
 ```
 
-## Starlark Access
+## Config Sync
 
-Configuration is exposed to Starlark via the `config` module:
+The `config.sync` command generates tool-specific config files from `star/config.yaml`. This reads values through `ConfigAccessor`:
 
-```python
-cfg = config.get()
+| Source Path | Generated File | Tool |
+|---|---|---|
+| `lint.go.config` | `.golangci.yaml` | golangci-lint |
+| `lint.markdown.config` | `.markdownlint-cli2.yaml` | markdownlint-cli2 |
+| `precommit.hooks` | `.pre-commit-config.yaml` | pre-commit |
 
-# Attribute-style access
-if cfg.lint.copyright.enabled:
-    license = cfg.lint.copyright.license
-    holder = cfg.lint.copyright.holder
-
-    for lang, pattern in cfg.lint.copyright.patterns.items():
-        match = pattern.match
-        replace = pattern.replace
-```
-
-## Extension Configuration
-
-Extensions can define their own configuration sections using `config.define()` in Starlark. See [star-extensions.md](star-extensions.md) for details.
-
-```python
-# ops/linters/yaml.star
-
-config.define("lint.yaml", struct(
-    enabled = True,
-    schemas = [],
-    cache_ttl = 3600,
-))
-```
-
-Users then configure in `star.yaml`:
-
-```yaml
-lint:
-  yaml:
-    enabled: true
-    cache_ttl: 7200
-```
+Generated files include a header: `# GENERATED BY star lint sync - DO NOT EDIT`
 
 ## Flag Resolution Chain
 
@@ -365,104 +302,72 @@ Command flags resolve values in priority order:
 1. **CLI argument** (highest) — `--severity error`
 2. **Environment variable** — `STAR_LINT_SHELL_SEVERITY=error`
 3. **Config file** — `lint.shell.severity: error`
-4. **Default** (lowest) — From schema registration
+4. **Default** (lowest) — From ConfigSpec registration
 
 ### Environment Variable Naming
 
-Formula: `{CLI}_` + path (dots→underscores) + uppercase
+Formula: `STAR_` + path (dots → underscores) + uppercase
 
 | Config Path | Environment Variable |
-|-------------|---------------------|
+|---|---|
 | `lint.shell.severity` | `STAR_LINT_SHELL_SEVERITY` |
 | `lint.copyright.enabled` | `STAR_LINT_COPYRIGHT_ENABLED` |
 | `lint.go.skip_mod_tidy` | `STAR_LINT_GO_SKIP_MOD_TIDY` |
 
-### Resolving in Commands
-
-```go
-// Flag with automatic resolution
-cmd.Flag("severity", config.FlagOptions{
-    Help:    "Minimum severity level",
-    Default: "warning",
-    // Automatically resolves: CLI → ENV → Config → Default
-})
-
-// Access resolved value
-severity := cmd.ResolvedFlag("severity")
-```
-
 ## Configuration File Locations
 
 | Priority | Location | Purpose |
-|----------|----------|---------|
-| 1 (lowest) | Built-in | Compiled defaults from `cfg.Section()` |
-| 2 | `~/.config/{cli}/{cli}.yaml` | User preferences |
-| 3 (highest) | `./{cli}.yaml` | Project settings |
+|---|---|---|
+| 1 (lowest) | Extension defaults | From `ConfigSpec.Defaults` in extension.yaml |
+| 2 | `~/.config/star/config.yaml` | User preferences |
+| 3 (highest) | `${GIT_TOPLEVEL}/star/config.yaml` | Project settings |
 
-The XDG_CONFIG_HOME environment variable is respected for user config location.
+The `XDG_CONFIG_HOME` environment variable is respected for user config location.
 
-## Registry API Reference
+## How It Works Internally
 
-```go
-// New creates a config registry for a CLI.
-func New(name string) *Registry
+### Registration
 
-// Section registers a configuration section with schema.
-func (r *Registry) Section(path string, schema Schema)
+`Config.RegisterExtension(path, spec)` does:
 
-// Load loads configuration from file hierarchy.
-func (r *Registry) Load() error
+1. Splits the path on `.` (e.g., `lint.copyright` → `["lint", "copyright"]`)
+2. Creates intermediate `ConfigElement` nodes as needed (`lint` → `copyright`)
+3. Calls `generateConfigType(spec)` which uses `reflect.StructOf` to create a Go struct type matching the ConfigSpec fields
+4. Creates an instance with `newConfigInstance()` and populates defaults
+5. Registers the instance as a child of the parent ConfigElement
 
-// LoadWithSources loads config and returns source information.
-func (r *Registry) LoadWithSources() ([]Source, error)
+### YAML Merge
 
-// Get returns a value accessor for the given path.
-func (r *Registry) Get(path string) *Value
+`mergeRaw(raw)` walks the parsed YAML map and the `ConfigElement` tree in parallel. For each matching key, it calls `setFieldValue()` to update the generated struct's fields via reflection.
 
-// Has returns true if a value exists at the path.
-func (r *Registry) Has(path string) bool
+### Starlark Conversion
 
-// Unmarshal decodes a section into a struct.
-func (r *Registry) Unmarshal(path string, v interface{}) error
+`Config.ToStarlark()` returns a `ConfigValue` wrapping the root `ConfigElement`. When Starlark accesses `cfg.lint.copyright.enabled`:
 
-// ToStarlark returns the config as a Starlark struct.
-func (r *Registry) ToStarlark() starlark.Value
-```
+1. `ConfigValue.Attr("lint")` → finds `lint` ConfigElement child → wraps in new `ConfigValue`
+2. `ConfigValue.Attr("copyright")` → finds generated struct → wraps in new `ConfigValue`
+3. `ConfigValue.Attr("enabled")` → `reflect.Value.FieldByName("Enabled")` → `starlark.Bool`
 
-## Value API Reference
-
-```go
-// Type accessors (panic if wrong type)
-func (v *Value) String() string
-func (v *Value) Bool() bool
-func (v *Value) Int() int
-func (v *Value) StringSlice() []string
-func (v *Value) Map() map[string]interface{}
-
-// Safe accessors with fallback
-func (v *Value) StringOr(fallback string) string
-func (v *Value) BoolOr(fallback bool) bool
-func (v *Value) IntOr(fallback int) int
-
-// Check if value is set
-func (v *Value) IsSet() bool
-```
+All via `goToStarlarkReflect()` — no type-specific conversion code.
 
 ## Design Principles
 
-1. **Single source of truth** — One config file per CLI
-2. **Hierarchical merge** — User → Project → CLI → ENV
-3. **Typed access** — Schema-defined types, not stringly-typed
+1. **Single source of truth** — One config file per CLI (`star/config.yaml`)
+2. **Hierarchical merge** — Defaults → User → Project (higher overrides lower)
+3. **Typed access** — ConfigSpec-defined types, not stringly-typed
 4. **Convention over configuration** — Sensible defaults, explicit overrides
-5. **Extension-friendly** — Extensions declare schemas in Starlark
-6. **Registration-based** — No hardcoded struct definitions in library
+5. **Extension-friendly** — Extensions declare config in extension.yaml
+6. **Registration-based** — No hardcoded struct definitions; all types generated at runtime
 
 ## Files
 
 | File | Purpose |
-|------|---------|
-| `config/registry.go` | Registry and section registration |
-| `config/schema.go` | Schema types (String, Bool, Int, etc.) |
-| `config/value.go` | Value accessor with type methods |
-| `config/loader.go` | File hierarchy loading and merge |
-| `config/starlark.go` | Starlark conversion |
+|---|---|
+| `internal/config/unified.go` | `Config` — unified entry point, load, register, Starlark bridge |
+| `internal/config/root.go` | `ConfigSpec`, `extensionsConfig` — schema definition, registration, YAML merge |
+| `internal/config/element.go` | `ConfigElement` — hierarchical composition, navigation |
+| `internal/config/accessor.go` | `ConfigAccessor` — typed field access via reflection |
+| `internal/config/types.go` | Runtime type generation via `reflect.StructOf` |
+| `internal/config/starlark.go` | `ConfigValue`, `goToStarlarkReflect()` — Starlark adapter |
+| `internal/config/config.go` | Git workspace root detection, config file path resolution |
+| `internal/config/sync.go` | Config sync — generates tool-specific config files |
