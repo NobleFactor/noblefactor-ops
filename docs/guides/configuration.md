@@ -1,6 +1,3 @@
-# SPDX-License-Identifier: MIT
-# Copyright Noble Factor. All rights reserved.
-
 ---
 title: "Configuration Guide"
 description: "Understanding star configuration with the extension model"
