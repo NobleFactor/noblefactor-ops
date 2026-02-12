@@ -1,12 +1,12 @@
 ---
-title: "WASM Receiver Architecture"
+title: "Star WASM Receivers"
 description: "Shared memory reactor protocol for WASM extension modules (Rust and Go)"
 status: draft
 created: 2025-02-10
 updated: 2026-02-11
 ---
 
-# WASM Extension Architecture
+# Star WASM Receivers
 
 ## Overview
 

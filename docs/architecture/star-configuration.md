@@ -1,14 +1,14 @@
 ---
-title: "Devlore Configuration Model"
-description: "Canonical configuration mechanism for all devlore CLIs including built-in and extension-defined sections"
+title: "Star Configuration"
+description: "Canonical configuration mechanism for star CLI including built-in and extension-defined sections"
 status: draft
 created: 2025-02-07
-updated: 2025-02-07
+updated: 2026-02-11
 ---
 
-# Devlore Configuration Model
+# Star Configuration
 
-This document defines the canonical mechanism for configuration in all devlore CLIs. All configuration sections—whether built-in or extension-defined—follow this model.
+This document defines the canonical mechanism for configuration in the star CLI. All configuration sections—whether built-in or extension-defined—follow this model.
 
 ## Overview
 
@@ -337,7 +337,7 @@ if cfg.lint.copyright.enabled:
 
 ## Extension Configuration
 
-Extensions can define their own configuration sections using `config.define()` in Starlark. See [devlore-extension-model.md](devlore-extension-model.md) for details.
+Extensions can define their own configuration sections using `config.define()` in Starlark. See [star-extensions.md](star-extensions.md) for details.
 
 ```python
 # ops/linters/yaml.star

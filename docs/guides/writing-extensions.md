@@ -478,4 +478,4 @@ yamllint extensions/your-extension/extension.yaml
 
 - See existing extensions in `extensions/` for more examples
 - Read [Configuration Guide](./configuration.md) for configuration details
-- Check [Architecture](../architecture/devlore-extension-model.md) for full technical details
+- Check [Architecture](../architecture/star-extensions.md) for full technical details

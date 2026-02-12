@@ -290,4 +290,4 @@ star config show | grep -A 10 "lint.copyright"
 
 - See [Writing Extensions](./writing-extensions.md) to create your own extensions
 - Check `extensions/*/extension.yaml` for configuration schema examples
-- Read [Architecture](../architecture/devlore-extension-model.md) for technical details
+- Read [Architecture](../architecture/star-extensions.md) for technical details
