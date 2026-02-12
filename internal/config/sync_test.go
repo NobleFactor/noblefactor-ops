@@ -10,7 +10,9 @@ import (
 )
 
 func TestSyncPrecommitConfig(t *testing.T) {
-	// Change to temp dir for test
+	ClearTypeCache()
+	defer ClearTypeCache()
+
 	origDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -21,20 +23,28 @@ func TestSyncPrecommitConfig(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	cfg := &builtinConfig{
-		Precommit: PrecommitConfig{
-			Hooks: []PrecommitHook{
-				{
-					ID:            "star-lint-all",
-					Name:          "Star quality gate",
-					Entry:         "star lint all --",
-					Language:      "system",
-					PassFilenames: true,
-					Types:         []string{"file"},
+	cfg := New()
+	cfg.RegisterExtension("precommit", ConfigSpec{
+		Fields: map[string]string{
+			"hooks": "[]interface{}",
+		},
+		Defaults: map[string]interface{}{},
+	})
+
+	cfg.extensions.mergeRaw(map[string]interface{}{
+		"precommit": map[string]interface{}{
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"id":             "star-lint-all",
+					"name":           "Star quality gate",
+					"entry":          "star lint all --",
+					"language":       "system",
+					"pass_filenames": true,
+					"types":          []interface{}{"file"},
 				},
 			},
 		},
-	}
+	})
 
 	result, err := cfg.Sync()
 	if err != nil {
@@ -48,19 +58,16 @@ func TestSyncPrecommitConfig(t *testing.T) {
 		t.Errorf("FilesGenerated = %d, want 1", result.FilesGenerated)
 	}
 
-	// Verify file content
 	data, err := os.ReadFile(".pre-commit-config.yaml")
 	if err != nil {
 		t.Fatalf("ReadFile error: %v", err)
 	}
 	content := string(data)
 
-	// Check header
 	if !strings.HasPrefix(content, generatedHeader) {
 		t.Error("file should start with generated header")
 	}
 
-	// Check structure
 	if !strings.Contains(content, "repo: local") {
 		t.Error("file should contain 'repo: local'")
 	}
@@ -73,6 +80,9 @@ func TestSyncPrecommitConfig(t *testing.T) {
 }
 
 func TestSyncPrecommitConfigDefaultLanguage(t *testing.T) {
+	ClearTypeCache()
+	defer ClearTypeCache()
+
 	origDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -83,19 +93,26 @@ func TestSyncPrecommitConfigDefaultLanguage(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	// Config with empty language - should default to "system"
-	cfg := &builtinConfig{
-		Precommit: PrecommitConfig{
-			Hooks: []PrecommitHook{
-				{
-					ID:    "test-hook",
-					Name:  "Test hook",
-					Entry: "test",
+	cfg := New()
+	cfg.RegisterExtension("precommit", ConfigSpec{
+		Fields: map[string]string{
+			"hooks": "[]interface{}",
+		},
+		Defaults: map[string]interface{}{},
+	})
+
+	cfg.extensions.mergeRaw(map[string]interface{}{
+		"precommit": map[string]interface{}{
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"id":    "test-hook",
+					"name":  "Test hook",
+					"entry": "test",
 					// Language deliberately empty
 				},
 			},
 		},
-	}
+	})
 
 	_, err = cfg.Sync()
 	if err != nil {
@@ -161,7 +178,6 @@ func TestEnsureGitignore(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	// No existing .gitignore
 	if err := EnsureGitignore(); err != nil {
 		t.Fatalf("EnsureGitignore() error: %v", err)
 	}
@@ -172,7 +188,6 @@ func TestEnsureGitignore(t *testing.T) {
 	}
 	content := string(data)
 
-	// Should contain all three entries
 	expected := []string{".golangci.yaml", ".markdownlint-cli2.yaml", ".pre-commit-config.yaml"}
 	for _, entry := range expected {
 		if !strings.Contains(content, entry) {
@@ -192,7 +207,6 @@ func TestEnsureGitignoreExisting(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	// Existing .gitignore with one of the entries
 	existing := "node_modules/\n.golangci.yaml\n"
 	if err := os.WriteFile(".gitignore", []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
@@ -208,17 +222,14 @@ func TestEnsureGitignoreExisting(t *testing.T) {
 	}
 	content := string(data)
 
-	// Original content should be preserved
 	if !strings.Contains(content, "node_modules/") {
 		t.Error(".gitignore should preserve existing entries")
 	}
 
-	// Should not duplicate .golangci.yaml
 	if strings.Count(content, ".golangci.yaml") > 1 {
 		t.Error(".gitignore should not duplicate existing entries")
 	}
 
-	// Should add missing entries
 	if !strings.Contains(content, ".markdownlint-cli2.yaml") {
 		t.Error(".gitignore should add .markdownlint-cli2.yaml")
 	}
@@ -228,6 +239,9 @@ func TestEnsureGitignoreExisting(t *testing.T) {
 }
 
 func TestSyncNoHooks(t *testing.T) {
+	ClearTypeCache()
+	defer ClearTypeCache()
+
 	origDir, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)
@@ -238,8 +252,7 @@ func TestSyncNoHooks(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	// Empty config - should not generate anything
-	cfg := &builtinConfig{}
+	cfg := New()
 
 	result, err := cfg.Sync()
 	if err != nil {
@@ -253,7 +266,6 @@ func TestSyncNoHooks(t *testing.T) {
 		t.Errorf("PrecommitConfig = %q, want empty", result.PrecommitConfig)
 	}
 
-	// No file should be created
 	if _, err := os.Stat(".pre-commit-config.yaml"); !os.IsNotExist(err) {
 		t.Error(".pre-commit-config.yaml should not exist")
 	}

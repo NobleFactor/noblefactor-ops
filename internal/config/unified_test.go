@@ -19,11 +19,18 @@ func TestLoad(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("Load() returned nil")
 	}
-	if cfg.builtin == nil {
-		t.Error("Load() builtin should not be nil")
-	}
 	if cfg.extensions == nil {
 		t.Error("Load() extensions should not be nil")
+	}
+}
+
+func TestNew(t *testing.T) {
+	cfg := New()
+	if cfg == nil {
+		t.Fatal("New() returned nil")
+	}
+	if cfg.extensions == nil {
+		t.Error("New() extensions should not be nil")
 	}
 }
 
@@ -39,16 +46,16 @@ func TestLoadWithSources(t *testing.T) {
 		t.Error("LoadWithSources() should return at least one source")
 	}
 
-	// Should have builtin source
-	hasBuiltin := false
+	// Should have defaults source
+	hasDefaults := false
 	for _, s := range sources {
-		if s.Path == "<builtin>" {
-			hasBuiltin = true
+		if s.Path == "<defaults>" {
+			hasDefaults = true
 			break
 		}
 	}
-	if !hasBuiltin {
-		t.Error("LoadWithSources() should include <builtin> source")
+	if !hasDefaults {
+		t.Error("LoadWithSources() should include <defaults> source")
 	}
 }
 
@@ -56,10 +63,7 @@ func TestConfig_RegisterExtension(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
+	cfg := New()
 
 	spec := ConfigSpec{
 		Fields: map[string]string{
@@ -72,7 +76,7 @@ func TestConfig_RegisterExtension(t *testing.T) {
 		},
 	}
 
-	err = cfg.RegisterExtension("test.extension", spec)
+	err := cfg.RegisterExtension("test.extension", spec)
 	if err != nil {
 		t.Fatalf("RegisterExtension() error = %v", err)
 	}
@@ -88,10 +92,7 @@ func TestConfig_RegisterExtension(t *testing.T) {
 }
 
 func TestConfig_GetSpec_NotFound(t *testing.T) {
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
+	cfg := New()
 
 	_, ok := cfg.GetSpec("nonexistent.path")
 	if ok {
@@ -100,6 +101,9 @@ func TestConfig_GetSpec_NotFound(t *testing.T) {
 }
 
 func TestConfig_Sync(t *testing.T) {
+	ClearTypeCache()
+	defer ClearTypeCache()
+
 	// Change to temp dir for test
 	origDir, err := os.Getwd()
 	if err != nil {
@@ -111,21 +115,28 @@ func TestConfig_Sync(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	// Create a config with precommit hooks
-	cfg := &Config{
-		builtin: &builtinConfig{
-			Precommit: PrecommitConfig{
-				Hooks: []PrecommitHook{
-					{
-						ID:    "test-hook",
-						Name:  "Test",
-						Entry: "echo test",
-					},
+	cfg := New()
+
+	// Register precommit config with hooks
+	cfg.RegisterExtension("precommit", ConfigSpec{
+		Fields: map[string]string{
+			"hooks": "[]interface{}",
+		},
+		Defaults: map[string]interface{}{},
+	})
+
+	// Set hooks via mergeRaw (simulating YAML load)
+	cfg.extensions.mergeRaw(map[string]interface{}{
+		"precommit": map[string]interface{}{
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"id":    "test-hook",
+					"name":  "Test",
+					"entry": "echo test",
 				},
 			},
 		},
-		extensions: newExtensionsConfig("star/config.yaml"),
-	}
+	})
 
 	result, err := cfg.Sync()
 	if err != nil {
@@ -141,136 +152,67 @@ func TestConfig_Sync(t *testing.T) {
 }
 
 func TestConfig_ToStarlark(t *testing.T) {
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
+	cfg := New()
 
 	val := cfg.ToStarlark()
 	if val == nil {
 		t.Fatal("ToStarlark() returned nil")
 	}
 
-	// Should be a unifiedConfigValue
-	ucv, ok := val.(*unifiedConfigValue)
+	// Should be a ConfigValue
+	cv, ok := val.(*ConfigValue)
 	if !ok {
-		t.Fatalf("ToStarlark() type = %T, want *unifiedConfigValue", val)
+		t.Fatalf("ToStarlark() type = %T, want *ConfigValue", val)
 	}
-	if ucv.config != cfg {
-		t.Error("ToStarlark() should wrap the same config")
-	}
-}
-
-func TestConfig_Builtin(t *testing.T) {
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-
-	builtin := cfg.Builtin()
-	if builtin == nil {
-		t.Fatal("Builtin() returned nil")
-	}
-	if builtin != cfg.builtin {
-		t.Error("Builtin() should return the same builtin config")
+	if cv.Type() != "config" {
+		t.Errorf("ToStarlark().Type() = %q, want %q", cv.Type(), "config")
 	}
 }
 
-// =============================================================================
-// unifiedConfigValue tests
-// =============================================================================
-
-func TestUnifiedConfigValue_String(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	if got := v.String(); got != "config" {
-		t.Errorf("String() = %q, want %q", got, "config")
-	}
-}
-
-func TestUnifiedConfigValue_Type(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	if got := v.Type(); got != "config" {
-		t.Errorf("Type() = %q, want %q", got, "config")
-	}
-}
-
-func TestUnifiedConfigValue_Freeze(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	// Freeze should not panic
-	v.Freeze()
-}
-
-func TestUnifiedConfigValue_Truth(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	if got := v.Truth(); got != starlark.True {
-		t.Errorf("Truth() = %v, want True", got)
-	}
-}
-
-func TestUnifiedConfigValue_Hash(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	hash, err := v.Hash()
-	if err != nil {
-		t.Errorf("Hash() error = %v", err)
-	}
-	if hash != 0 {
-		t.Errorf("Hash() = %d, want 0", hash)
-	}
-}
-
-func TestUnifiedConfigValue_Attr_Builtin(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	// Access builtin "lint" attribute
-	lintVal, err := v.Attr("lint")
-	if err != nil {
-		t.Fatalf("Attr('lint') error = %v", err)
-	}
-	if lintVal == nil {
-		t.Error("Attr('lint') returned nil")
-	}
-
-	// Access builtin "precommit" attribute
-	precommitVal, err := v.Attr("precommit")
-	if err != nil {
-		t.Fatalf("Attr('precommit') error = %v", err)
-	}
-	if precommitVal == nil {
-		t.Error("Attr('precommit') returned nil")
-	}
-}
-
-func TestUnifiedConfigValue_Attr_NotFound(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	_, err := v.Attr("nonexistent")
-	if err == nil {
-		t.Error("Attr('nonexistent') should return error")
-	}
-	if _, ok := err.(starlark.NoSuchAttrError); !ok {
-		t.Errorf("Attr() error type = %T, want NoSuchAttrError", err)
-	}
-}
-
-func TestUnifiedConfigValue_Attr_Extension(t *testing.T) {
+func TestConfig_Accessor(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg, _ := Load()
+	cfg := New()
 
 	// Register an extension
+	cfg.RegisterExtension("lint.go", ConfigSpec{
+		Fields: map[string]string{
+			"path":          "string",
+			"skip_mod_tidy": "bool",
+		},
+		Defaults: map[string]interface{}{
+			"path":          "./...",
+			"skip_mod_tidy": false,
+		},
+	})
+
+	acc := cfg.Accessor("lint.go")
+	if acc == nil {
+		t.Fatal("Accessor() returned nil")
+	}
+
+	path := acc.String("path")
+	if path != "./..." {
+		t.Errorf("Accessor().String('path') = %q, want %q", path, "./...")
+	}
+
+	skipModTidy := acc.Bool("skip_mod_tidy")
+	if skipModTidy {
+		t.Error("Accessor().Bool('skip_mod_tidy') = true, want false")
+	}
+}
+
+// =============================================================================
+// ConfigValue (Starlark wrapper) tests
+// =============================================================================
+
+func TestConfigValue_Attr_Extension(t *testing.T) {
+	ClearTypeCache()
+	defer ClearTypeCache()
+
+	cfg := New()
+
 	spec := ConfigSpec{
 		Fields: map[string]string{
 			"enabled": "bool",
@@ -281,10 +223,10 @@ func TestUnifiedConfigValue_Attr_Extension(t *testing.T) {
 	}
 	cfg.RegisterExtension("myext", spec)
 
-	v := cfg.ToStarlark().(*unifiedConfigValue)
+	val := cfg.ToStarlark()
 
 	// Access extension attribute
-	extVal, err := v.Attr("myext")
+	extVal, err := val.(starlark.HasAttrs).Attr("myext")
 	if err != nil {
 		t.Fatalf("Attr('myext') error = %v", err)
 	}
@@ -293,167 +235,94 @@ func TestUnifiedConfigValue_Attr_Extension(t *testing.T) {
 	}
 }
 
-func TestUnifiedConfigValue_Attr_ExtensionOverridesBuiltin(t *testing.T) {
+func TestConfigValue_Attr_NotFound_ViaConfig(t *testing.T) {
+	cfg := New()
+	val := cfg.ToStarlark()
+
+	_, err := val.(starlark.HasAttrs).Attr("nonexistent")
+	if err == nil {
+		t.Error("Attr('nonexistent') should return error")
+	}
+	if _, ok := err.(starlark.NoSuchAttrError); !ok {
+		t.Errorf("Attr() error type = %T, want NoSuchAttrError", err)
+	}
+}
+
+func TestConfigValue_Attr_NestedLint(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	cfg, _ := Load()
+	cfg := New()
 
-	// Register an extension with the same name as a builtin
-	spec := ConfigSpec{
+	// Register lint.go at the correct nested path
+	cfg.RegisterExtension("lint.go", ConfigSpec{
 		Fields: map[string]string{
-			"custom": "string",
+			"path": "string",
 		},
 		Defaults: map[string]interface{}{
-			"custom": "from-extension",
+			"path": "./...",
 		},
-	}
-	cfg.RegisterExtension("lint", spec)
+	})
 
-	v := cfg.ToStarlark().(*unifiedConfigValue)
+	val := cfg.ToStarlark()
 
-	// Access should return extension, not builtin
-	lintVal, err := v.Attr("lint")
-	if err != nil {
-		t.Fatalf("Attr('lint') error = %v", err)
-	}
-
-	// The value should be from the extension (ConfigValue), not builtin (struct)
-	if _, ok := lintVal.(*ConfigValue); !ok {
-		t.Errorf("Attr('lint') should return extension ConfigValue, got %T", lintVal)
-	}
-}
-
-func TestUnifiedConfigValue_AttrNames(t *testing.T) {
-	cfg, _ := Load()
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-
-	names := v.AttrNames()
-
-	// Should contain builtin names
-	hasLint := false
-	hasPrecommit := false
-	for _, name := range names {
-		if name == "lint" {
-			hasLint = true
-		}
-		if name == "precommit" {
-			hasPrecommit = true
-		}
-	}
-
-	if !hasLint {
-		t.Error("AttrNames() should contain 'lint'")
-	}
-	if !hasPrecommit {
-		t.Error("AttrNames() should contain 'precommit'")
-	}
-}
-
-func TestUnifiedConfigValue_AttrNames_WithExtensions(t *testing.T) {
-	ClearTypeCache()
-	defer ClearTypeCache()
-
-	cfg, _ := Load()
-
-	// Register extensions
-	spec := ConfigSpec{
-		Fields: map[string]string{"enabled": "bool"},
-	}
-	cfg.RegisterExtension("myext", spec)
-	cfg.RegisterExtension("another", spec)
-
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-	names := v.AttrNames()
-
-	// Should contain extension names
-	hasMyext := false
-	hasAnother := false
-	for _, name := range names {
-		if name == "myext" {
-			hasMyext = true
-		}
-		if name == "another" {
-			hasAnother = true
-		}
-	}
-
-	if !hasMyext {
-		t.Error("AttrNames() should contain 'myext'")
-	}
-	if !hasAnother {
-		t.Error("AttrNames() should contain 'another'")
-	}
-}
-
-func TestUnifiedConfigValue_AttrNames_NoDuplicates(t *testing.T) {
-	ClearTypeCache()
-	defer ClearTypeCache()
-
-	cfg, _ := Load()
-
-	// Register extension with same name as builtin
-	spec := ConfigSpec{
-		Fields: map[string]string{"enabled": "bool"},
-	}
-	cfg.RegisterExtension("lint", spec)
-
-	v := cfg.ToStarlark().(*unifiedConfigValue)
-	names := v.AttrNames()
-
-	// Count occurrences of "lint"
-	count := 0
-	for _, name := range names {
-		if name == "lint" {
-			count++
-		}
-	}
-
-	if count != 1 {
-		t.Errorf("AttrNames() has %d occurrences of 'lint', want 1", count)
-	}
-}
-
-func TestUnifiedConfigValue_Attr_NilExtensions(t *testing.T) {
-	// Create config with nil extensions
-	cfg := &Config{
-		builtin:    defaultBuiltinConfig(),
-		extensions: nil,
-	}
-
-	v := &unifiedConfigValue{config: cfg}
-
-	// Should still be able to access builtin
-	lintVal, err := v.Attr("lint")
+	// Access "lint" should return a ConfigValue for the intermediate element
+	lintVal, err := val.(starlark.HasAttrs).Attr("lint")
 	if err != nil {
 		t.Fatalf("Attr('lint') error = %v", err)
 	}
 	if lintVal == nil {
 		t.Error("Attr('lint') returned nil")
 	}
-}
 
-func TestUnifiedConfigValue_Attr_NilBuiltin(t *testing.T) {
-	// Create config with nil builtin
-	cfg := &Config{
-		builtin:    nil,
-		extensions: newExtensionsConfig("star/config.yaml"),
+	// Access "go" from lint
+	lintAttrs, ok := lintVal.(starlark.HasAttrs)
+	if !ok {
+		t.Fatalf("lint value should implement HasAttrs, got %T", lintVal)
 	}
 
-	v := &unifiedConfigValue{config: cfg}
+	goVal, err := lintAttrs.Attr("go")
+	if err != nil {
+		t.Fatalf("Attr('go') error = %v", err)
+	}
+	if goVal == nil {
+		t.Error("Attr('go') returned nil")
+	}
+}
 
-	// Should return error for builtin attrs
-	_, err := v.Attr("lint")
-	if err == nil {
-		t.Error("Attr('lint') should error with nil builtin")
+func TestConfigValue_AttrNames_ViaConfig(t *testing.T) {
+	ClearTypeCache()
+	defer ClearTypeCache()
+
+	cfg := New()
+	cfg.RegisterExtension("lint.go", ConfigSpec{
+		Fields: map[string]string{"path": "string"},
+	})
+	cfg.RegisterExtension("lint.shell", ConfigSpec{
+		Fields: map[string]string{"path": "string"},
+	})
+
+	val := cfg.ToStarlark()
+
+	names := val.(starlark.HasAttrs).AttrNames()
+	hasLint := false
+	for _, name := range names {
+		if name == "lint" {
+			hasLint = true
+		}
+	}
+	if !hasLint {
+		t.Error("AttrNames() should contain 'lint'")
 	}
 }
 
 func TestLoad_WithProjectConfig(t *testing.T) {
+	ClearTypeCache()
+	defer ClearTypeCache()
+
 	// Create temp dir with star/config.yaml
 	tmpDir := t.TempDir()
 
-	// Set git workspace root to temp dir for this test
 	SetGitWorkspaceRoot(tmpDir)
 	defer ResetGitWorkspaceRoot()
 
@@ -473,13 +342,29 @@ lint:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+	cfg := New()
+
+	// Register lint.go so the extension hierarchy knows about it
+	cfg.RegisterExtension("lint.go", ConfigSpec{
+		Fields: map[string]string{
+			"path":          "string",
+			"skip_mod_tidy": "bool",
+		},
+		Defaults: map[string]interface{}{
+			"path":          "./...",
+			"skip_mod_tidy": false,
+		},
+	})
+
+	// Load from files
+	if err := cfg.LoadFromFiles(); err != nil {
+		t.Fatalf("LoadFromFiles() error = %v", err)
 	}
 
-	// Should have merged the custom path
-	if cfg.builtin.Lint.Go.Path != "./custom/..." {
-		t.Errorf("Load() did not merge project config, got path = %q", cfg.builtin.Lint.Go.Path)
+	// Verify the project config path was merged
+	acc := cfg.Accessor("lint.go")
+	path := acc.String("path")
+	if path != "./custom/..." {
+		t.Errorf("LoadFromFiles() did not merge project config, got path = %q", path)
 	}
 }

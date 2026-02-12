@@ -27,3 +27,15 @@ commands:
         type: int
         default: "4"
         help: Expected indent size for shfmt
+
+config:
+  path: lint.shell
+  type: ShellLintConfig
+  fields:
+    path: string
+    severity: string
+    indent: int
+  defaults:
+    path: "."
+    severity: "warning"
+    indent: 4

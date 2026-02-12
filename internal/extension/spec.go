@@ -109,6 +109,11 @@ type FlagSpec struct {
 // ConfigDef describes the configuration schema for an extension.
 // Used to generate config.ConfigSpec for registration.
 type ConfigDef struct {
+	// Path is the dotted config path where this extension registers its config.
+	// Example: "lint.go" registers under config.lint.go in star/config.yaml.
+	// If empty, ConfigPath() derives a path from the command name or extension name.
+	Path string `yaml:"path"`
+
 	// Type is the Go type name (informational).
 	Type string `yaml:"type"`
 
@@ -327,6 +332,18 @@ func (s *ExtensionSpec) HasReceivers() bool {
 // HasConfig returns true if this extension has a configuration schema.
 func (s *ExtensionSpec) HasConfig() bool {
 	return s.Config != nil
+}
+
+// ConfigPath returns the dotted path where this extension's config is registered.
+// Priority: explicit Config.Path > single command name > extension name.
+func (s *ExtensionSpec) ConfigPath() string {
+	if s.Config != nil && s.Config.Path != "" {
+		return s.Config.Path
+	}
+	if len(s.Commands) == 1 {
+		return s.Commands[0].Name
+	}
+	return s.Extension
 }
 
 // ToConfigSpec converts the extension's ConfigDef to config.ConfigSpec.

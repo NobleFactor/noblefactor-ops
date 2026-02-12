@@ -316,7 +316,7 @@ lint:
 		}
 	}
 
-	cfg, err := config.Load()
+	cfg, err := Config.getConfig()
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}

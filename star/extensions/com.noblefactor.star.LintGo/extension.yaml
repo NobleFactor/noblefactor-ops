@@ -27,3 +27,14 @@ commands:
         type: bool
         default: "false"
         help: Skip go mod tidy check
+
+config:
+  path: lint.go
+  type: GoLintConfig
+  fields:
+    path: string
+    skip_mod_tidy: bool
+    config: "map[string]interface{}"
+  defaults:
+    path: "./..."
+    skip_mod_tidy: false

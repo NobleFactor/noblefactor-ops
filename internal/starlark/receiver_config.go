@@ -14,11 +14,18 @@ import (
 // Implements starlark.Value and starlark.HasAttrs.
 type ConfigReceiver struct {
 	BaseReceiver
+	cfg *config.Config
 }
 
 // NewConfigReceiver creates a new ConfigReceiver.
 func NewConfigReceiver() *ConfigReceiver {
 	return &ConfigReceiver{BaseReceiver: NewBaseReceiver("config")}
+}
+
+// SetConfig sets the fully-populated config on the receiver.
+// Called by the runtime after extensions are loaded and config files are merged.
+func (r *ConfigReceiver) SetConfig(cfg *config.Config) {
+	r.cfg = cfg
 }
 
 // Attr implements starlark.HasAttrs.
@@ -40,6 +47,14 @@ func (r *ConfigReceiver) AttrNames() []string {
 	return []string{"get", "show", "sync"}
 }
 
+// getConfig returns the receiver's config, falling back to Load() if not set.
+func (r *ConfigReceiver) getConfig() (*config.Config, error) {
+	if r.cfg != nil {
+		return r.cfg, nil
+	}
+	return config.Load()
+}
+
 // get loads the merged configuration from the hierarchy.
 // Returns a Starlark struct with attribute access (cfg.lint.copyright.enabled).
 func (r *ConfigReceiver) get(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
@@ -47,7 +62,7 @@ func (r *ConfigReceiver) get(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 
-	cfg, err := config.Load()
+	cfg, err := r.getConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +76,13 @@ func (r *ConfigReceiver) show(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	cfg, sources, err := config.LoadWithSources()
+	cfg, err := r.getConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	// Build sources list from known config file locations
+	_, sources, err := config.LoadWithSources()
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +107,7 @@ func (r *ConfigReceiver) sync(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 
-	cfg, err := config.Load()
+	cfg, err := r.getConfig()
 	if err != nil {
 		return nil, err
 	}

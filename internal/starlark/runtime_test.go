@@ -153,15 +153,15 @@ config:
 			t.Fatalf("LoadExtensionsFrom() error = %v", err)
 		}
 
-		// Verify config was registered
+		// Verify config was registered at the config path (derived from command name)
 		cfg := r.Config()
 		if cfg == nil {
 			t.Fatal("expected config to be initialized")
 		}
 
-		spec, ok := cfg.GetSpec("com.example.WithConfig")
+		spec, ok := cfg.GetSpec("cfg.test")
 		if !ok {
-			t.Error("expected config spec 'com.example.WithConfig' to be registered")
+			t.Error("expected config spec 'cfg.test' to be registered (derived from single command name)")
 		}
 		if spec.Fields["enabled"] != "bool" {
 			t.Errorf("expected field 'enabled' to be 'bool', got %q", spec.Fields["enabled"])

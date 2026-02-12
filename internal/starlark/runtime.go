@@ -52,12 +52,7 @@ func NewRuntime() *Runtime {
 // Config returns the unified config, initializing if needed.
 func (r *Runtime) Config() *config.Config {
 	if r.config == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			// Fall back to empty config on error
-			cfg, _ = config.Load()
-		}
-		r.config = cfg
+		r.config = config.New()
 	}
 	return r.config
 }
@@ -101,7 +96,7 @@ func (r *Runtime) loadExtensionsFromPaths(paths ...string) error {
 
 		// Register config if the extension has one
 		if spec.HasConfig() {
-			if err := r.Config().RegisterExtension(spec.Extension, spec.ToConfigSpec()); err != nil {
+			if err := r.Config().RegisterExtension(spec.ConfigPath(), spec.ToConfigSpec()); err != nil {
 				return fmt.Errorf("register config for %s: %w", spec.Extension, err)
 			}
 		}
@@ -120,6 +115,16 @@ func (r *Runtime) loadExtensionsFromPaths(paths ...string) error {
 			}
 		}
 	}
+
+	// Load config values from user/project YAML files now that all
+	// extensions have registered their config specs.
+	if err := r.Config().LoadFromFiles(); err != nil {
+		return fmt.Errorf("load config files: %w", err)
+	}
+
+	// Wire the loaded config into the ConfigReceiver singleton so
+	// config.get()/show()/sync() use the fully-populated config.
+	Config.SetConfig(r.Config())
 
 	return nil
 }
