@@ -9,15 +9,10 @@ receivers:
     builtin: true
     type: LintReceiver
     description: Markdown linting primitives
-    functions:
-      markdown: Run markdownlint with frontmatter validation
-      ensure_tools: Check lint tool availability
   - name: config
     builtin: true
     type: ConfigReceiver
     description: Configuration access
-    functions:
-      sync: Sync tool configs
 
 commands:
   - name: lint.markdown

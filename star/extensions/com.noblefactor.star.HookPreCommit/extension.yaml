@@ -9,11 +9,6 @@ receivers:
     builtin: true
     type: LintReceiver
     description: Lint primitives
-    functions:
-      go: Run Go linter
-      shell: Run shell linter
-      markdown: Run markdown linter
-      ensure_tools: Check lint tool availability
 
 commands:
   - name: hook.pre-commit

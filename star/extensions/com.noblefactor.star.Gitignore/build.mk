@@ -14,7 +14,7 @@ EXTENSIONS += $(EXT_GITIGNORE)
 # Rust sources for dependency tracking
 EXT_GITIGNORE_SRCS := $(wildcard $(EXT_GITIGNORE_DIR)/src/*.rs) $(EXT_GITIGNORE_DIR)/Cargo.toml
 
-# Build WASM receiver
+# Build WASM receiver (reactor mode — exports _initialize, not _start)
 $(EXT_GITIGNORE)-build: $(EXT_GITIGNORE_WASM)
 
 $(EXT_GITIGNORE_WASM): $(EXT_GITIGNORE_SRCS)

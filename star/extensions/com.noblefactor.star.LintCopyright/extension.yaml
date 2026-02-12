@@ -9,26 +9,14 @@ receivers:
     builtin: true
     type: FileReceiver
     description: Filesystem operations
-    functions:
-      read: Read file contents
-      write: Write file contents
-      glob: Find files matching pattern
-      exists: Check if file exists
   - name: regexp
     builtin: true
     type: RegexpReceiver
     description: Regular expression operations
-    functions:
-      match: Test if pattern matches text
-      find: Find first match
-      find_submatch: Find first match with groups
-      replace: Replace matches with groups
   - name: config
     builtin: true
     type: ConfigReceiver
     description: Configuration access
-    functions:
-      get: Load merged config
 
 commands:
   - name: lint.copyright

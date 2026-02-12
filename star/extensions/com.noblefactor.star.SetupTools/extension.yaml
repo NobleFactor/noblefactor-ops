@@ -9,8 +9,6 @@ receivers:
     builtin: true
     type: SetupReceiver
     description: Repository setup functions
-    functions:
-      tools: Check tool installation status
 
 commands:
   - name: setup.tools

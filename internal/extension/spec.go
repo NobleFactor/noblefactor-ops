@@ -63,8 +63,9 @@ type ReceiverSpec struct {
 	// Description is a brief summary of what this receiver provides.
 	Description string `yaml:"description"`
 
-	// Functions maps function names to descriptions.
-	// Keys are snake_case names as exposed to Starlark.
+	// Functions is deprecated and must not be set.
+	// Functions are auto-discovered from WASM exports.
+	// Kept in struct for YAML detection — Validate() rejects non-empty values.
 	Functions map[string]string `yaml:"functions"`
 
 	// Capabilities defines sandboxing rules for this WASM receiver.
@@ -201,6 +202,10 @@ func (s *ExtensionSpec) Validate() error {
 		}
 		if !r.Builtin && r.Wasm == "" {
 			return fmt.Errorf("receiver %q: non-builtin receiver requires wasm path", r.Name)
+		}
+		// Reject functions field — functions are auto-discovered from WASM exports
+		if len(r.Functions) > 0 {
+			return fmt.Errorf("receiver %q: 'functions' field is no longer supported; functions are auto-discovered from WASM exports", r.Name)
 		}
 		// WASM receivers must have capabilities
 		if !r.Builtin && r.Wasm != "" && r.Capabilities == nil {

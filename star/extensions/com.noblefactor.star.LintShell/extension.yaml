@@ -9,9 +9,6 @@ receivers:
     builtin: true
     type: LintReceiver
     description: Shell linting primitives
-    functions:
-      shell: Run shellcheck and shfmt
-      ensure_tools: Check lint tool availability
 
 commands:
   - name: lint.shell

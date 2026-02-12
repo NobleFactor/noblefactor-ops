@@ -9,8 +9,6 @@ receivers:
     builtin: true
     type: SetupReceiver
     description: Repository setup functions
-    functions:
-      init_config: Initialize star.yaml
 
 commands:
   - name: setup.config

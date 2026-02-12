@@ -8,13 +8,14 @@ import (
 	"fmt"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 )
 
 // WasmReceiver wraps a WASM module as a Starlark HasAttrs value.
 // Each attribute access returns a builtin that invokes the corresponding
-// WASM function via JSON-RPC.
+// WASM function via shared memory.
 type WasmReceiver struct {
 	BaseReceiver
 	module    extension.WasmModule
@@ -127,11 +128,43 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 }
 
 // wasmJSONToStarlark converts JSON bytes to a Starlark value.
+// Unlike goToStarlark which returns dicts for JSON objects, this function
+// returns starlarkstruct.Struct values so that Starlark scripts can use
+// attribute access (result.field) rather than dict access (result["field"]).
+// This ensures WASM receivers behave identically to builtin receivers.
 func wasmJSONToStarlark(data []byte) (starlark.Value, error) {
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
 		return nil, err
 	}
-	// Use existing goToStarlark (returns starlark.Value, no error)
-	return goToStarlark(v), nil
+	return jsonToStarlarkStruct(v), nil
+}
+
+// jsonToStarlarkStruct recursively converts a Go value (from JSON) to a
+// Starlark value, using starlarkstruct.Struct for maps instead of Dict.
+func jsonToStarlarkStruct(v any) starlark.Value {
+	switch x := v.(type) {
+	case nil:
+		return starlark.None
+	case bool:
+		return starlark.Bool(x)
+	case float64:
+		return starlark.Float(x)
+	case string:
+		return starlark.String(x)
+	case []any:
+		items := make([]starlark.Value, len(x))
+		for i, item := range x {
+			items[i] = jsonToStarlarkStruct(item)
+		}
+		return starlark.NewList(items)
+	case map[string]any:
+		dict := make(starlark.StringDict, len(x))
+		for k, v := range x {
+			dict[k] = jsonToStarlarkStruct(v)
+		}
+		return starlarkstruct.FromStringDict(starlarkstruct.Default, dict)
+	default:
+		return starlark.String(fmt.Sprintf("%v", x))
+	}
 }

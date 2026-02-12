@@ -19,9 +19,6 @@ receivers:
     type: CopyrightChecker
     builtin: true
     description: "Copyright header primitives"
-    functions:
-      check: "Verify files have correct headers"
-      fix: "Add or update headers"
 
 commands:
   - name: lint.copyright
@@ -105,9 +102,6 @@ receivers:
   - name: copyright
     type: CopyrightChecker
     builtin: true
-    functions:
-      check: "Verify headers"
-      fix: "Fix headers"
 `
 	spec, err := ParseSpecFromBytes([]byte(yaml))
 	if err != nil {
@@ -156,8 +150,6 @@ description: "Custom analysis"
 receivers:
   - name: customlint
     wasm: receivers/customlint.wasm
-    functions:
-      analyze: "Run analysis"
     capabilities:
       fs:
         read: ["/workspace"]
@@ -577,6 +569,24 @@ this is not valid yaml: [
 	_, err := ParseSpecFromBytes([]byte(yaml))
 	if err == nil {
 		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestValidate_FunctionsFieldRejected(t *testing.T) {
+	yaml := `
+extension: com.example.Test
+receivers:
+  - name: test
+    wasm: receivers/test.wasm
+    functions:
+      analyze: "Run analysis"
+    capabilities:
+      fs:
+        read: ["/workspace"]
+`
+	_, err := ParseSpecFromBytes([]byte(yaml))
+	if err == nil {
+		t.Error("expected error for receiver with functions field")
 	}
 }
 
