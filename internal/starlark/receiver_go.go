@@ -799,6 +799,7 @@ func (r *GoReceiver) goMethods(_ *starlark.Thread, _ *starlark.Builtin, args sta
 				"name":          starlark.String(fn.Name.Name),
 				"receiver_type": starlark.String(recvType),
 				"returns":       starlark.String(returns),
+				"params":        extractParams(fn.Type.Params),
 				"file":          starlark.String(filepath.Base(file)),
 				"line":          starlark.MakeInt(fset.Position(fn.Pos()).Line),
 				"doc":           starlark.String(doc),
@@ -846,6 +847,7 @@ func (r *GoReceiver) goFuncs(_ *starlark.Thread, _ *starlark.Builtin, args starl
 			result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 				"name":    starlark.String(fn.Name.Name),
 				"returns": starlark.String(returns),
+				"params":  extractParams(fn.Type.Params),
 				"file":    starlark.String(filepath.Base(file)),
 				"line":    starlark.MakeInt(fset.Position(fn.Pos()).Line),
 				"doc":     starlark.String(doc),
@@ -1072,9 +1074,87 @@ func typeToString(expr ast.Expr) string {
 		return "[]" + typeToString(t.Elt)
 	case *ast.MapType:
 		return "map[" + typeToString(t.Key) + "]" + typeToString(t.Value)
+	case *ast.Ellipsis:
+		return "..." + typeToString(t.Elt)
+	case *ast.InterfaceType:
+		if t.Methods == nil || len(t.Methods.List) == 0 {
+			return "any"
+		}
+		return "interface{...}"
+	case *ast.FuncType:
+		var params []string
+		if t.Params != nil {
+			for _, p := range t.Params.List {
+				ts := typeToString(p.Type)
+				n := len(p.Names)
+				if n == 0 {
+					n = 1
+				}
+				for range n {
+					params = append(params, ts)
+				}
+			}
+		}
+		ret := returnTypeString(t.Results)
+		if ret == "" {
+			return "func(" + strings.Join(params, ", ") + ")"
+		}
+		return "func(" + strings.Join(params, ", ") + ") " + ret
+	case *ast.ChanType:
+		switch t.Dir {
+		case ast.SEND:
+			return "chan<- " + typeToString(t.Value)
+		case ast.RECV:
+			return "<-chan " + typeToString(t.Value)
+		default:
+			return "chan " + typeToString(t.Value)
+		}
+	case *ast.IndexExpr:
+		return typeToString(t.X) + "[" + typeToString(t.Index) + "]"
+	case *ast.IndexListExpr:
+		var indices []string
+		for _, idx := range t.Indices {
+			indices = append(indices, typeToString(idx))
+		}
+		return typeToString(t.X) + "[" + strings.Join(indices, ", ") + "]"
 	default:
 		return "unknown"
 	}
+}
+
+// extractParams converts a function's parameter list to a Starlark list of param structs.
+func extractParams(params *ast.FieldList) starlark.Value {
+	var result []starlark.Value
+	if params == nil {
+		return starlark.NewList(result)
+	}
+	for i, field := range params.List {
+		isLast := i == len(params.List)-1
+		_, isEllipsis := field.Type.(*ast.Ellipsis)
+		variadic := isLast && isEllipsis
+
+		typeStr := typeToString(field.Type)
+		if variadic {
+			typeStr = strings.TrimPrefix(typeStr, "...")
+		}
+
+		if len(field.Names) == 0 {
+			result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+				"name":     starlark.String(""),
+				"type":     starlark.String(typeStr),
+				"variadic": starlark.Bool(variadic),
+			}))
+		} else {
+			for _, name := range field.Names {
+				result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+					"name":     starlark.String(name.Name),
+					"type":     starlark.String(typeStr),
+					"variadic": starlark.Bool(variadic),
+				}))
+			}
+		}
+	}
+	return starlark.NewList(result)
 }
 
 func parseJSONTag(tag string) (name string, required bool) {

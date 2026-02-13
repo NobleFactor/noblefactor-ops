@@ -69,6 +69,24 @@ func getListItem(t *testing.T, v starlark.Value, i int) starlark.Value {
 	return list.Index(i)
 }
 
+// getBoolAttr extracts a bool attribute from a Starlark struct.
+func getBoolAttr(t *testing.T, v starlark.Value, name string) bool {
+	t.Helper()
+	s, ok := v.(*starlarkstruct.Struct)
+	if !ok {
+		t.Fatalf("expected struct, got %T", v)
+	}
+	attr, err := s.Attr(name)
+	if err != nil {
+		t.Fatalf("Attr(%q): %v", name, err)
+	}
+	b, ok := attr.(starlark.Bool)
+	if !ok {
+		t.Fatalf("Attr(%q) = %v (%T), want bool", name, attr, attr)
+	}
+	return bool(b)
+}
+
 // writeTempDir creates a temp dir with Go source files.
 func writeTempDir(t *testing.T, files map[string]string) string {
 	t.Helper()
@@ -645,4 +663,355 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestGoFuncsParams(t *testing.T) {
+	dir := writeTempDir(t, map[string]string{
+		"params.go": `package example
+
+type Node struct{}
+type Result[T any] struct{}
+
+func singleParam(x string) {}
+func multiSameType(a, b int) {}
+func multiDiffType(name string, count int, verbose bool) {}
+func variadicFunc(prefix string, items ...string) {}
+func pointerParam(node *Node) {}
+func sliceParam(items []string) {}
+func mapParam(data map[string]int) {}
+func noParams() {}
+func interfaceParam(v interface{}) {}
+func funcParam(fn func(string) error) {}
+func chanParam(ch chan string) {}
+func genericParam(r Result[string]) {}
+`,
+	})
+
+	r := NewGoReceiver()
+
+	tests := []struct {
+		name   string
+		params []struct {
+			name     string
+			typ      string
+			variadic bool
+		}
+	}{
+		{
+			name: "singleParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"x", "string", false},
+			},
+		},
+		{
+			name: "multiSameType",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"a", "int", false},
+				{"b", "int", false},
+			},
+		},
+		{
+			name: "multiDiffType",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"name", "string", false},
+				{"count", "int", false},
+				{"verbose", "bool", false},
+			},
+		},
+		{
+			name: "variadicFunc",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"prefix", "string", false},
+				{"items", "string", true},
+			},
+		},
+		{
+			name: "pointerParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"node", "*Node", false},
+			},
+		},
+		{
+			name: "sliceParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"items", "[]string", false},
+			},
+		},
+		{
+			name: "mapParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"data", "map[string]int", false},
+			},
+		},
+		{
+			name: "noParams",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{},
+		},
+		{
+			name: "interfaceParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"v", "any", false},
+			},
+		},
+		{
+			name: "funcParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"fn", "func(string) error", false},
+			},
+		},
+		{
+			name: "chanParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"ch", "chan string", false},
+			},
+		},
+		{
+			name: "genericParam",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"r", "Result[string]", false},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := callMethod(t, r, "funcs",
+				starlark.Tuple{starlark.String(dir)},
+				[]starlark.Tuple{{starlark.String("name"), starlark.String(tc.name)}},
+			)
+			if getListLen(t, result) != 1 {
+				t.Fatalf("expected 1 function %q, got %d", tc.name, getListLen(t, result))
+			}
+			fn := getListItem(t, result, 0)
+			params := fn.(*starlarkstruct.Struct)
+			paramsAttr, err := params.Attr("params")
+			if err != nil {
+				t.Fatalf("params attr: %v", err)
+			}
+			paramsList := paramsAttr.(*starlark.List)
+			if paramsList.Len() != len(tc.params) {
+				t.Fatalf("expected %d params, got %d", len(tc.params), paramsList.Len())
+			}
+			for i, expected := range tc.params {
+				p := paramsList.Index(i)
+				if got := getStructAttr(t, p, "name"); got != expected.name {
+					t.Errorf("param[%d] name: got %q, want %q", i, got, expected.name)
+				}
+				if got := getStructAttr(t, p, "type"); got != expected.typ {
+					t.Errorf("param[%d] type: got %q, want %q", i, got, expected.typ)
+				}
+				if got := getBoolAttr(t, p, "variadic"); got != expected.variadic {
+					t.Errorf("param[%d] variadic: got %v, want %v", i, got, expected.variadic)
+				}
+			}
+		})
+	}
+}
+
+func TestGoMethodsParams(t *testing.T) {
+	dir := writeTempDir(t, map[string]string{
+		"fileops.go": `package example
+
+type FileOps struct{}
+
+func (f *FileOps) Copy(source, dest string) error {
+	return nil
+}
+
+func (f *FileOps) Install(packages ...string) error {
+	return nil
+}
+
+func (f *FileOps) Check() bool {
+	return true
+}
+`,
+	})
+
+	r := NewGoReceiver()
+
+	tests := []struct {
+		name   string
+		params []struct {
+			name     string
+			typ      string
+			variadic bool
+		}
+	}{
+		{
+			name: "Copy",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"source", "string", false},
+				{"dest", "string", false},
+			},
+		},
+		{
+			name: "Install",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{
+				{"packages", "string", true},
+			},
+		},
+		{
+			name: "Check",
+			params: []struct {
+				name     string
+				typ      string
+				variadic bool
+			}{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := callMethod(t, r, "methods",
+				starlark.Tuple{starlark.String(dir)},
+				[]starlark.Tuple{{starlark.String("name"), starlark.String(tc.name)}},
+			)
+			if getListLen(t, result) != 1 {
+				t.Fatalf("expected 1 method %q, got %d", tc.name, getListLen(t, result))
+			}
+			method := getListItem(t, result, 0)
+			s := method.(*starlarkstruct.Struct)
+			paramsAttr, err := s.Attr("params")
+			if err != nil {
+				t.Fatalf("params attr: %v", err)
+			}
+			paramsList := paramsAttr.(*starlark.List)
+			if paramsList.Len() != len(tc.params) {
+				t.Fatalf("expected %d params, got %d", len(tc.params), paramsList.Len())
+			}
+			for i, expected := range tc.params {
+				p := paramsList.Index(i)
+				if got := getStructAttr(t, p, "name"); got != expected.name {
+					t.Errorf("param[%d] name: got %q, want %q", i, got, expected.name)
+				}
+				if got := getStructAttr(t, p, "type"); got != expected.typ {
+					t.Errorf("param[%d] type: got %q, want %q", i, got, expected.typ)
+				}
+				if got := getBoolAttr(t, p, "variadic"); got != expected.variadic {
+					t.Errorf("param[%d] variadic: got %v, want %v", i, got, expected.variadic)
+				}
+			}
+		})
+	}
+}
+
+func TestTypeToStringExtended(t *testing.T) {
+	dir := writeTempDir(t, map[string]string{
+		"showcase.go": `package example
+
+type Result[T any] struct{}
+
+type TypeShowcase struct {
+	AnyField     interface{}
+	FuncField    func(string) error
+	ChanField    chan string
+	SendChan     chan<- int
+	RecvChan     <-chan bool
+	GenericField Result[string]
+}
+`,
+	})
+
+	r := NewGoReceiver()
+	result := callMethod(t, r, "structs", starlark.Tuple{starlark.String(dir)}, nil)
+
+	// Find TypeShowcase
+	var showcase starlark.Value
+	for i := 0; i < getListLen(t, result); i++ {
+		item := getListItem(t, result, i)
+		if getStructAttr(t, item, "name") == "TypeShowcase" {
+			showcase = item
+			break
+		}
+	}
+	if showcase == nil {
+		t.Fatal("TypeShowcase struct not found")
+	}
+
+	s := showcase.(*starlarkstruct.Struct)
+	fieldsAttr, _ := s.Attr("fields")
+	fields := fieldsAttr.(*starlark.List)
+
+	expected := []struct {
+		name string
+		typ  string
+	}{
+		{"AnyField", "any"},
+		{"FuncField", "func(string) error"},
+		{"ChanField", "chan string"},
+		{"SendChan", "chan<- int"},
+		{"RecvChan", "<-chan bool"},
+		{"GenericField", "Result[string]"},
+	}
+
+	if fields.Len() != len(expected) {
+		t.Fatalf("expected %d fields, got %d", len(expected), fields.Len())
+	}
+
+	for i, exp := range expected {
+		field := fields.Index(i)
+		if got := getStructAttr(t, field, "name"); got != exp.name {
+			t.Errorf("field[%d] name: got %q, want %q", i, got, exp.name)
+		}
+		if got := getStructAttr(t, field, "type"); got != exp.typ {
+			t.Errorf("field[%d] type: got %q, want %q", i, got, exp.typ)
+		}
+	}
 }
