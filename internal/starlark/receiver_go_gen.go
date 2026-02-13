@@ -27,6 +27,7 @@ type generateDescriptor struct {
 	Category   string       // snake_case category (e.g., "file")
 	StructName string       // Go struct name (e.g., "File")
 	Namespace  string       // dotted namespace (e.g., "plan.file")
+	ImplType   string       // implementation struct name for delegation (e.g., "fileOps")
 	Methods    []methodInfo // analyzed methods
 }
 
@@ -140,6 +141,7 @@ var genTemplateFuncs = template.FuncMap{
 	"slotReaders":        tplSlotReaders,
 	"dryRunFmt":          tplDryRunFmt,
 	"dryRunVars":         tplDryRunVars,
+	"implArgs":           tplImplArgs,
 }
 
 func tplAttrNamesList(methods []methodInfo) string {
@@ -220,6 +222,17 @@ func tplDryRunVars(params []paramInfo) string {
 	return ", " + strings.Join(names, ", ")
 }
 
+func tplImplArgs(params []paramInfo) string {
+	if len(params) == 0 {
+		return ""
+	}
+	names := make([]string, len(params))
+	for i, p := range params {
+		names[i] = p.GoName
+	}
+	return ", " + strings.Join(names, ", ")
+}
+
 // =============================================================================
 // TEMPLATES
 // =============================================================================
@@ -239,29 +252,29 @@ import (
 )
 
 type {{.StructName}}Plan struct {
+	Receiver
 	graph   *execution.Graph
 	host    host.Host
 	project string
 }
 
 func New{{.StructName}}Plan(graph *execution.Graph, h host.Host, project string) *{{.StructName}}Plan {
-	return &{{.StructName}}Plan{graph: graph, host: h, project: project}
+	return &{{.StructName}}Plan{
+		Receiver: NewReceiver("{{.Namespace}}"),
+		graph:    graph,
+		host:     h,
+		project:  project,
+	}
 }
-
-func (p *{{.StructName}}Plan) String() string        { return "{{.Namespace}}" }
-func (p *{{.StructName}}Plan) Type() string          { return "{{.Namespace}}" }
-func (p *{{.StructName}}Plan) Freeze()               {}
-func (p *{{.StructName}}Plan) Truth() starlark.Bool  { return true }
-func (p *{{.StructName}}Plan) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable: {{.Namespace}}") }
 
 func (p *{{.StructName}}Plan) Attr(name string) (starlark.Value, error) {
 	switch name {
 {{- range .Methods}}
 	case "{{.SnakeName}}":
-		return starlark.NewBuiltin("{{$.Namespace}}.{{.SnakeName}}", p.{{.SnakeName}}), nil
+		return MakeAttr("{{$.Namespace}}.{{.SnakeName}}", p.{{.SnakeName}}), nil
 {{- end}}
 	default:
-		return nil, starlark.NoSuchAttrError(fmt.Sprintf("{{.Namespace}} has no attribute %q", name))
+		return nil, NoSuchAttrError("{{.Namespace}}", name)
 	}
 }
 
@@ -295,7 +308,11 @@ package {{.Package}}
 
 import "fmt"
 {{range .Methods}}
+{{- if $.ImplType}}
+type {{$.StructName}}{{.GoName}}Op struct{ impl *{{$.ImplType}} }
+{{- else}}
 type {{$.StructName}}{{.GoName}}Op struct{}
+{{- end}}
 
 func (o *{{$.StructName}}{{.GoName}}Op) Name() string { return "{{$.Category}}.{{.SnakeName}}" }
 {{if eq .OpCategory "OpWriter"}}
@@ -308,10 +325,15 @@ func (o *{{$.StructName}}{{.GoName}}Op) Write(ctx *Context, node Executable, con
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
 		return "", nil
 	}
+{{- if $.ImplType}}
+
+	return o.impl.{{.GoName}}(ctx{{implArgs .Params}}, content)
+{{- else}}
 
 	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
 	// TODO: call backing implementation
 	return "", nil
+{{- end}}
 }
 {{else if eq .OpCategory "OpTransform"}}
 func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpTransform }
@@ -323,10 +345,15 @@ func (o *{{$.StructName}}{{.GoName}}Op) Transform(ctx *Context, node Executable,
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
 		return content, nil
 	}
+{{- if $.ImplType}}
+
+	return o.impl.{{.GoName}}(ctx{{implArgs .Params}}, content)
+{{- else}}
 
 	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
 	// TODO: call backing implementation
 	return content, nil
+{{- end}}
 }
 {{else}}
 func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpDirect }
@@ -338,13 +365,28 @@ func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node Executable) e
 		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
 		return nil
 	}
+{{- if $.ImplType}}
+
+	return o.impl.{{.GoName}}(ctx{{implArgs .Params}})
+{{- else}}
 
 	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
 	// TODO: call backing implementation
 	return nil
+{{- end}}
 }
 {{end}}
 {{end}}
+{{- if .ImplType}}
+func {{.StructName}}Ops() []Operation {
+	impl := &{{.ImplType}}{}
+	return []Operation{
+{{- range .Methods}}
+		&{{$.StructName}}{{.GoName}}Op{impl: impl},
+{{- end}}
+	}
+}
+{{- else}}
 func {{.StructName}}Ops() []Operation {
 	return []Operation{
 {{- range .Methods}}
@@ -352,6 +394,7 @@ func {{.StructName}}Ops() []Operation {
 {{- end}}
 	}
 }
+{{- end}}
 `))
 
 var realtimeReceiverTemplate = template.Must(
@@ -485,6 +528,9 @@ func descriptorFromValue(templateName string, v starlark.Value) (*generateDescri
 		return nil, fmt.Errorf("descriptor.namespace: %w", err)
 	}
 	desc.Namespace = namespace
+
+	implType, _ := valueGetString(v, "impl_type") // optional
+	desc.ImplType = implType
 
 	methodsVal, err := valueGetList(v, "methods")
 	if err != nil {

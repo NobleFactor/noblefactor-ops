@@ -201,17 +201,47 @@ func TestGeneratePlanReceiver(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Struct definition
+	// Struct definition with Receiver embedding
 	if !strings.Contains(code, "type FilePlan struct") {
 		t.Error("missing FilePlan struct definition")
 	}
+	if !strings.Contains(code, "Receiver\n") {
+		t.Error("FilePlan should embed Receiver")
+	}
 
-	// Attr switch cases
+	// Constructor initializes Receiver
+	if !strings.Contains(code, `NewReceiver("plan.file")`) {
+		t.Error("constructor should call NewReceiver")
+	}
+
+	// No inline starlark.Value methods (provided by Receiver)
+	if strings.Contains(code, "func (p *FilePlan) String()") {
+		t.Error("should not have inline String() — provided by Receiver")
+	}
+	if strings.Contains(code, "func (p *FilePlan) Hash()") {
+		t.Error("should not have inline Hash() — provided by Receiver")
+	}
+
+	// Attr switch uses MakeAttr
 	if !strings.Contains(code, `case "copy":`) {
 		t.Error("missing case for copy in Attr switch")
 	}
 	if !strings.Contains(code, `case "remove":`) {
 		t.Error("missing case for remove in Attr switch")
+	}
+	if !strings.Contains(code, `MakeAttr("plan.file.copy"`) {
+		t.Error("Attr should use MakeAttr")
+	}
+	if strings.Contains(code, "starlark.NewBuiltin(") {
+		t.Error("should not use starlark.NewBuiltin — use MakeAttr")
+	}
+
+	// NoSuchAttrError
+	if !strings.Contains(code, `NoSuchAttrError("plan.file"`) {
+		t.Error("should use NoSuchAttrError with namespace")
+	}
+	if strings.Contains(code, "starlark.NoSuchAttrError") {
+		t.Error("should not use starlark.NoSuchAttrError")
 	}
 
 	// Method definitions
@@ -566,6 +596,89 @@ func TestGenerateGraphOpsTransform(t *testing.T) {
 	// Should NOT have Execute method
 	if strings.Contains(code, "Execute(ctx *Context") {
 		t.Error("Transform op should not have Execute method")
+	}
+}
+
+func TestGenerateGraphOpsDelegation(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+		{
+			"name":    "Link",
+			"returns": "(string, error)",
+			"params": []map[string]any{
+				{"name": "source", "type": "string"},
+				{"name": "path", "type": "string"},
+			},
+		},
+		{
+			"name":        "Copy",
+			"returns":     "(string, error)",
+			"op_category": "writer",
+			"params": []map[string]any{
+				{"name": "path", "type": "string"},
+			},
+		},
+		{
+			"name":        "Render",
+			"returns":     "(string, error)",
+			"op_category": "transform",
+			"params": []map[string]any{
+				{"name": "source", "type": "string"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("fileOps")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// Valid Go syntax
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Op structs have impl field
+	if !strings.Contains(code, "type FileLinkOp struct{ impl *fileOps }") {
+		t.Error("FileLinkOp should have impl *fileOps field")
+	}
+	if !strings.Contains(code, "type FileCopyOp struct{ impl *fileOps }") {
+		t.Error("FileCopyOp should have impl *fileOps field")
+	}
+	if !strings.Contains(code, "type FileRenderOp struct{ impl *fileOps }") {
+		t.Error("FileRenderOp should have impl *fileOps field")
+	}
+
+	// Direct op delegates
+	if !strings.Contains(code, "o.impl.Link(ctx, source, path)") {
+		t.Error("Direct op should delegate to impl.Link")
+	}
+
+	// Writer op delegates with content
+	if !strings.Contains(code, "o.impl.Copy(ctx, path, content)") {
+		t.Error("Writer op should delegate to impl.Copy with content")
+	}
+
+	// Transform op delegates with content
+	if !strings.Contains(code, "o.impl.Render(ctx, source, content)") {
+		t.Error("Transform op should delegate to impl.Render with content")
+	}
+
+	// No TODO stubs when impl_type is set
+	if strings.Contains(code, "// TODO") {
+		t.Error("should not have TODO stubs when impl_type is set")
+	}
+
+	// Registration function creates impl
+	if !strings.Contains(code, "impl := &fileOps{}") {
+		t.Error("registration function should create impl")
+	}
+	if !strings.Contains(code, "&FileLinkOp{impl: impl}") {
+		t.Error("registration should pass impl to ops")
 	}
 }
 
