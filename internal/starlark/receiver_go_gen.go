@@ -35,8 +35,9 @@ type methodInfo struct {
 	GoName     string     // original Go name (e.g., "Copy")
 	SnakeName  string     // snake_case name (e.g., "copy")
 	Params     []paramInfo
-	ReturnType string // value portion of (T, error)
-	Doc        string
+	ReturnType  string // value portion of (T, error)
+	Doc         string
+	OpCategory  string // "OpDirect" (default), "OpWriter", or "OpTransform"
 }
 
 // paramInfo holds information about a single parameter.
@@ -272,7 +273,7 @@ func (p *{{$.StructName}}Plan) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Bu
 {{planUnpackArgs .}}
 
 	node := &execution.Node{
-		ID:        generateNodeID("{{.SnakeName}}"),
+		ID:        generateNodeID("{{$.Category}}.{{.SnakeName}}"),
 		Operation: "{{$.Category}}.{{.SnakeName}}",
 		Project:   p.project,
 	}
@@ -296,7 +297,38 @@ import "fmt"
 {{range .Methods}}
 type {{$.StructName}}{{.GoName}}Op struct{}
 
-func (o *{{$.StructName}}{{.GoName}}Op) Name() string         { return "{{$.Category}}.{{.SnakeName}}" }
+func (o *{{$.StructName}}{{.GoName}}Op) Name() string { return "{{$.Category}}.{{.SnakeName}}" }
+{{if eq .OpCategory "OpWriter"}}
+func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpWriter }
+
+func (o *{{$.StructName}}{{.GoName}}Op) Write(ctx *Context, node Executable, content []byte) (string, error) {
+{{slotReaders .Params}}
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
+		return "", nil
+	}
+
+	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
+	// TODO: call backing implementation
+	return "", nil
+}
+{{else if eq .OpCategory "OpTransform"}}
+func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpTransform }
+
+func (o *{{$.StructName}}{{.GoName}}Op) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
+{{slotReaders .Params}}
+
+	if ctx.DryRun {
+		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
+		return content, nil
+	}
+
+	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
+	// TODO: call backing implementation
+	return content, nil
+}
+{{else}}
 func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpDirect }
 
 func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node Executable) error {
@@ -311,6 +343,7 @@ func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node Executable) e
 	// TODO: call backing implementation
 	return nil
 }
+{{end}}
 {{end}}
 func {{.StructName}}Ops() []Operation {
 	return []Operation{
@@ -497,12 +530,27 @@ func methodInfoFromValue(v starlark.Value) (methodInfo, error) {
 		params = append(params, p)
 	}
 
+	// Read optional op_category (defaults to "OpDirect")
+	opCategory, _ := valueGetString(v, "op_category")
+	goOpCategory := "OpDirect"
+	switch opCategory {
+	case "writer":
+		goOpCategory = "OpWriter"
+	case "transform":
+		goOpCategory = "OpTransform"
+	case "direct", "":
+		goOpCategory = "OpDirect"
+	default:
+		return methodInfo{}, fmt.Errorf("invalid op_category %q (valid: direct, writer, transform)", opCategory)
+	}
+
 	return methodInfo{
 		GoName:     name,
 		SnakeName:  camelToSnake(name),
 		Params:     params,
 		ReturnType: returns,
 		Doc:        doc,
+		OpCategory: goOpCategory,
 	}, nil
 }
 
