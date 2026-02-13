@@ -232,6 +232,14 @@ func TestGeneratePlanReceiver(t *testing.T) {
 		t.Error("missing namespace plan.file")
 	}
 
+	// Node ID includes category
+	if !strings.Contains(code, `generateNodeID("file.copy")`) {
+		t.Error("node ID should include category: file.copy")
+	}
+	if !strings.Contains(code, `generateNodeID("file.remove")`) {
+		t.Error("node ID should include category: file.remove")
+	}
+
 	// FillSlot calls
 	if !strings.Contains(code, `FillSlot(node, p.graph, "source"`) {
 		t.Error("missing FillSlot for source")
@@ -433,5 +441,153 @@ func TestGoGenerateAttr(t *testing.T) {
 	}
 	if _, ok := attr.(*starlark.Builtin); !ok {
 		t.Fatalf("Attr(generate) returned %T, want *starlark.Builtin", attr)
+	}
+}
+
+// buildTestDescriptorWithOpCategory creates a descriptor with op_category set on each method.
+func buildTestDescriptorWithOpCategory(t *testing.T, methods []map[string]any) *starlark.Dict {
+	t.Helper()
+	desc := starlark.NewDict(5)
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("category"), starlark.String("file")))
+	must(t, desc.SetKey(starlark.String("struct_name"), starlark.String("File")))
+	must(t, desc.SetKey(starlark.String("namespace"), starlark.String("file")))
+
+	var methodsList []starlark.Value
+	for _, m := range methods {
+		md := starlark.NewDict(5)
+		must(t, md.SetKey(starlark.String("name"), starlark.String(m["name"].(string))))
+		must(t, md.SetKey(starlark.String("returns"), starlark.String(m["returns"].(string))))
+		must(t, md.SetKey(starlark.String("doc"), starlark.String("")))
+		if opCat, ok := m["op_category"].(string); ok {
+			must(t, md.SetKey(starlark.String("op_category"), starlark.String(opCat)))
+		}
+
+		var paramsList []starlark.Value
+		if params, ok := m["params"].([]map[string]any); ok {
+			for _, p := range params {
+				pd := starlark.NewDict(3)
+				must(t, pd.SetKey(starlark.String("name"), starlark.String(p["name"].(string))))
+				must(t, pd.SetKey(starlark.String("type"), starlark.String(p["type"].(string))))
+				variadic := false
+				if v, ok := p["variadic"].(bool); ok {
+					variadic = v
+				}
+				must(t, pd.SetKey(starlark.String("variadic"), starlark.Bool(variadic)))
+				paramsList = append(paramsList, pd)
+			}
+		}
+		must(t, md.SetKey(starlark.String("params"), starlark.NewList(paramsList)))
+		methodsList = append(methodsList, md)
+	}
+	must(t, desc.SetKey(starlark.String("methods"), starlark.NewList(methodsList)))
+	return desc
+}
+
+func TestGenerateGraphOpsWriter(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+		{
+			"name":        "Copy",
+			"returns":     "(string, error)",
+			"op_category": "writer",
+			"params": []map[string]any{
+				{"name": "source", "type": "string"},
+				{"name": "path", "type": "string"},
+			},
+		},
+	})
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// Valid Go syntax
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// OpWriter category
+	if !strings.Contains(code, "Category() OpCategory { return OpWriter }") {
+		t.Error("missing OpWriter category")
+	}
+
+	// Write method signature
+	if !strings.Contains(code, "Write(ctx *Context, node Executable, content []byte) (string, error)") {
+		t.Error("missing Write method signature")
+	}
+
+	// Should NOT have Execute method
+	if strings.Contains(code, "Execute(ctx *Context") {
+		t.Error("Writer op should not have Execute method")
+	}
+}
+
+func TestGenerateGraphOpsTransform(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+		{
+			"name":        "Render",
+			"returns":     "(string, error)",
+			"op_category": "transform",
+			"params": []map[string]any{
+				{"name": "path", "type": "string"},
+			},
+		},
+	})
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// Valid Go syntax
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// OpTransform category
+	if !strings.Contains(code, "Category() OpCategory { return OpTransform }") {
+		t.Error("missing OpTransform category")
+	}
+
+	// Transform method signature
+	if !strings.Contains(code, "Transform(ctx *Context, node Executable, content []byte) ([]byte, error)") {
+		t.Error("missing Transform method signature")
+	}
+
+	// Should NOT have Execute method
+	if strings.Contains(code, "Execute(ctx *Context") {
+		t.Error("Transform op should not have Execute method")
+	}
+}
+
+func TestGenerateGraphOpsInvalidOpCategory(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+		{
+			"name":        "Bad",
+			"returns":     "(string, error)",
+			"op_category": "invalid",
+			"params":      []map[string]any{},
+		},
+	})
+
+	thread := &starlark.Thread{Name: "test"}
+	attr, _ := r.Attr("generate")
+	fn := attr.(*starlark.Builtin)
+	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+	if err == nil {
+		t.Fatal("expected error for invalid op_category")
+	}
+	if !strings.Contains(err.Error(), "invalid op_category") {
+		t.Errorf("error should mention invalid op_category: %v", err)
 	}
 }
