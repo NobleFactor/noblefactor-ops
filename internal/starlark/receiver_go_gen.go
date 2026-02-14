@@ -202,8 +202,6 @@ var genTemplateFuncs = template.FuncMap{
 	"dryRunChecksum":     tplDryRunChecksum,
 	"implArgs":           tplImplArgs,
 	"graphReturn":        tplGraphReturn,
-	"methodSignature":    tplMethodSignature,
-	"methodReturn":       tplMethodReturn,
 }
 
 func tplAttrNamesList(methods []methodInfo) string {
@@ -395,22 +393,6 @@ func tplGraphReturn(m methodInfo, implType string) string {
 	}
 }
 
-// tplMethodSignature generates the parameter list for the ops interface.
-func tplMethodSignature(m methodInfo) string {
-	parts := make([]string, len(m.Params))
-	for i, p := range m.Params {
-		parts[i] = p.GoName + " " + p.GoType
-	}
-	return strings.Join(parts, ", ")
-}
-
-// tplMethodReturn generates the return type for the ops interface.
-func tplMethodReturn(m methodInfo) string {
-	if m.ReturnType == "" {
-		return "error"
-	}
-	return "(" + m.ReturnType + ", error)"
-}
 
 // =============================================================================
 // TEMPLATES
@@ -482,15 +464,9 @@ var graphOpsTemplate = template.Must(
 package {{.Package}}
 
 import "fmt"
-{{- if .ImplType}}
-
-type {{.ImplType}} interface {
-{{range .Methods}}	{{.GoName}}({{methodSignature .}}) {{methodReturn .}}
-{{end}}}
-{{- end}}
 {{range .Methods}}
 {{- if $.ImplType}}
-type {{$.StructName}}{{.GoName}}Op struct{ impl {{$.ImplType}} }
+type {{$.StructName}}{{.GoName}}Op struct{ impl *{{$.ImplType}} }
 {{- else}}
 type {{$.StructName}}{{.GoName}}Op struct{}
 {{- end}}
@@ -508,7 +484,7 @@ func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node *Node) error 
 }
 {{end}}
 {{- if .ImplType}}
-func {{.StructName}}Ops(impl {{.ImplType}}) []Operation {
+func {{.StructName}}Ops(impl *{{.ImplType}}) []Operation {
 	return []Operation{
 {{- range .Methods}}
 		&{{$.StructName}}{{.GoName}}Op{impl: impl},

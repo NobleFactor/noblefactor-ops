@@ -549,29 +549,20 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Op structs have impl field (interface, no pointer)
-	if !strings.Contains(code, "type FileLinkOp struct{ impl fileOps }") {
-		t.Error("FileLinkOp should have impl fileOps field")
+	// Op structs have impl field (concrete pointer)
+	if !strings.Contains(code, "type FileLinkOp struct{ impl *fileOps }") {
+		t.Error("FileLinkOp should have impl *fileOps field")
 	}
-	if !strings.Contains(code, "type FileCopyOp struct{ impl fileOps }") {
-		t.Error("FileCopyOp should have impl fileOps field")
+	if !strings.Contains(code, "type FileCopyOp struct{ impl *fileOps }") {
+		t.Error("FileCopyOp should have impl *fileOps field")
 	}
-	if !strings.Contains(code, "type FileRenderOp struct{ impl fileOps }") {
-		t.Error("FileRenderOp should have impl fileOps field")
+	if !strings.Contains(code, "type FileRenderOp struct{ impl *fileOps }") {
+		t.Error("FileRenderOp should have impl *fileOps field")
 	}
 
-	// Ops interface generated
-	if !strings.Contains(code, "type fileOps interface") {
-		t.Error("should generate ops interface")
-	}
-	if !strings.Contains(code, "Link(source string, path string) (string, error)") {
-		t.Error("interface should declare Link method")
-	}
-	if !strings.Contains(code, "Copy(path string) (string, error)") {
-		t.Error("interface should declare Copy method")
-	}
-	if !strings.Contains(code, "Render(source string) (string, error)") {
-		t.Error("interface should declare Render method")
+	// No generated interface — use concrete struct directly
+	if strings.Contains(code, "interface") {
+		t.Error("should not generate an interface")
 	}
 
 	// All ops delegate via unified Execute (no ctx arg)
@@ -600,9 +591,9 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 		t.Error("should not have TODO stubs when impl_type is set")
 	}
 
-	// Registration function takes interface param
-	if !strings.Contains(code, "func FileOps(impl fileOps) []Operation") {
-		t.Error("registration function should take interface param")
+	// Registration function takes concrete pointer param
+	if !strings.Contains(code, "func FileOps(impl *fileOps) []Operation") {
+		t.Error("registration function should take concrete pointer param")
 	}
 	if !strings.Contains(code, "&FileLinkOp{impl: impl}") {
 		t.Error("registration should pass impl to ops")
@@ -1087,55 +1078,6 @@ func TestGenerateGraphOpsFramework(t *testing.T) {
 	// Dry-run skips non-starlark-facing params
 	if strings.Contains(code, "output") && strings.Contains(code, `[dry-run] file.shell %v %v`) {
 		t.Error("dry-run should not include io.Writer in format")
-	}
-}
-
-func TestGenerateGraphOpsInterface(t *testing.T) {
-	r := NewGoReceiver()
-	desc := buildTestDescriptor(t, []map[string]any{
-		{
-			"name":    "Shell",
-			"returns": "error",
-			"params": []map[string]any{
-				{"name": "command", "type": "string"},
-				{"name": "output", "type": "io.Writer"},
-			},
-		},
-		{
-			"name":    "Decrypt",
-			"returns": "(string, error)",
-			"params": []map[string]any{
-				{"name": "source", "type": "string"},
-				{"name": "content", "type": "[]byte"},
-			},
-		},
-	})
-	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
-	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("FileOps")))
-
-	result := callMethod(t, r, "generate",
-		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
-
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
-
-	if _, err := format.Source([]byte(code)); err != nil {
-		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
-	}
-
-	// Interface declaration
-	if !strings.Contains(code, "type FileOps interface") {
-		t.Error("should generate ops interface")
-	}
-
-	// Interface methods include ALL params (including framework)
-	if !strings.Contains(code, "Shell(command string, output io.Writer) error") {
-		t.Error("interface Shell should include io.Writer param and error return")
-	}
-	if !strings.Contains(code, "Decrypt(source string, content []byte) (string, error)") {
-		t.Error("interface Decrypt should include []byte param and (string, error) return")
 	}
 }
 
