@@ -549,7 +549,7 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Op structs have impl field
+	// Op structs have impl field (concrete pointer)
 	if !strings.Contains(code, "type FileLinkOp struct{ impl *fileOps }") {
 		t.Error("FileLinkOp should have impl *fileOps field")
 	}
@@ -560,14 +560,19 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 		t.Error("FileRenderOp should have impl *fileOps field")
 	}
 
-	// All ops delegate via unified Execute (slot params only)
-	if !strings.Contains(code, "o.impl.Link(ctx, source, path)") {
+	// No generated interface — use concrete struct directly
+	if strings.Contains(code, "interface") {
+		t.Error("should not generate an interface")
+	}
+
+	// All ops delegate via unified Execute (no ctx arg)
+	if !strings.Contains(code, "o.impl.Link(source, path)") {
 		t.Error("Link op should delegate to impl.Link")
 	}
-	if !strings.Contains(code, "o.impl.Copy(ctx, path)") {
+	if !strings.Contains(code, "o.impl.Copy(path)") {
 		t.Error("Copy op should delegate to impl.Copy")
 	}
-	if !strings.Contains(code, "o.impl.Render(ctx, source)") {
+	if !strings.Contains(code, "o.impl.Render(source)") {
 		t.Error("Render op should delegate to impl.Render")
 	}
 
@@ -580,21 +585,15 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 	if strings.Contains(code, "Category()") {
 		t.Error("should not have Category method")
 	}
-	if strings.Contains(code, "Write(ctx") {
-		t.Error("should not have Write method")
-	}
-	if strings.Contains(code, "Transform(ctx") {
-		t.Error("should not have Transform method")
-	}
 
 	// No TODO stubs when impl_type is set
 	if strings.Contains(code, "// TODO") {
 		t.Error("should not have TODO stubs when impl_type is set")
 	}
 
-	// Registration function creates impl
-	if !strings.Contains(code, "impl := &fileOps{}") {
-		t.Error("registration function should create impl")
+	// Registration function takes concrete pointer param
+	if !strings.Contains(code, "func FileOps(impl *fileOps) []Operation") {
+		t.Error("registration function should take concrete pointer param")
 	}
 	if !strings.Contains(code, "&FileLinkOp{impl: impl}") {
 		t.Error("registration should pass impl to ops")
@@ -843,4 +842,346 @@ func TestGoMappingGateEnforcement(t *testing.T) {
 			t.Errorf("error should mention return format: %v", err)
 		}
 	})
+}
+
+func TestInferContentModel(t *testing.T) {
+	tests := []struct {
+		name      string
+		valueType string
+		params    []paramInfo
+		want      string
+	}{
+		{
+			name:      "error-only return",
+			valueType: "",
+			params:    []paramInfo{{GoType: "[]byte"}},
+			want:      "none",
+		},
+		{
+			name:      "string return with []byte last param",
+			valueType: "string",
+			params: []paramInfo{
+				{GoType: "string"},
+				{GoType: "[]byte"},
+			},
+			want: "consumer",
+		},
+		{
+			name:      "[]byte return with []byte last param",
+			valueType: "[]byte",
+			params: []paramInfo{
+				{GoType: "string"},
+				{GoType: "[]byte"},
+			},
+			want: "transformer",
+		},
+		{
+			name:      "string return without []byte last param",
+			valueType: "string",
+			params: []paramInfo{
+				{GoType: "string"},
+			},
+			want: "none",
+		},
+		{
+			name:      "no params",
+			valueType: "string",
+			params:    nil,
+			want:      "none",
+		},
+		{
+			name:      "bool return with []byte last param",
+			valueType: "bool",
+			params: []paramInfo{
+				{GoType: "[]byte"},
+			},
+			want: "none",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := inferContentModel(tc.valueType, tc.params)
+			if got != tc.want {
+				t.Errorf("inferContentModel(%q, ...) = %q, want %q", tc.valueType, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsContentParam(t *testing.T) {
+	consumer := methodInfo{
+		GoName:       "Decrypt",
+		ContentModel: "consumer",
+		Params: []paramInfo{
+			{GoName: "source", GoType: "string"},
+			{GoName: "content", GoType: "[]byte"},
+		},
+	}
+	// Last []byte is content
+	if !isContentParam(consumer.Params[1], consumer) {
+		t.Error("last []byte should be content param in consumer")
+	}
+	// String is not content
+	if isContentParam(consumer.Params[0], consumer) {
+		t.Error("string param should not be content param")
+	}
+
+	none := methodInfo{
+		GoName:       "Copy",
+		ContentModel: "none",
+		Params: []paramInfo{
+			{GoName: "path", GoType: "string"},
+		},
+	}
+	if isContentParam(none.Params[0], none) {
+		t.Error("no params should be content in none model")
+	}
+}
+
+func TestGenerateGraphOpsConsumer(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Decrypt",
+			"returns": "(string, error)",
+			"params": []map[string]any{
+				{"name": "source", "type": "string"},
+				{"name": "content", "type": "[]byte"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("FileOps")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Content pipeline read
+	if !strings.Contains(code, "ContentFor(ctx, node)") {
+		t.Error("consumer should read content via ContentFor")
+	}
+
+	// Dry-run checksum
+	if !strings.Contains(code, "ctx.TargetChecksum = ChecksumBytes(content)") {
+		t.Error("consumer dry-run should set TargetChecksum")
+	}
+
+	// Delegation discards string result (_, err =)
+	if !strings.Contains(code, "o.impl.Decrypt(source, content)") {
+		t.Error("consumer should delegate to impl.Decrypt")
+	}
+
+	// Dry-run format only includes starlark-facing params (source, not content)
+	if !strings.Contains(code, `[dry-run] file.decrypt %v`) {
+		t.Error("dry-run should format starlark-facing params only")
+	}
+}
+
+func TestGenerateGraphOpsTransformer(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Transform",
+			"returns": "([]byte, error)",
+			"params": []map[string]any{
+				{"name": "source", "type": "string"},
+				{"name": "content", "type": "[]byte"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("FileOps")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Content pipeline read
+	if !strings.Contains(code, "ContentFor(ctx, node)") {
+		t.Error("transformer should read content via ContentFor")
+	}
+
+	// Store transformed content
+	if !strings.Contains(code, "StoreContent(ctx, node, result)") {
+		t.Error("transformer should store result via StoreContent")
+	}
+
+	// No checksum in transformer dry-run
+	if strings.Contains(code, "TargetChecksum") {
+		t.Error("transformer should not set TargetChecksum")
+	}
+}
+
+func TestGenerateGraphOpsFramework(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Shell",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "command", "type": "string"},
+				{"name": "output", "type": "io.Writer"},
+			},
+		},
+		{
+			"name":    "Move",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "source", "type": "string"},
+				{"name": "path", "type": "string"},
+				{"name": "gitMv", "type": "func(string, string) error"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("FileOps")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// io.Writer read from ctx.Logger
+	if !strings.Contains(code, "output := ctx.Logger") {
+		t.Error("io.Writer should be read from ctx.Logger")
+	}
+
+	// func type read from slot assertion
+	if !strings.Contains(code, `node.GetSlot("git_mv").(func(string, string) error)`) {
+		t.Error("func param should be read via slot assertion")
+	}
+
+	// Dry-run skips non-starlark-facing params
+	if strings.Contains(code, "output") && strings.Contains(code, `[dry-run] file.shell %v %v`) {
+		t.Error("dry-run should not include io.Writer in format")
+	}
+}
+
+func TestGenerateGraphOpsErrorOnly(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Remove",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "path", "type": "string"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("FileOps")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Error-only return delegates directly
+	if !strings.Contains(code, "return o.impl.Remove(path)") {
+		t.Error("error-only should return delegation directly")
+	}
+
+	// No content handling
+	if strings.Contains(code, "ContentFor") {
+		t.Error("error-only should not use ContentFor")
+	}
+	if strings.Contains(code, "TargetChecksum") {
+		t.Error("error-only should not set TargetChecksum")
+	}
+}
+
+func TestPlanReceiverSkipsFramework(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Decrypt",
+			"returns": "(string, error)",
+			"params": []map[string]any{
+				{"name": "decryptor", "type": "func(string, []byte) ([]byte, error)"},
+				{"name": "source", "type": "string"},
+				{"name": "content", "type": "[]byte"},
+			},
+		},
+		{
+			"name":    "Shell",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "command", "type": "string"},
+				{"name": "output", "type": "io.Writer"},
+			},
+		},
+	})
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("plan_receiver"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Starlark-facing params present in FillSlot
+	if !strings.Contains(code, `FillSlot(node, p.graph, "source"`) {
+		t.Error("source should have FillSlot")
+	}
+	if !strings.Contains(code, `FillSlot(node, p.graph, "command"`) {
+		t.Error("command should have FillSlot")
+	}
+
+	// Non-starlark-facing params absent from FillSlot
+	if strings.Contains(code, `FillSlot(node, p.graph, "decryptor"`) {
+		t.Error("func type should NOT have FillSlot")
+	}
+	if strings.Contains(code, `FillSlot(node, p.graph, "output"`) {
+		t.Error("io.Writer should NOT have FillSlot")
+	}
+	if strings.Contains(code, `FillSlot(node, p.graph, "content"`) {
+		t.Error("content []byte should NOT have FillSlot")
+	}
+
+	// Non-starlark-facing params absent from UnpackArgs
+	if strings.Contains(code, `"decryptor"`) {
+		t.Error("func type should NOT appear in UnpackArgs")
+	}
+	if strings.Contains(code, `"output"`) {
+		t.Error("io.Writer should NOT appear in UnpackArgs")
+	}
+	if strings.Contains(code, `"content"`) {
+		t.Error("content []byte should NOT appear in UnpackArgs")
+	}
 }

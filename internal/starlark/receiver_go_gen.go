@@ -34,11 +34,12 @@ type generateDescriptor struct {
 
 // methodInfo holds analyzed information about a single method.
 type methodInfo struct {
-	GoName     string     // original Go name (e.g., "Copy")
-	SnakeName  string     // snake_case name (e.g., "copy")
-	Params     []paramInfo
-	ReturnType  string // value portion of (T, error)
-	Doc         string
+	GoName       string      // original Go name (e.g., "Copy")
+	SnakeName    string      // snake_case name (e.g., "copy")
+	Params       []paramInfo
+	ReturnType   string // value type from (T, error), empty for error-only
+	ContentModel string // "none", "consumer", "transformer"
+	Doc          string
 }
 
 // paramInfo holds information about a single parameter.
@@ -55,25 +56,28 @@ type paramInfo struct {
 
 // typeMapping maps a Go type to its Starlark representations.
 type typeMapping struct {
-	unpackType string // Go type for starlark.UnpackArgs (e.g., "string")
-	slotReader string // fmt pattern for reading from node slot
-	framework  bool   // true for params injected by executor context, not node slots
+	unpackType     string // Go type for starlark.UnpackArgs (e.g., "string")
+	slotReader     string // fmt pattern for reading from node slot
+	starlarkFacing bool   // include in plan receiver UnpackArgs/FillSlot
+	contextReader  string // if set, read from this expr instead of a slot
 }
 
 var typeMappings = map[string]typeMapping{
-	// Slot-stored types (read from node slots via type assertion)
-	"string":         {unpackType: "string", slotReader: `node.GetSlot("%s").(string)`},
-	"bool":           {unpackType: "bool", slotReader: `node.GetSlot("%s").(bool)`},
-	"int":            {unpackType: "int", slotReader: `node.GetSlot("%s").(int)`},
-	"int64":          {unpackType: "int64", slotReader: `node.GetSlot("%s").(int64)`},
-	"[]string":       {unpackType: "*starlark.List", slotReader: `node.GetSlot("%s").([]string)`},
-	"os.FileMode":    {unpackType: "int", slotReader: `node.GetSlot("%s").(os.FileMode)`},
-	"map[string]any": {unpackType: "*starlark.Dict", slotReader: `node.GetSlot("%s").(map[string]any)`},
-	// Framework-injected types (provided by executor context, not node slots)
-	"[]byte":                                {framework: true},
-	"io.Writer":                             {framework: true},
-	"func(string, []byte) ([]byte, error)":  {framework: true},
-	"func(string, string) error":            {framework: true},
+	// Starlark-facing: in plan UnpackArgs + graph ops slot readers
+	"string":         {unpackType: "string", slotReader: `node.GetSlot("%s").(string)`, starlarkFacing: true},
+	"bool":           {unpackType: "bool", slotReader: `node.GetSlot("%s").(bool)`, starlarkFacing: true},
+	"int":            {unpackType: "int", slotReader: `node.GetSlot("%s").(int)`, starlarkFacing: true},
+	"int64":          {unpackType: "int64", slotReader: `node.GetSlot("%s").(int64)`, starlarkFacing: true},
+	"[]string":       {unpackType: "*starlark.List", slotReader: `node.GetSlot("%s").([]string)`, starlarkFacing: true},
+	"os.FileMode":    {unpackType: "int", slotReader: `node.GetSlot("%s").(os.FileMode)`, starlarkFacing: true},
+	"map[string]any": {unpackType: "*starlark.Dict", slotReader: `node.GetSlot("%s").(map[string]any)`, starlarkFacing: true},
+	// Engine-injected: graph ops slot readers only (filled by engine from ctx.Data)
+	"func(string, []byte) ([]byte, error)": {slotReader: `node.GetSlot("%s").(func(string, []byte) ([]byte, error))`},
+	"func(string, string) error":           {slotReader: `node.GetSlot("%s").(func(string, string) error)`},
+	// Context-provided: read from context expression, not slots
+	"io.Writer": {contextReader: "ctx.Logger"},
+	// Content pipeline: handled by content model inference, not mappings
+	"[]byte": {},
 }
 
 // =============================================================================
@@ -144,17 +148,60 @@ func validateParamTypes(params []paramInfo) error {
 }
 
 // =============================================================================
+// CONTENT MODEL INFERENCE
+// =============================================================================
+
+// inferContentModel determines how a method participates in the content pipeline.
+func inferContentModel(valueType string, params []paramInfo) string {
+	if valueType == "" {
+		return "none"
+	}
+	if len(params) == 0 {
+		return "none"
+	}
+	lastParam := params[len(params)-1]
+	if lastParam.GoType != "[]byte" {
+		return "none"
+	}
+	switch valueType {
+	case "string":
+		return "consumer"
+	case "[]byte":
+		return "transformer"
+	default:
+		return "none"
+	}
+}
+
+// isContentParam returns true if p is the content pipeline parameter for m.
+func isContentParam(p paramInfo, m methodInfo) bool {
+	if m.ContentModel == "none" {
+		return false
+	}
+	// The content param is the last []byte param.
+	for i := len(m.Params) - 1; i >= 0; i-- {
+		if m.Params[i].GoType == "[]byte" {
+			return m.Params[i].GoName == p.GoName
+		}
+	}
+	return false
+}
+
+// =============================================================================
 // TEMPLATE FUNCTIONS
 // =============================================================================
 
 var genTemplateFuncs = template.FuncMap{
 	"attrNamesList":      tplAttrNamesList,
 	"planUnpackArgs":     tplPlanUnpackArgs,
+	"planFillSlots":      tplPlanFillSlots,
 	"realtimeUnpackArgs": tplRealtimeUnpackArgs,
-	"slotReaders":        tplSlotReaders,
+	"graphReaders":       tplGraphReaders,
 	"dryRunFmt":          tplDryRunFmt,
 	"dryRunVars":         tplDryRunVars,
+	"dryRunChecksum":     tplDryRunChecksum,
 	"implArgs":           tplImplArgs,
+	"graphReturn":        tplGraphReturn,
 }
 
 func tplAttrNamesList(methods []methodInfo) string {
@@ -171,12 +218,23 @@ func tplAttrNamesList(methods []methodInfo) string {
 }
 
 func tplPlanUnpackArgs(m methodInfo) string {
-	if len(m.Params) == 0 {
+	var starlarkParams []paramInfo
+	for _, p := range m.Params {
+		tm := typeMappings[p.GoType]
+		if !tm.starlarkFacing {
+			continue
+		}
+		if isContentParam(p, m) {
+			continue
+		}
+		starlarkParams = append(starlarkParams, p)
+	}
+	if len(starlarkParams) == 0 {
 		return ""
 	}
 	var names []string
 	var pairs []string
-	for _, p := range m.Params {
+	for _, p := range starlarkParams {
 		names = append(names, p.GoName)
 		pairs = append(pairs, fmt.Sprintf(`"%s", &%s`, p.SnakeName, p.GoName))
 	}
@@ -184,6 +242,22 @@ func tplPlanUnpackArgs(m methodInfo) string {
 	buf.WriteString("var " + strings.Join(names, ", ") + " starlark.Value\n")
 	buf.WriteString(fmt.Sprintf("if err := starlark.UnpackArgs(%q, args, kwargs, %s); err != nil {\nreturn nil, err\n}", m.SnakeName, strings.Join(pairs, ", ")))
 	return buf.String()
+}
+
+// tplPlanFillSlots generates FillSlot calls for starlark-facing params only.
+func tplPlanFillSlots(m methodInfo) string {
+	var lines []string
+	for _, p := range m.Params {
+		tm := typeMappings[p.GoType]
+		if !tm.starlarkFacing {
+			continue
+		}
+		if isContentParam(p, m) {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("if err := FillSlot(node, p.graph, %q, %s); err != nil {\nreturn nil, fmt.Errorf(%q, err)\n}", p.SnakeName, p.GoName, p.SnakeName+": %w"))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func tplRealtimeUnpackArgs(m methodInfo) string {
@@ -194,8 +268,14 @@ func tplRealtimeUnpackArgs(m methodInfo) string {
 	var pairs []string
 	for _, p := range m.Params {
 		tm := typeMappings[p.GoType]
+		if !tm.starlarkFacing {
+			continue
+		}
 		decls = append(decls, fmt.Sprintf("var %s %s", p.GoName, tm.unpackType))
 		pairs = append(pairs, fmt.Sprintf(`"%s", &%s`, p.SnakeName, p.GoName))
+	}
+	if len(decls) == 0 {
+		return ""
 	}
 	var buf strings.Builder
 	for _, d := range decls {
@@ -205,25 +285,47 @@ func tplRealtimeUnpackArgs(m methodInfo) string {
 	return buf.String()
 }
 
-func tplSlotReaders(params []paramInfo) string {
-	if len(params) == 0 {
-		return ""
-	}
-	var lines []string
-	for _, p := range params {
-		tm, ok := typeMappings[p.GoType]
-		if !ok || tm.framework {
+// tplGraphReaders generates variable declarations for Execute: slot reads,
+// context reads, engine-injected reads, and content pipeline reads.
+func tplGraphReaders(m methodInfo) string {
+	var slotLines, contextLines, engineLines []string
+
+	for _, p := range m.Params {
+		if isContentParam(p, m) {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s := "+tm.slotReader, p.GoName, p.SnakeName))
+		tm := typeMappings[p.GoType]
+		if tm.contextReader != "" {
+			contextLines = append(contextLines, fmt.Sprintf("%s := %s", p.GoName, tm.contextReader))
+		} else if tm.starlarkFacing && tm.slotReader != "" {
+			slotLines = append(slotLines, fmt.Sprintf("%s := "+tm.slotReader, p.GoName, p.SnakeName))
+		} else if tm.slotReader != "" {
+			engineLines = append(engineLines, fmt.Sprintf("%s := "+tm.slotReader, p.GoName, p.SnakeName))
+		}
 	}
+
+	var lines []string
+	lines = append(lines, slotLines...)
+	lines = append(lines, contextLines...)
+	lines = append(lines, engineLines...)
+
+	if m.ContentModel != "none" {
+		lines = append(lines, "content, err := ContentFor(ctx, node)")
+		lines = append(lines, "if err != nil {\nreturn err\n}")
+	}
+
 	return strings.Join(lines, "\n")
 }
 
-func tplDryRunFmt(params []paramInfo) string {
+// tplDryRunFmt generates format verbs for starlark-facing params only.
+func tplDryRunFmt(m methodInfo) string {
 	var parts []string
-	for _, p := range params {
-		if tm, ok := typeMappings[p.GoType]; ok && tm.framework {
+	for _, p := range m.Params {
+		if isContentParam(p, m) {
+			continue
+		}
+		tm := typeMappings[p.GoType]
+		if !tm.starlarkFacing {
 			continue
 		}
 		parts = append(parts, "%v")
@@ -231,10 +333,15 @@ func tplDryRunFmt(params []paramInfo) string {
 	return strings.Join(parts, " ")
 }
 
-func tplDryRunVars(params []paramInfo) string {
+// tplDryRunVars generates variable names for starlark-facing params only.
+func tplDryRunVars(m methodInfo) string {
 	var names []string
-	for _, p := range params {
-		if tm, ok := typeMappings[p.GoType]; ok && tm.framework {
+	for _, p := range m.Params {
+		if isContentParam(p, m) {
+			continue
+		}
+		tm := typeMappings[p.GoType]
+		if !tm.starlarkFacing {
 			continue
 		}
 		names = append(names, p.GoName)
@@ -245,19 +352,47 @@ func tplDryRunVars(params []paramInfo) string {
 	return ", " + strings.Join(names, ", ")
 }
 
-func tplImplArgs(params []paramInfo) string {
-	var names []string
-	for _, p := range params {
-		if tm, ok := typeMappings[p.GoType]; ok && tm.framework {
-			continue
-		}
-		names = append(names, p.GoName)
-	}
-	if len(names) == 0 {
+// tplDryRunChecksum generates the checksum line for consumer content model.
+func tplDryRunChecksum(m methodInfo) string {
+	if m.ContentModel != "consumer" {
 		return ""
 	}
-	return ", " + strings.Join(names, ", ")
+	return "\nctx.TargetChecksum = ChecksumBytes(content)"
 }
+
+// tplImplArgs generates all param names in order for the delegation call.
+func tplImplArgs(m methodInfo) string {
+	names := make([]string, len(m.Params))
+	for i, p := range m.Params {
+		names[i] = p.GoName
+	}
+	return strings.Join(names, ", ")
+}
+
+// tplGraphReturn generates the delegation call and return handling per content model.
+func tplGraphReturn(m methodInfo, implType string) string {
+	if implType == "" {
+		return "\n// TODO: call backing implementation\nreturn nil"
+	}
+
+	argStr := tplImplArgs(m)
+	call := fmt.Sprintf("o.impl.%s(%s)", m.GoName, argStr)
+
+	switch m.ContentModel {
+	case "consumer":
+		// err already declared by ContentFor
+		return fmt.Sprintf("\n_, err = %s\nreturn err", call)
+	case "transformer":
+		// err already declared by ContentFor; result is new so := works
+		return fmt.Sprintf("\nresult, err := %s\nif err != nil {\nreturn err\n}\nStoreContent(ctx, node, result)\nreturn nil", call)
+	default: // "none"
+		if m.ReturnType == "" {
+			return "\nreturn " + call
+		}
+		return fmt.Sprintf("\n_, err := %s\nreturn err", call)
+	}
+}
+
 
 // =============================================================================
 // TEMPLATES
@@ -316,11 +451,7 @@ func (p *{{$.StructName}}Plan) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Bu
 		Operation: "{{$.Category}}.{{.SnakeName}}",
 		Project:   p.project,
 	}
-{{range .Params}}
-	if err := FillSlot(node, p.graph, "{{.SnakeName}}", {{.GoName}}); err != nil {
-		return nil, fmt.Errorf("{{.SnakeName}}: %w", err)
-	}
-{{- end}}
+{{planFillSlots .}}
 
 	p.graph.Nodes = append(p.graph.Nodes, node)
 	return NewOutput(node, p.graph, ""), nil
@@ -343,26 +474,17 @@ type {{$.StructName}}{{.GoName}}Op struct{}
 func (o *{{$.StructName}}{{.GoName}}Op) Name() string { return "{{$.Category}}.{{.SnakeName}}" }
 
 func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node *Node) error {
-{{slotReaders .Params}}
+{{graphReaders .}}
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
+		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .}}\n"{{dryRunVars .}}){{dryRunChecksum .}}
 		return nil
 	}
-{{- if $.ImplType}}
-
-	return o.impl.{{.GoName}}(ctx{{implArgs .Params}})
-{{- else}}
-
-	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
-	// TODO: call backing implementation
-	return nil
-{{- end}}
+{{graphReturn . $.ImplType}}
 }
 {{end}}
 {{- if .ImplType}}
-func {{.StructName}}Ops() []Operation {
-	impl := &{{.ImplType}}{}
+func {{.StructName}}Ops(impl *{{.ImplType}}) []Operation {
 	return []Operation{
 {{- range .Methods}}
 		&{{$.StructName}}{{.GoName}}Op{impl: impl},
@@ -456,13 +578,14 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 		}
 	}
 
-	// Gate 2: validate return signatures
+	// Gate 2: validate return signatures and infer content models
 	for i, m := range desc.Methods {
 		valueType, err := validateReturnSignature(m.ReturnType)
 		if err != nil {
 			return nil, fmt.Errorf("go.generate: method %s: %w", m.GoName, err)
 		}
 		desc.Methods[i].ReturnType = valueType
+		desc.Methods[i].ContentModel = inferContentModel(valueType, m.Params)
 	}
 
 	// Execute template
