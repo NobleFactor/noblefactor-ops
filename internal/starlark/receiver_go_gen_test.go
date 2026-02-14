@@ -46,7 +46,8 @@ func TestValidateReturnSignature(t *testing.T) {
 		{"(bool, error)", "bool", false},
 		{"(int, error)", "int", false},
 		{"([]string, error)", "[]string", false},
-		{"error", "", true},
+		{"([]byte, error)", "[]byte", false},
+		{"error", "", false}, // plain error return — no value type
 		{"string", "", true},
 		{"(string, int, error)", "", true},
 		{"", "", true},
@@ -78,6 +79,20 @@ func TestValidateParamTypes(t *testing.T) {
 			{GoName: "count", GoType: "int"},
 			{GoName: "verbose", GoType: "bool"},
 			{GoName: "items", GoType: "[]string"},
+		}
+		if err := validateParamTypes(params); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("framework types", func(t *testing.T) {
+		params := []paramInfo{
+			{GoName: "content", GoType: "[]byte"},
+			{GoName: "output", GoType: "io.Writer"},
+			{GoName: "decryptor", GoType: "func(string, []byte) ([]byte, error)"},
+			{GoName: "gitMv", GoType: "func(string, string) error"},
+			{GoName: "mode", GoType: "os.FileMode"},
+			{GoName: "data", GoType: "map[string]any"},
 		}
 		if err := validateParamTypes(params); err != nil {
 			t.Errorf("unexpected error: %v", err)
@@ -336,9 +351,9 @@ func TestGenerateGraphOps(t *testing.T) {
 		t.Error("missing FileOps registration function")
 	}
 
-	// Slot readers
-	if !strings.Contains(code, `node.GetSlot("source")`) {
-		t.Error("missing slot reader for source")
+	// Slot readers with type assertions (typed slots)
+	if !strings.Contains(code, `node.GetSlot("source").(string)`) {
+		t.Error("missing typed slot reader for source")
 	}
 }
 
@@ -412,7 +427,7 @@ func TestGenerateGateRejectsBadReturn(t *testing.T) {
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":    "Check",
-			"returns": "error",
+			"returns": "string",
 			"params":  []map[string]any{},
 		},
 	})
@@ -424,7 +439,7 @@ func TestGenerateGateRejectsBadReturn(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for bad return signature")
 	}
-	if !strings.Contains(err.Error(), "must return (T, error)") {
+	if !strings.Contains(err.Error(), "must return error or (T, error)") {
 		t.Errorf("error should mention return format: %v", err)
 	}
 }
@@ -545,7 +560,7 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 		t.Error("FileRenderOp should have impl *fileOps field")
 	}
 
-	// All ops delegate via unified Execute
+	// All ops delegate via unified Execute (slot params only)
 	if !strings.Contains(code, "o.impl.Link(ctx, source, path)") {
 		t.Error("Link op should delegate to impl.Link")
 	}
@@ -554,6 +569,11 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 	}
 	if !strings.Contains(code, "o.impl.Render(ctx, source)") {
 		t.Error("Render op should delegate to impl.Render")
+	}
+
+	// Slot readers use type assertions
+	if !strings.Contains(code, `node.GetSlot("source").(string)`) {
+		t.Error("slot readers should use type assertions")
 	}
 
 	// No legacy dispatch interfaces
@@ -705,6 +725,78 @@ func TestGoMappingAttr(t *testing.T) {
 	}
 }
 
+func TestGoMappingFrameworkTypes(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Decrypt",
+			"returns": "([]byte, error)",
+			"params": []map[string]any{
+				{"name": "decryptor", "type": "func(string, []byte) ([]byte, error)"},
+				{"name": "source", "type": "string"},
+				{"name": "content", "type": "[]byte"},
+			},
+		},
+		{
+			"name":    "Shell",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "command", "type": "string"},
+				{"name": "output", "type": "io.Writer"},
+			},
+		},
+		{
+			"name":    "Copy",
+			"returns": "(string, error)",
+			"params": []map[string]any{
+				{"name": "path", "type": "string"},
+				{"name": "mode", "type": "os.FileMode"},
+				{"name": "content", "type": "[]byte"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("EncryptionService")))
+
+	result := callMethod(t, r, "mapping", starlark.Tuple{desc}, nil)
+
+	yamlStr, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// Parse the YAML output
+	var mapping mappingFile
+	if err := yaml.Unmarshal([]byte(yamlStr), &mapping); err != nil {
+		t.Fatalf("failed to parse mapping YAML: %v\n%s", err, yamlStr)
+	}
+
+	if len(mapping.Operations) != 3 {
+		t.Fatalf("expected 3 operations, got %d", len(mapping.Operations))
+	}
+
+	// Decrypt has framework params recorded
+	decrypt := mapping.Operations[0]
+	if decrypt.Name != "file.decrypt" {
+		t.Errorf("expected file.decrypt, got %q", decrypt.Name)
+	}
+	if len(decrypt.Params) != 3 {
+		t.Fatalf("expected 3 params, got %d", len(decrypt.Params))
+	}
+	if decrypt.Params[0].Type != "func(string, []byte) ([]byte, error)" {
+		t.Errorf("expected func type, got %q", decrypt.Params[0].Type)
+	}
+
+	// Shell has error-only return and io.Writer param
+	shell := mapping.Operations[1]
+	if shell.Name != "file.shell" {
+		t.Errorf("expected file.shell, got %q", shell.Name)
+	}
+	if len(shell.Params) != 2 {
+		t.Fatalf("expected 2 params, got %d", len(shell.Params))
+	}
+}
+
 func TestGoMappingGateEnforcement(t *testing.T) {
 	t.Run("unmapped type", func(t *testing.T) {
 		r := NewGoReceiver()
@@ -735,7 +827,7 @@ func TestGoMappingGateEnforcement(t *testing.T) {
 		desc := buildTestDescriptor(t, []map[string]any{
 			{
 				"name":    "Check",
-				"returns": "error",
+				"returns": "string",
 				"params":  []map[string]any{},
 			},
 		})
@@ -747,7 +839,7 @@ func TestGoMappingGateEnforcement(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for bad return signature")
 		}
-		if !strings.Contains(err.Error(), "must return (T, error)") {
+		if !strings.Contains(err.Error(), "must return error or (T, error)") {
 			t.Errorf("error should mention return format: %v", err)
 		}
 	})
