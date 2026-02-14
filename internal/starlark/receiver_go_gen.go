@@ -57,14 +57,23 @@ type paramInfo struct {
 type typeMapping struct {
 	unpackType string // Go type for starlark.UnpackArgs (e.g., "string")
 	slotReader string // fmt pattern for reading from node slot
+	framework  bool   // true for params injected by executor context, not node slots
 }
 
 var typeMappings = map[string]typeMapping{
-	"string":   {unpackType: "string", slotReader: `node.GetSlot("%s")`},
-	"bool":     {unpackType: "bool", slotReader: `node.GetSlot("%s") == "true"`},
-	"int":      {unpackType: "int", slotReader: `strconv.Atoi(node.GetSlot("%s"))`},
-	"int64":    {unpackType: "int64", slotReader: `strconv.ParseInt(node.GetSlot("%s"), 10, 64)`},
-	"[]string": {unpackType: "*starlark.List", slotReader: `strings.Split(node.GetSlot("%s"), ",")`},
+	// Slot-stored types (read from node slots via type assertion)
+	"string":         {unpackType: "string", slotReader: `node.GetSlot("%s").(string)`},
+	"bool":           {unpackType: "bool", slotReader: `node.GetSlot("%s").(bool)`},
+	"int":            {unpackType: "int", slotReader: `node.GetSlot("%s").(int)`},
+	"int64":          {unpackType: "int64", slotReader: `node.GetSlot("%s").(int64)`},
+	"[]string":       {unpackType: "*starlark.List", slotReader: `node.GetSlot("%s").([]string)`},
+	"os.FileMode":    {unpackType: "int", slotReader: `node.GetSlot("%s").(os.FileMode)`},
+	"map[string]any": {unpackType: "*starlark.Dict", slotReader: `node.GetSlot("%s").(map[string]any)`},
+	// Framework-injected types (provided by executor context, not node slots)
+	"[]byte":                                {framework: true},
+	"io.Writer":                             {framework: true},
+	"func(string, []byte) ([]byte, error)":  {framework: true},
+	"func(string, string) error":            {framework: true},
 }
 
 // =============================================================================
@@ -100,18 +109,22 @@ func camelToSnake(s string) string {
 // validateReturnSignature checks that a return type string matches (T, error).
 func validateReturnSignature(returns string) (string, error) {
 	if returns == "" {
-		return "", fmt.Errorf("must return (T, error), got empty return")
+		return "", fmt.Errorf("must return error or (T, error), got empty return")
+	}
+	// Plain error return — no value type
+	if returns == "error" {
+		return "", nil
 	}
 	if !strings.HasPrefix(returns, "(") || !strings.HasSuffix(returns, ")") {
-		return "", fmt.Errorf("must return (T, error), got %s", returns)
+		return "", fmt.Errorf("must return error or (T, error), got %s", returns)
 	}
 	inner := returns[1 : len(returns)-1]
 	if !strings.HasSuffix(inner, ", error") {
-		return "", fmt.Errorf("must return (T, error), got %s", returns)
+		return "", fmt.Errorf("must return error or (T, error), got %s", returns)
 	}
 	valueType := strings.TrimSuffix(inner, ", error")
 	if valueType == "" || strings.Contains(valueType, ", ") {
-		return "", fmt.Errorf("must return (T, error), got %s", returns)
+		return "", fmt.Errorf("must return error or (T, error), got %s", returns)
 	}
 	return valueType, nil
 }
@@ -198,37 +211,50 @@ func tplSlotReaders(params []paramInfo) string {
 	}
 	var lines []string
 	for _, p := range params {
-		lines = append(lines, fmt.Sprintf("%s := node.GetSlot(%q)", p.GoName, p.SnakeName))
+		tm, ok := typeMappings[p.GoType]
+		if !ok || tm.framework {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s := "+tm.slotReader, p.GoName, p.SnakeName))
 	}
 	return strings.Join(lines, "\n")
 }
 
 func tplDryRunFmt(params []paramInfo) string {
-	parts := make([]string, len(params))
-	for i := range params {
-		parts[i] = "%s"
+	var parts []string
+	for _, p := range params {
+		if tm, ok := typeMappings[p.GoType]; ok && tm.framework {
+			continue
+		}
+		parts = append(parts, "%v")
 	}
 	return strings.Join(parts, " ")
 }
 
 func tplDryRunVars(params []paramInfo) string {
-	if len(params) == 0 {
-		return ""
+	var names []string
+	for _, p := range params {
+		if tm, ok := typeMappings[p.GoType]; ok && tm.framework {
+			continue
+		}
+		names = append(names, p.GoName)
 	}
-	names := make([]string, len(params))
-	for i, p := range params {
-		names[i] = p.GoName
+	if len(names) == 0 {
+		return ""
 	}
 	return ", " + strings.Join(names, ", ")
 }
 
 func tplImplArgs(params []paramInfo) string {
-	if len(params) == 0 {
-		return ""
+	var names []string
+	for _, p := range params {
+		if tm, ok := typeMappings[p.GoType]; ok && tm.framework {
+			continue
+		}
+		names = append(names, p.GoName)
 	}
-	names := make([]string, len(params))
-	for i, p := range params {
-		names[i] = p.GoName
+	if len(names) == 0 {
+		return ""
 	}
 	return ", " + strings.Join(names, ", ")
 }
