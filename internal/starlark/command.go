@@ -13,13 +13,15 @@ import (
 
 // Command represents a Starlark-defined command.
 type Command struct {
-	Name        string
-	Help        string
-	Flags       []Flag
-	RunFunc     starlark.Callable
-	globals     starlark.StringDict
-	predeclared starlark.StringDict
-	runtime     *Runtime // Reference to runtime for command tree access
+	Name          string
+	Help          string
+	Flags         []Flag
+	RunFunc       starlark.Callable
+	ExtensionDir  string // Absolute path to the extension's directory
+	ExtensionName string // Extension identifier (e.g., "com.noblefactor.devlore.Ops")
+	globals       starlark.StringDict
+	predeclared   starlark.StringDict
+	runtime       *Runtime // Reference to runtime for command tree access
 }
 
 // Flag represents a command flag.
@@ -45,9 +47,15 @@ func (c *Command) Run(args map[string]string) error {
 		}
 	}
 
+	ext := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"dir":  starlark.String(c.ExtensionDir),
+		"name": starlark.String(c.ExtensionName),
+	})
+
 	ctx := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"args":    argsDict,
-		"dry_run": starlark.Bool(DryRun),
+		"args":      argsDict,
+		"dry_run":   starlark.Bool(DryRun),
+		"extension": ext,
 	})
 
 	// Set current command context on the commands receiver
