@@ -39,7 +39,7 @@
   "$defs": {
     "operation": {
       "type": "object",
-      "required": ["name", "go_method", "interface"],
+      "required": ["name", "go_method"],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -50,21 +50,12 @@
           "type": "string",
           "description": "Go method name on the impl struct (e.g., 'Link')."
         },
-        "interface": {
-          "type": "string",
-          "enum": ["Direct", "Writer", "Transform"],
-          "description": "Operation interface category."
-        },
         "params": {
           "type": "array",
           "description": "Parameters accepted by this operation.",
           "items": {
             "$ref": "#/$defs/param"
           }
-        },
-        "content_param": {
-          "type": "boolean",
-          "description": "True if the operation receives []byte content from the pipeline (Writer/Transform)."
         }
       }
     },

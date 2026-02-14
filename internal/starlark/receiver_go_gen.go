@@ -39,7 +39,6 @@ type methodInfo struct {
 	Params     []paramInfo
 	ReturnType  string // value portion of (T, error)
 	Doc         string
-	OpCategory  string // "OpDirect" (default), "OpWriter", or "OpTransform"
 }
 
 // paramInfo holds information about a single parameter.
@@ -316,50 +315,8 @@ type {{$.StructName}}{{.GoName}}Op struct{}
 {{- end}}
 
 func (o *{{$.StructName}}{{.GoName}}Op) Name() string { return "{{$.Category}}.{{.SnakeName}}" }
-{{if eq .OpCategory "OpWriter"}}
-func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpWriter }
 
-func (o *{{$.StructName}}{{.GoName}}Op) Write(ctx *Context, node Executable, content []byte) (string, error) {
-{{slotReaders .Params}}
-
-	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
-		return "", nil
-	}
-{{- if $.ImplType}}
-
-	return o.impl.{{.GoName}}(ctx{{implArgs .Params}}, content)
-{{- else}}
-
-	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
-	// TODO: call backing implementation
-	return "", nil
-{{- end}}
-}
-{{else if eq .OpCategory "OpTransform"}}
-func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpTransform }
-
-func (o *{{$.StructName}}{{.GoName}}Op) Transform(ctx *Context, node Executable, content []byte) ([]byte, error) {
-{{slotReaders .Params}}
-
-	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
-		return content, nil
-	}
-{{- if $.ImplType}}
-
-	return o.impl.{{.GoName}}(ctx{{implArgs .Params}}, content)
-{{- else}}
-
-	_, _ = fmt.Fprintf(ctx.Logger, "[{{$.Category}}] {{.SnakeName}} {{dryRunFmt .Params}}\n"{{dryRunVars .Params}})
-	// TODO: call backing implementation
-	return content, nil
-{{- end}}
-}
-{{else}}
-func (o *{{$.StructName}}{{.GoName}}Op) Category() OpCategory { return OpDirect }
-
-func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node Executable) error {
+func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node *Node) error {
 {{slotReaders .Params}}
 
 	if ctx.DryRun {
@@ -376,7 +333,6 @@ func (o *{{$.StructName}}{{.GoName}}Op) Execute(ctx *Context, node Executable) e
 	return nil
 {{- end}}
 }
-{{end}}
 {{end}}
 {{- if .ImplType}}
 func {{.StructName}}Ops() []Operation {
@@ -504,11 +460,9 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 
 // mappingOperation holds one operation entry for the mapping YAML.
 type mappingOperation struct {
-	Name         string          `yaml:"name"`
-	GoMethod     string          `yaml:"go_method"`
-	Interface    string          `yaml:"interface"`
-	Params       []mappingParam  `yaml:"params,omitempty"`
-	ContentParam bool            `yaml:"content_param,omitempty"`
+	Name     string         `yaml:"name"`
+	GoMethod string         `yaml:"go_method"`
+	Params   []mappingParam `yaml:"params,omitempty"`
 }
 
 // mappingParam holds one parameter entry for the mapping YAML.
@@ -564,18 +518,9 @@ func (r *GoReceiver) goMapping(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	}
 
 	for _, m := range desc.Methods {
-		interfaceName := "Direct"
-		switch m.OpCategory {
-		case "OpWriter":
-			interfaceName = "Writer"
-		case "OpTransform":
-			interfaceName = "Transform"
-		}
-
 		op := mappingOperation{
-			Name:      desc.Category + "." + m.SnakeName,
-			GoMethod:  m.GoName,
-			Interface: interfaceName,
+			Name:     desc.Category + "." + m.SnakeName,
+			GoMethod: m.GoName,
 		}
 
 		for _, p := range m.Params {
@@ -584,10 +529,6 @@ func (r *GoReceiver) goMapping(_ *starlark.Thread, _ *starlark.Builtin, args sta
 				Type:     p.GoType,
 				Required: true,
 			})
-		}
-
-		if interfaceName == "Writer" || interfaceName == "Transform" {
-			op.ContentParam = true
 		}
 
 		mapping.Operations = append(mapping.Operations, op)
@@ -687,27 +628,12 @@ func methodInfoFromValue(v starlark.Value) (methodInfo, error) {
 		params = append(params, p)
 	}
 
-	// Read optional op_category (defaults to "OpDirect")
-	opCategory, _ := valueGetString(v, "op_category")
-	goOpCategory := "OpDirect"
-	switch opCategory {
-	case "writer":
-		goOpCategory = "OpWriter"
-	case "transform":
-		goOpCategory = "OpTransform"
-	case "direct", "":
-		goOpCategory = "OpDirect"
-	default:
-		return methodInfo{}, fmt.Errorf("invalid op_category %q (valid: direct, writer, transform)", opCategory)
-	}
-
 	return methodInfo{
 		GoName:     name,
 		SnakeName:  camelToSnake(name),
 		Params:     params,
 		ReturnType: returns,
 		Doc:        doc,
-		OpCategory: goOpCategory,
 	}, nil
 }
 

@@ -315,6 +315,22 @@ func TestGenerateGraphOps(t *testing.T) {
 		t.Error("missing file.remove op name")
 	}
 
+	// Unified Execute method
+	if !strings.Contains(code, "Execute(ctx *Context, node *Node) error") {
+		t.Error("missing unified Execute method signature")
+	}
+
+	// No legacy dispatch interfaces
+	if strings.Contains(code, "Category()") {
+		t.Error("should not have Category method")
+	}
+	if strings.Contains(code, "Write(ctx") {
+		t.Error("should not have Write method")
+	}
+	if strings.Contains(code, "Transform(ctx") {
+		t.Error("should not have Transform method")
+	}
+
 	// Registration function
 	if !strings.Contains(code, "func FileOps() []Operation") {
 		t.Error("missing FileOps registration function")
@@ -475,134 +491,9 @@ func TestGoGenerateAttr(t *testing.T) {
 	}
 }
 
-// buildTestDescriptorWithOpCategory creates a descriptor with op_category set on each method.
-func buildTestDescriptorWithOpCategory(t *testing.T, methods []map[string]any) *starlark.Dict {
-	t.Helper()
-	desc := starlark.NewDict(5)
-	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
-	must(t, desc.SetKey(starlark.String("category"), starlark.String("file")))
-	must(t, desc.SetKey(starlark.String("struct_name"), starlark.String("File")))
-	must(t, desc.SetKey(starlark.String("namespace"), starlark.String("file")))
-
-	var methodsList []starlark.Value
-	for _, m := range methods {
-		md := starlark.NewDict(5)
-		must(t, md.SetKey(starlark.String("name"), starlark.String(m["name"].(string))))
-		must(t, md.SetKey(starlark.String("returns"), starlark.String(m["returns"].(string))))
-		must(t, md.SetKey(starlark.String("doc"), starlark.String("")))
-		if opCat, ok := m["op_category"].(string); ok {
-			must(t, md.SetKey(starlark.String("op_category"), starlark.String(opCat)))
-		}
-
-		var paramsList []starlark.Value
-		if params, ok := m["params"].([]map[string]any); ok {
-			for _, p := range params {
-				pd := starlark.NewDict(3)
-				must(t, pd.SetKey(starlark.String("name"), starlark.String(p["name"].(string))))
-				must(t, pd.SetKey(starlark.String("type"), starlark.String(p["type"].(string))))
-				variadic := false
-				if v, ok := p["variadic"].(bool); ok {
-					variadic = v
-				}
-				must(t, pd.SetKey(starlark.String("variadic"), starlark.Bool(variadic)))
-				paramsList = append(paramsList, pd)
-			}
-		}
-		must(t, md.SetKey(starlark.String("params"), starlark.NewList(paramsList)))
-		methodsList = append(methodsList, md)
-	}
-	must(t, desc.SetKey(starlark.String("methods"), starlark.NewList(methodsList)))
-	return desc
-}
-
-func TestGenerateGraphOpsWriter(t *testing.T) {
-	r := NewGoReceiver()
-	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
-		{
-			"name":        "Copy",
-			"returns":     "(string, error)",
-			"op_category": "writer",
-			"params": []map[string]any{
-				{"name": "source", "type": "string"},
-				{"name": "path", "type": "string"},
-			},
-		},
-	})
-
-	result := callMethod(t, r, "generate",
-		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
-
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
-
-	// Valid Go syntax
-	if _, err := format.Source([]byte(code)); err != nil {
-		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
-	}
-
-	// OpWriter category
-	if !strings.Contains(code, "Category() OpCategory { return OpWriter }") {
-		t.Error("missing OpWriter category")
-	}
-
-	// Write method signature
-	if !strings.Contains(code, "Write(ctx *Context, node Executable, content []byte) (string, error)") {
-		t.Error("missing Write method signature")
-	}
-
-	// Should NOT have Execute method
-	if strings.Contains(code, "Execute(ctx *Context") {
-		t.Error("Writer op should not have Execute method")
-	}
-}
-
-func TestGenerateGraphOpsTransform(t *testing.T) {
-	r := NewGoReceiver()
-	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
-		{
-			"name":        "Render",
-			"returns":     "(string, error)",
-			"op_category": "transform",
-			"params": []map[string]any{
-				{"name": "path", "type": "string"},
-			},
-		},
-	})
-
-	result := callMethod(t, r, "generate",
-		starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
-
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
-
-	// Valid Go syntax
-	if _, err := format.Source([]byte(code)); err != nil {
-		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
-	}
-
-	// OpTransform category
-	if !strings.Contains(code, "Category() OpCategory { return OpTransform }") {
-		t.Error("missing OpTransform category")
-	}
-
-	// Transform method signature
-	if !strings.Contains(code, "Transform(ctx *Context, node Executable, content []byte) ([]byte, error)") {
-		t.Error("missing Transform method signature")
-	}
-
-	// Should NOT have Execute method
-	if strings.Contains(code, "Execute(ctx *Context") {
-		t.Error("Transform op should not have Execute method")
-	}
-}
-
 func TestGenerateGraphOpsDelegation(t *testing.T) {
 	r := NewGoReceiver()
-	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":    "Link",
 			"returns": "(string, error)",
@@ -612,22 +503,22 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 			},
 		},
 		{
-			"name":        "Copy",
-			"returns":     "(string, error)",
-			"op_category": "writer",
+			"name":    "Copy",
+			"returns": "(string, error)",
 			"params": []map[string]any{
 				{"name": "path", "type": "string"},
 			},
 		},
 		{
-			"name":        "Render",
-			"returns":     "(string, error)",
-			"op_category": "transform",
+			"name":    "Render",
+			"returns": "(string, error)",
 			"params": []map[string]any{
 				{"name": "source", "type": "string"},
 			},
 		},
 	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("namespace"), starlark.String("file")))
 	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("fileOps")))
 
 	result := callMethod(t, r, "generate",
@@ -654,19 +545,26 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 		t.Error("FileRenderOp should have impl *fileOps field")
 	}
 
-	// Direct op delegates
+	// All ops delegate via unified Execute
 	if !strings.Contains(code, "o.impl.Link(ctx, source, path)") {
-		t.Error("Direct op should delegate to impl.Link")
+		t.Error("Link op should delegate to impl.Link")
+	}
+	if !strings.Contains(code, "o.impl.Copy(ctx, path)") {
+		t.Error("Copy op should delegate to impl.Copy")
+	}
+	if !strings.Contains(code, "o.impl.Render(ctx, source)") {
+		t.Error("Render op should delegate to impl.Render")
 	}
 
-	// Writer op delegates with content
-	if !strings.Contains(code, "o.impl.Copy(ctx, path, content)") {
-		t.Error("Writer op should delegate to impl.Copy with content")
+	// No legacy dispatch interfaces
+	if strings.Contains(code, "Category()") {
+		t.Error("should not have Category method")
 	}
-
-	// Transform op delegates with content
-	if !strings.Contains(code, "o.impl.Render(ctx, source, content)") {
-		t.Error("Transform op should delegate to impl.Render with content")
+	if strings.Contains(code, "Write(ctx") {
+		t.Error("should not have Write method")
+	}
+	if strings.Contains(code, "Transform(ctx") {
+		t.Error("should not have Transform method")
 	}
 
 	// No TODO stubs when impl_type is set
@@ -685,7 +583,7 @@ func TestGenerateGraphOpsDelegation(t *testing.T) {
 
 func TestGoMappingRoundTrip(t *testing.T) {
 	r := NewGoReceiver()
-	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":    "Link",
 			"returns": "(string, error)",
@@ -695,22 +593,22 @@ func TestGoMappingRoundTrip(t *testing.T) {
 			},
 		},
 		{
-			"name":        "Copy",
-			"returns":     "(string, error)",
-			"op_category": "writer",
+			"name":    "Copy",
+			"returns": "(string, error)",
 			"params": []map[string]any{
 				{"name": "path", "type": "string"},
 			},
 		},
 		{
-			"name":        "Render",
-			"returns":     "(string, error)",
-			"op_category": "transform",
+			"name":    "Render",
+			"returns": "(string, error)",
 			"params": []map[string]any{
 				{"name": "source", "type": "string"},
 			},
 		},
 	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("execution")))
+	must(t, desc.SetKey(starlark.String("namespace"), starlark.String("file")))
 	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("fileOps")))
 
 	result := callMethod(t, r, "mapping", starlark.Tuple{desc}, nil)
@@ -745,7 +643,7 @@ func TestGoMappingRoundTrip(t *testing.T) {
 		t.Fatalf("expected 3 operations, got %d", len(mapping.Operations))
 	}
 
-	// Link: Direct
+	// Link
 	link := mapping.Operations[0]
 	if link.Name != "file.link" {
 		t.Errorf("expected file.link, got %q", link.Name)
@@ -753,35 +651,26 @@ func TestGoMappingRoundTrip(t *testing.T) {
 	if link.GoMethod != "Link" {
 		t.Errorf("expected GoMethod Link, got %q", link.GoMethod)
 	}
-	if link.Interface != "Direct" {
-		t.Errorf("expected Direct, got %q", link.Interface)
-	}
 	if len(link.Params) != 2 {
 		t.Fatalf("expected 2 params, got %d", len(link.Params))
 	}
 	if link.Params[0].Name != "source" || link.Params[0].Type != "string" {
 		t.Errorf("unexpected first param: %+v", link.Params[0])
 	}
-	if link.ContentParam {
-		t.Error("Direct op should not have content_param")
-	}
 
-	// Copy: Writer
+	// Copy
 	copyOp := mapping.Operations[1]
-	if copyOp.Interface != "Writer" {
-		t.Errorf("expected Writer, got %q", copyOp.Interface)
+	if copyOp.Name != "file.copy" {
+		t.Errorf("expected file.copy, got %q", copyOp.Name)
 	}
-	if !copyOp.ContentParam {
-		t.Error("Writer op should have content_param")
+	if len(copyOp.Params) != 1 {
+		t.Fatalf("expected 1 param, got %d", len(copyOp.Params))
 	}
 
-	// Render: Transform
+	// Render
 	render := mapping.Operations[2]
-	if render.Interface != "Transform" {
-		t.Errorf("expected Transform, got %q", render.Interface)
-	}
-	if !render.ContentParam {
-		t.Error("Transform op should have content_param")
+	if render.Name != "file.render" {
+		t.Errorf("expected file.render, got %q", render.Name)
 	}
 
 	// Verify header comment
@@ -819,7 +708,7 @@ func TestGoMappingAttr(t *testing.T) {
 func TestGoMappingGateEnforcement(t *testing.T) {
 	t.Run("unmapped type", func(t *testing.T) {
 		r := NewGoReceiver()
-		desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+		desc := buildTestDescriptor(t, []map[string]any{
 			{
 				"name":    "Send",
 				"returns": "(string, error)",
@@ -843,7 +732,7 @@ func TestGoMappingGateEnforcement(t *testing.T) {
 
 	t.Run("bad return", func(t *testing.T) {
 		r := NewGoReceiver()
-		desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
+		desc := buildTestDescriptor(t, []map[string]any{
 			{
 				"name":    "Check",
 				"returns": "error",
@@ -862,27 +751,4 @@ func TestGoMappingGateEnforcement(t *testing.T) {
 			t.Errorf("error should mention return format: %v", err)
 		}
 	})
-}
-
-func TestGenerateGraphOpsInvalidOpCategory(t *testing.T) {
-	r := NewGoReceiver()
-	desc := buildTestDescriptorWithOpCategory(t, []map[string]any{
-		{
-			"name":        "Bad",
-			"returns":     "(string, error)",
-			"op_category": "invalid",
-			"params":      []map[string]any{},
-		},
-	})
-
-	thread := &starlark.Thread{Name: "test"}
-	attr, _ := r.Attr("generate")
-	fn := attr.(*starlark.Builtin)
-	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String("graph_ops"), desc}, nil)
-	if err == nil {
-		t.Fatal("expected error for invalid op_category")
-	}
-	if !strings.Contains(err.Error(), "invalid op_category") {
-		t.Errorf("error should mention invalid op_category: %v", err)
-	}
 }
