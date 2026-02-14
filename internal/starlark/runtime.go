@@ -242,12 +242,14 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 
 	// Build command from extension.yaml metadata
 	cmd := &Command{
-		Name:        cmdSpec.Name,
-		Help:        cmdSpec.Help,
-		RunFunc:     runFunc,
-		globals:     globals,
-		predeclared: predeclared,
-		runtime:     r,
+		Name:          cmdSpec.Name,
+		Help:          cmdSpec.Help,
+		RunFunc:       runFunc,
+		ExtensionDir:  extDir,
+		ExtensionName: spec.Extension,
+		globals:       globals,
+		predeclared:   predeclared,
+		runtime:       r,
 	}
 
 	// Build flags from command spec

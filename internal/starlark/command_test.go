@@ -117,6 +117,78 @@ func TestCommand_RunWithDryRun(t *testing.T) {
 	}
 }
 
+func TestCommand_RunWithExtension(t *testing.T) {
+	runnable := &testCallable{fn: func(ctx starlark.Value) (starlark.Value, error) {
+		extAttr, err := ctx.(starlark.HasAttrs).Attr("extension")
+		if err != nil {
+			return nil, err
+		}
+		ext := extAttr.(starlark.HasAttrs)
+
+		dir, err := ext.Attr("dir")
+		if err != nil {
+			return nil, err
+		}
+		if dir.(starlark.String) != "/tmp/test-ext" {
+			t.Errorf("expected dir '/tmp/test-ext', got %v", dir)
+		}
+
+		name, err := ext.Attr("name")
+		if err != nil {
+			return nil, err
+		}
+		if name.(starlark.String) != "com.example.test" {
+			t.Errorf("expected name 'com.example.test', got %v", name)
+		}
+
+		return starlark.None, nil
+	}}
+
+	cmd := &Command{
+		Name:          "test-cmd",
+		Help:          "Test command",
+		RunFunc:       runnable,
+		ExtensionDir:  "/tmp/test-ext",
+		ExtensionName: "com.example.test",
+	}
+
+	if err := cmd.Run(map[string]string{}); err != nil {
+		t.Errorf("Command.Run() unexpected error: %v", err)
+	}
+}
+
+func TestCommand_RunExtensionDefaultsEmpty(t *testing.T) {
+	runnable := &testCallable{fn: func(ctx starlark.Value) (starlark.Value, error) {
+		extAttr, err := ctx.(starlark.HasAttrs).Attr("extension")
+		if err != nil {
+			return nil, err
+		}
+		ext := extAttr.(starlark.HasAttrs)
+
+		dir, _ := ext.Attr("dir")
+		if dir.(starlark.String) != "" {
+			t.Errorf("expected empty dir, got %v", dir)
+		}
+
+		name, _ := ext.Attr("name")
+		if name.(starlark.String) != "" {
+			t.Errorf("expected empty name, got %v", name)
+		}
+
+		return starlark.None, nil
+	}}
+
+	cmd := &Command{
+		Name:    "test-cmd",
+		Help:    "Test command",
+		RunFunc: runnable,
+	}
+
+	if err := cmd.Run(map[string]string{}); err != nil {
+		t.Errorf("Command.Run() unexpected error: %v", err)
+	}
+}
+
 // testCallable is a minimal starlark.Callable implementation for testing.
 type testCallable struct {
 	fn func(ctx starlark.Value) (starlark.Value, error)
