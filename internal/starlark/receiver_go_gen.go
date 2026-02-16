@@ -63,21 +63,21 @@ type typeMapping struct {
 }
 
 var typeMappings = map[string]typeMapping{
-	// Starlark-facing: in plan UnpackArgs + graph ops slot readers
-	"string":         {unpackType: "string", slotReader: `node.GetSlot("%s").(string)`, starlarkFacing: true},
-	"bool":           {unpackType: "bool", slotReader: `node.GetSlot("%s").(bool)`, starlarkFacing: true},
-	"int":            {unpackType: "int", slotReader: `node.GetSlot("%s").(int)`, starlarkFacing: true},
-	"int64":          {unpackType: "int64", slotReader: `node.GetSlot("%s").(int64)`, starlarkFacing: true},
-	"[]string":       {unpackType: "*starlark.List", slotReader: `node.GetSlot("%s").([]string)`, starlarkFacing: true},
-	"os.FileMode":    {unpackType: "int", slotReader: `node.GetSlot("%s").(os.FileMode)`, starlarkFacing: true},
-	"map[string]any": {unpackType: "*starlark.Dict", slotReader: `node.GetSlot("%s").(map[string]any)`, starlarkFacing: true},
-	// Engine-injected: graph ops slot readers only (filled by engine from ctx.Data)
-	"func(string, []byte) ([]byte, error)": {slotReader: `node.GetSlot("%s").(func(string, []byte) ([]byte, error))`},
-	"func(string, string) error":           {slotReader: `node.GetSlot("%s").(func(string, string) error)`},
+	// Starlark-facing: in plan UnpackArgs + graph actions slot readers
+	"string":         {unpackType: "string", slotReader: `slots["%s"].(string)`, starlarkFacing: true},
+	"bool":           {unpackType: "bool", slotReader: `slots["%s"].(bool)`, starlarkFacing: true},
+	"int":            {unpackType: "int", slotReader: `slots["%s"].(int)`, starlarkFacing: true},
+	"int64":          {unpackType: "int64", slotReader: `slots["%s"].(int64)`, starlarkFacing: true},
+	"[]string":       {unpackType: "*starlark.List", slotReader: `slots["%s"].([]string)`, starlarkFacing: true},
+	"os.FileMode":    {unpackType: "int", slotReader: `slots["%s"].(os.FileMode)`, starlarkFacing: true},
+	"map[string]any": {unpackType: "*starlark.Dict", slotReader: `slots["%s"].(map[string]any)`, starlarkFacing: true},
+	// Engine-injected: graph actions slot readers only (filled by engine from ctx.Data)
+	"func(string, []byte) ([]byte, error)": {slotReader: `slots["%s"].(func(string, []byte) ([]byte, error))`},
+	"func(string, string) error":           {slotReader: `slots["%s"].(func(string, string) error)`},
 	// Context-provided: read from context expression, not slots
 	"io.Writer": {contextReader: "ctx.Logger"},
-	// Content pipeline: handled by content model inference, not mappings
-	"[]byte": {},
+	// Content: read from slot with optional assertion (may come via promise)
+	"[]byte": {slotReader: `slots["%s"].([]byte)`},
 }
 
 // =============================================================================
@@ -202,6 +202,7 @@ var genTemplateFuncs = template.FuncMap{
 	"dryRunChecksum":     tplDryRunChecksum,
 	"implArgs":           tplImplArgs,
 	"graphReturn":        tplGraphReturn,
+	"graphUndo":          tplGraphUndo,
 }
 
 func tplAttrNamesList(methods []methodInfo) string {
@@ -285,18 +286,19 @@ func tplRealtimeUnpackArgs(m methodInfo) string {
 	return buf.String()
 }
 
-// tplGraphReaders generates variable declarations for Execute: slot reads,
-// context reads, engine-injected reads, and content pipeline reads.
+// tplGraphReaders generates variable declarations for Do: slot reads,
+// context reads, and engine-injected reads. Content params use optional
+// assertion (_, ok pattern) since they may arrive via promise slots.
 func tplGraphReaders(m methodInfo) string {
 	var slotLines, contextLines, engineLines []string
 
 	for _, p := range m.Params {
-		if isContentParam(p, m) {
-			continue
-		}
 		tm := typeMappings[p.GoType]
 		if tm.contextReader != "" {
 			contextLines = append(contextLines, fmt.Sprintf("%s := %s", p.GoName, tm.contextReader))
+		} else if isContentParam(p, m) {
+			// Content params use optional assertion (may come via promise slot)
+			slotLines = append(slotLines, fmt.Sprintf("%s, _ := slots[\"%s\"].([]byte)", p.GoName, p.SnakeName))
 		} else if tm.starlarkFacing && tm.slotReader != "" {
 			slotLines = append(slotLines, fmt.Sprintf("%s := "+tm.slotReader, p.GoName, p.SnakeName))
 		} else if tm.slotReader != "" {
@@ -308,11 +310,6 @@ func tplGraphReaders(m methodInfo) string {
 	lines = append(lines, slotLines...)
 	lines = append(lines, contextLines...)
 	lines = append(lines, engineLines...)
-
-	if m.ContentModel != "none" {
-		lines = append(lines, "content, err := ContentFor(ctx, node)")
-		lines = append(lines, "if err != nil {\nreturn err\n}")
-	}
 
 	return strings.Join(lines, "\n")
 }
@@ -370,29 +367,37 @@ func tplImplArgs(m methodInfo) string {
 }
 
 // tplGraphReturn generates the delegation call and return handling per content model.
+// Returns (Result, UndoState, error) — three values.
 func tplGraphReturn(m methodInfo, implType string) string {
 	if implType == "" {
-		return "\n// TODO: call backing implementation\nreturn nil"
+		return "\nreturn nil, nil, nil"
 	}
 
 	argStr := tplImplArgs(m)
-	call := fmt.Sprintf("o.impl.%s(%s)", m.GoName, argStr)
+	call := fmt.Sprintf("o.Impl.%s(%s)", m.GoName, argStr)
 
 	switch m.ContentModel {
 	case "consumer":
-		// err already declared by ContentFor
-		return fmt.Sprintf("\n_, err = %s\nreturn err", call)
+		// Consumer discards value return, returns (nil, nil, error)
+		return fmt.Sprintf("\n_, err := %s\nreturn nil, nil, err", call)
 	case "transformer":
-		// err already declared by ContentFor; result is new so := works
-		return fmt.Sprintf("\nresult, err := %s\nif err != nil {\nreturn err\n}\nStoreContent(ctx, node, result)\nreturn nil", call)
+		// Transformer returns transformed content as Result
+		return fmt.Sprintf("\nresult, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, nil, nil", call)
 	default: // "none"
 		if m.ReturnType == "" {
-			return "\nreturn " + call
+			// Error-only return
+			return fmt.Sprintf("\nreturn nil, nil, %s", call)
 		}
-		return fmt.Sprintf("\n_, err := %s\nreturn err", call)
+		// Has value type but not content model — discard value
+		return fmt.Sprintf("\n_, err := %s\nreturn nil, nil, err", call)
 	}
 }
 
+
+// tplGraphUndo generates the Undo method stub for an action.
+func tplGraphUndo(m methodInfo) string {
+	return fmt.Sprintf("func (o *%s) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {\n\treturn nil\n}", m.GoName)
+}
 
 // =============================================================================
 // TEMPLATES
