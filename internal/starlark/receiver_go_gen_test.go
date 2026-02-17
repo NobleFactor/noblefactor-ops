@@ -255,6 +255,10 @@ func buildTestDescriptor(t *testing.T, methods []map[string]any) *starlark.Dict 
 		must(t, md.SetKey(starlark.String("returns"), starlark.String(m["returns"].(string))))
 		must(t, md.SetKey(starlark.String("doc"), starlark.String("")))
 
+		if compensable, ok := m["compensable"].(bool); ok {
+			must(t, md.SetKey(starlark.String("compensable"), starlark.Bool(compensable)))
+		}
+
 		var paramsList []starlark.Value
 		if params, ok := m["params"].([]map[string]any); ok {
 			for _, p := range params {
@@ -1353,5 +1357,204 @@ func TestPlanReceiverSkipsFramework(t *testing.T) {
 	}
 	if strings.Contains(code, `"content"`) {
 		t.Error("content []byte should NOT appear in UnpackArgs")
+	}
+}
+
+func TestValidateCompensableReturn(t *testing.T) {
+	tests := []struct {
+		input     string
+		wantValue string
+		wantErr   bool
+	}{
+		// State-only: (map[string]any, error)
+		{"(map[string]any, error)", "", false},
+		// Value + state: (T, map[string]any, error)
+		{"(string, map[string]any, error)", "string", false},
+		{"([]byte, map[string]any, error)", "[]byte", false},
+		{"(bool, map[string]any, error)", "bool", false},
+		// Invalid
+		{"error", "", true},
+		{"(string, error)", "", true},
+		{"", "", true},
+		{"string", "", true},
+		{"(map[string]any)", "", true},
+		{"(, map[string]any, error)", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := validateCompensableReturn(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q, got value %q", tc.input, got)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error for %q: %v", tc.input, err)
+				}
+				if got != tc.wantValue {
+					t.Errorf("validateCompensableReturn(%q) = %q, want %q", tc.input, got, tc.wantValue)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateGraphActionsCompensable(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":        "Install",
+			"returns":     "(map[string]any, error)",
+			"compensable": true,
+			"params": []map[string]any{
+				{"name": "name", "type": "string"},
+				{"name": "version", "type": "string"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("pkg")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Do captures state from forward method
+	if !strings.Contains(code, "state, err := o.Impl.Install(name, version)") {
+		t.Error("compensable Do should capture state from forward method")
+	}
+	if !strings.Contains(code, "return nil, state, err") {
+		t.Error("compensable Do should return state as UndoState")
+	}
+
+	// Undo delegates to CompensateInstall
+	if !strings.Contains(code, "func (o *Install) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error") {
+		t.Error("compensable Undo should accept state parameter")
+	}
+	if !strings.Contains(code, "s, _ := state.(map[string]any)") {
+		t.Error("compensable Undo should type-assert state")
+	}
+	if !strings.Contains(code, "return o.Impl.CompensateInstall(s)") {
+		t.Error("compensable Undo should delegate to Impl.CompensateInstall")
+	}
+
+	// Non-compensable Undo uses blank identifiers
+	if strings.Contains(code, "_ execution.UndoState") {
+		t.Error("compensable Undo should NOT blank the state parameter")
+	}
+}
+
+func TestGenerateGraphActionsCompensableWithValue(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":        "Copy",
+			"returns":     "(string, map[string]any, error)",
+			"compensable": true,
+			"params": []map[string]any{
+				{"name": "source", "type": "string"},
+				{"name": "path", "type": "string"},
+				{"name": "content", "type": "[]byte"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("file")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Consumer model with compensation: captures checksum + state
+	if !strings.Contains(code, "checksum, state, err := o.Impl.Copy(source, path, content)") {
+		t.Error("compensable consumer should capture checksum and state")
+	}
+	if !strings.Contains(code, "ctx.TargetChecksum = checksum") {
+		t.Error("compensable consumer should set TargetChecksum")
+	}
+	if !strings.Contains(code, "return nil, state, nil") {
+		t.Error("compensable consumer should return state as UndoState")
+	}
+
+	// Undo delegates to CompensateCopy
+	if !strings.Contains(code, "return o.Impl.CompensateCopy(s)") {
+		t.Error("compensable Undo should delegate to Impl.CompensateCopy")
+	}
+}
+
+func TestGenerateGraphActionsNonCompensableUndo(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Remove",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "path", "type": "string"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("file")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Non-compensable Undo uses blank identifiers and returns nil
+	if !strings.Contains(code, "func (o *Remove) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error") {
+		t.Error("non-compensable Undo should blank all params")
+	}
+	if !strings.Contains(code, "return nil") {
+		t.Error("non-compensable Undo should return nil")
+	}
+	if strings.Contains(code, "CompensateRemove") {
+		t.Error("non-compensable Undo should NOT delegate to a Compensate method")
+	}
+}
+
+func TestGenerateGateRejectsCompensableBadReturn(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":        "Install",
+			"returns":     "(string, error)",
+			"compensable": true,
+			"params":      []map[string]any{},
+		},
+	})
+
+	thread := &starlark.Thread{Name: "test"}
+	attr, _ := r.Attr("generate")
+	fn := attr.(*starlark.Builtin)
+	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+	if err == nil {
+		t.Fatal("expected error for compensable method with (string, error) return")
+	}
+	if !strings.Contains(err.Error(), "compensable method must return") {
+		t.Errorf("error should mention compensable return format: %v", err)
 	}
 }

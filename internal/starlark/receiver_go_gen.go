@@ -39,6 +39,7 @@ type methodInfo struct {
 	Params       []paramInfo
 	ReturnType   string // value type from (T, error), empty for error-only
 	ContentModel string // "none", "consumer", "transformer"
+	Compensable  bool   // has a Compensate<GoName> pair on the provider
 	Doc          string
 }
 
@@ -131,6 +132,39 @@ func validateReturnSignature(returns string) (string, error) {
 		return "", fmt.Errorf("must return error or (T, error), got %s", returns)
 	}
 	return valueType, nil
+}
+
+// validateCompensableReturn checks the return signature of a compensable method.
+// Accepts (map[string]any, error) or (T, map[string]any, error).
+// Returns the business value type (empty if state-only).
+func validateCompensableReturn(returns string) (string, error) {
+	if returns == "" {
+		return "", fmt.Errorf("compensable method must return (map[string]any, error) or (T, map[string]any, error), got empty return")
+	}
+	if !strings.HasPrefix(returns, "(") || !strings.HasSuffix(returns, ")") {
+		return "", fmt.Errorf("compensable method must return (map[string]any, error) or (T, map[string]any, error), got %s", returns)
+	}
+	inner := returns[1 : len(returns)-1]
+	if !strings.HasSuffix(inner, ", error") {
+		return "", fmt.Errorf("compensable method must return (..., error), got %s", returns)
+	}
+	withoutError := strings.TrimSuffix(inner, ", error")
+
+	// Case 1: (map[string]any, error) — state only, no business value
+	if withoutError == "map[string]any" {
+		return "", nil
+	}
+
+	// Case 2: (T, map[string]any, error) — business value + state
+	if strings.HasSuffix(withoutError, ", map[string]any") {
+		valueType := strings.TrimSuffix(withoutError, ", map[string]any")
+		if valueType == "" {
+			return "", fmt.Errorf("compensable method has empty value type in %s", returns)
+		}
+		return valueType, nil
+	}
+
+	return "", fmt.Errorf("compensable method must return (map[string]any, error) or (T, map[string]any, error), got %s", returns)
 }
 
 // validateParamTypes checks that all parameter types have Starlark mappings.
@@ -376,6 +410,10 @@ func tplGraphReturn(m methodInfo, implType string) string {
 	argStr := tplImplArgs(m)
 	call := fmt.Sprintf("o.Impl.%s(%s)", m.GoName, argStr)
 
+	if m.Compensable {
+		return tplGraphReturnCompensable(m, call)
+	}
+
 	switch m.ContentModel {
 	case "consumer":
 		// Consumer discards value return, returns (nil, nil, error)
@@ -393,10 +431,34 @@ func tplGraphReturn(m methodInfo, implType string) string {
 	}
 }
 
+// tplGraphReturnCompensable generates the delegation call for compensable methods.
+// Compensable methods return state as map[string]any which becomes UndoState.
+func tplGraphReturnCompensable(m methodInfo, call string) string {
+	switch m.ContentModel {
+	case "consumer":
+		// (string, map[string]any, error) — checksum + state
+		return fmt.Sprintf("\nchecksum, state, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nctx.TargetChecksum = checksum\nreturn nil, state, nil", call)
+	case "transformer":
+		// ([]byte, map[string]any, error) — result + state
+		return fmt.Sprintf("\nresult, state, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, state, nil", call)
+	default: // "none"
+		if m.ReturnType == "" {
+			// (map[string]any, error) — state only
+			return fmt.Sprintf("\nstate, err := %s\nreturn nil, state, err", call)
+		}
+		// (T, map[string]any, error) — value + state, discard value
+		return fmt.Sprintf("\n_, state, err := %s\nreturn nil, state, err", call)
+	}
+}
 
-// tplGraphUndo generates the Undo method stub for an action.
+
+// tplGraphUndo generates the Undo method for an action. Compensable actions
+// delegate to Impl.Compensate<GoName>(state). Non-compensable actions return nil.
 func tplGraphUndo(m methodInfo) string {
-	return fmt.Sprintf("func (o *%s) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {\n\treturn nil\n}", m.GoName)
+	if !m.Compensable {
+		return fmt.Sprintf("func (o *%s) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {\n\treturn nil\n}", m.GoName)
+	}
+	return fmt.Sprintf("func (o *%s) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {\n\ts, _ := state.(map[string]any)\n\tif s == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(s)\n}", m.GoName, m.GoName)
 }
 
 // =============================================================================
@@ -502,7 +564,13 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 
 	// Gate 2: validate return signatures and infer content models
 	for i, m := range desc.Methods {
-		valueType, err := validateReturnSignature(m.ReturnType)
+		var valueType string
+		var err error
+		if m.Compensable {
+			valueType, err = validateCompensableReturn(m.ReturnType)
+		} else {
+			valueType, err = validateReturnSignature(m.ReturnType)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("go.generate: method %s: %w", m.GoName, err)
 		}
@@ -699,12 +767,15 @@ func methodInfoFromValue(v starlark.Value) (methodInfo, error) {
 		params = append(params, p)
 	}
 
+	compensable, _ := valueGetBool(v, "compensable")
+
 	return methodInfo{
-		GoName:     name,
-		SnakeName:  camelToSnake(name),
-		Params:     params,
-		ReturnType: returns,
-		Doc:        doc,
+		GoName:      name,
+		SnakeName:   camelToSnake(name),
+		Params:      params,
+		ReturnType:  returns,
+		Compensable: compensable,
+		Doc:         doc,
 	}, nil
 }
 
