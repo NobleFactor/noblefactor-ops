@@ -340,10 +340,10 @@ func TestWalkTreeSkipsGitDir(t *testing.T) {
 }
 
 // =============================================================================
-// Test: Push/Pop
+// Test: Push auto-pops siblings
 // =============================================================================
 
-func TestPushPop(t *testing.T) {
+func TestPushAutoPop(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, ".gitignore", "*.log\n")
 	mkdirAll(t, root, "a")
@@ -374,13 +374,6 @@ func TestPushPop(t *testing.T) {
 	ignored, _ = tracker.IsIgnored("b/test.bak", false)
 	if !ignored {
 		t.Error("expected b/test.bak to be ignored after Push(b)")
-	}
-
-	// Pop b
-	tracker.Pop()
-	ignored, _ = tracker.IsIgnored("test.log", false)
-	if !ignored {
-		t.Error("expected test.log to still be ignored after Pop")
 	}
 }
 

@@ -142,14 +142,6 @@ func (t *Tracker) Push(dir string) {
 	}
 }
 
-// Pop removes the top non-base entry from the stack.
-func (t *Tracker) Pop() {
-	if len(t.dirs) > 0 && t.dirs[len(t.dirs)-1] != "" {
-		t.stack = t.stack[:len(t.stack)-1]
-		t.dirs = t.dirs[:len(t.dirs)-1]
-	}
-}
-
 // loadPatterns reads a gitignore file and returns parsed patterns.
 // domain is the path segments of the directory containing the file
 // (nil for root-level files).
