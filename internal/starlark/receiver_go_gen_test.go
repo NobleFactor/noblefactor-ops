@@ -1536,6 +1536,243 @@ func TestGenerateGraphActionsNonCompensableUndo(t *testing.T) {
 	}
 }
 
+func TestRealtimeProviderBodyErrorOnly(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Remove",
+		SnakeName:  "remove",
+		ReturnType: "", // gate-processed: error → ""
+		Params: []paramInfo{
+			{GoName: "path", SnakeName: "path", GoType: "string"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "r.provider.Remove(path)") {
+		t.Errorf("should delegate to r.provider.Remove, got:\n%s", body)
+	}
+	if !strings.Contains(body, "return starlark.None, nil") {
+		t.Errorf("error-only should return starlark.None, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyStringReturn(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Source",
+		SnakeName:  "source",
+		ReturnType: "string", // gate-processed: (string, error) → "string"
+		Params: []paramInfo{
+			{GoName: "path", SnakeName: "path", GoType: "string"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "r.provider.Source(path)") {
+		t.Errorf("should delegate to r.provider.Source, got:\n%s", body)
+	}
+	if !strings.Contains(body, "starlark.String(result)") {
+		t.Errorf("should convert string result, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyBytesReturn(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Download",
+		SnakeName:  "download",
+		ReturnType: "[]byte", // gate-processed: ([]byte, error) → "[]byte"
+		Params: []paramInfo{
+			{GoName: "url", SnakeName: "url", GoType: "string"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "r.provider.Download(url)") {
+		t.Errorf("should delegate to r.provider.Download, got:\n%s", body)
+	}
+	if !strings.Contains(body, "starlark.Bytes(result)") {
+		t.Errorf("should convert []byte result, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyCompensableStateOnly(t *testing.T) {
+	m := methodInfo{
+		GoName:      "Install",
+		SnakeName:   "install",
+		ReturnType:  "", // gate-processed: (map[string]any, error) → ""
+		Compensable: true,
+		Params: []paramInfo{
+			{GoName: "name", SnakeName: "name", GoType: "string"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "_, err := r.provider.Install(name)") {
+		t.Errorf("compensable state-only should discard state, got:\n%s", body)
+	}
+	if !strings.Contains(body, "return starlark.None, nil") {
+		t.Errorf("compensable state-only should return None, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyCompensableWithValue(t *testing.T) {
+	m := methodInfo{
+		GoName:      "Copy",
+		SnakeName:   "copy",
+		ReturnType:  "string", // gate-processed: (string, map[string]any, error) → "string"
+		Compensable: true,
+		Params: []paramInfo{
+			{GoName: "path", SnakeName: "path", GoType: "string"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "result, _, err := r.provider.Copy(path)") {
+		t.Errorf("compensable with value should capture result and discard state, got:\n%s", body)
+	}
+	if !strings.Contains(body, "starlark.String(result)") {
+		t.Errorf("should convert string result, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyIOWriter(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Shell",
+		SnakeName:  "shell",
+		ReturnType: "", // gate-processed: error → ""
+		Params: []paramInfo{
+			{GoName: "command", SnakeName: "command", GoType: "string"},
+			{GoName: "output", SnakeName: "output", GoType: "io.Writer"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "r.provider.Shell(command, r.output)") {
+		t.Errorf("io.Writer should map to r.output, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyFileMode(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Mkdir",
+		SnakeName:  "mkdir",
+		ReturnType: "", // gate-processed: error → ""
+		Params: []paramInfo{
+			{GoName: "path", SnakeName: "path", GoType: "string"},
+			{GoName: "mode", SnakeName: "mode", GoType: "os.FileMode"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "r.provider.Mkdir(path, os.FileMode(mode))") {
+		t.Errorf("os.FileMode should be cast from int, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyStringSlice(t *testing.T) {
+	m := methodInfo{
+		GoName:      "Install",
+		SnakeName:   "install",
+		ReturnType:  "", // gate-processed: (map[string]any, error) → ""
+		Compensable: true,
+		Params: []paramInfo{
+			{GoName: "packages", SnakeName: "packages", GoType: "[]string"},
+			{GoName: "manager", SnakeName: "manager", GoType: "string"},
+			{GoName: "cask", SnakeName: "cask", GoType: "bool"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "listToStringSlice(packages)") {
+		t.Errorf("[]string should use listToStringSlice, got:\n%s", body)
+	}
+	if !strings.Contains(body, "r.provider.Install(listToStringSlice(packages), manager, cask)") {
+		t.Errorf("should pass all args in order, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyCallback(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Move",
+		SnakeName:  "move",
+		ReturnType: "", // gate-processed: error → ""
+		Params: []paramInfo{
+			{GoName: "gitMv", SnakeName: "git_mv", GoType: "func(string, string) error"},
+			{GoName: "source", SnakeName: "source", GoType: "string"},
+			{GoName: "path", SnakeName: "path", GoType: "string"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	if !strings.Contains(body, "r.provider.Move(nil, source, path)") {
+		t.Errorf("engine-injected callback should pass nil, got:\n%s", body)
+	}
+}
+
+func TestRealtimeProviderBodyDictConversion(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Render",
+		SnakeName:  "render",
+		ReturnType: "[]byte", // gate-processed: ([]byte, error) → "[]byte"
+		Params: []paramInfo{
+			{GoName: "templateData", SnakeName: "template_data", GoType: "map[string]any"},
+			{GoName: "source", SnakeName: "source", GoType: "string"},
+		},
+	}
+	body := tplRealtimeProviderBody(m)
+	// Must pre-compute dict conversion (multi-return)
+	if !strings.Contains(body, "templateDataMap, err := starlarkDictToMap(templateData)") {
+		t.Errorf("should pre-compute dict conversion, got:\n%s", body)
+	}
+	if !strings.Contains(body, "r.provider.Render(templateDataMap, source)") {
+		t.Errorf("should use converted variable in call, got:\n%s", body)
+	}
+}
+
+func TestAllAttrNames(t *testing.T) {
+	d := &generateDescriptor{
+		Methods: []methodInfo{
+			{SnakeName: "install"},
+			{SnakeName: "remove"},
+		},
+		ExtraAttrs: []string{"manager", "installed", "version"},
+	}
+	got := tplAllAttrNames(d)
+	want := `"install", "installed", "manager", "remove", "version"`
+	if got != want {
+		t.Errorf("allAttrNames = %q, want %q", got, want)
+	}
+}
+
+func TestAllAttrNamesNoExtras(t *testing.T) {
+	d := &generateDescriptor{
+		Methods: []methodInfo{
+			{SnakeName: "extract"},
+		},
+	}
+	got := tplAllAttrNames(d)
+	want := `"extract"`
+	if got != want {
+		t.Errorf("allAttrNames = %q, want %q", got, want)
+	}
+}
+
+func TestHasExtraAttrs(t *testing.T) {
+	with := &generateDescriptor{ExtraAttrs: []string{"manager"}}
+	without := &generateDescriptor{}
+	if !tplHasExtraAttrs(with) {
+		t.Error("should return true when extra attrs present")
+	}
+	if tplHasExtraAttrs(without) {
+		t.Error("should return false when no extra attrs")
+	}
+}
+
+func TestNeedsImport(t *testing.T) {
+	methods := []methodInfo{
+		{Params: []paramInfo{{GoType: "string"}, {GoType: "bool"}}},
+		{Params: []paramInfo{{GoType: "os.FileMode"}, {GoType: "string"}}},
+	}
+	if !tplNeedsImport(methods, "os.FileMode") {
+		t.Error("should detect os.FileMode")
+	}
+	if tplNeedsImport(methods, "io.Writer") {
+		t.Error("should not detect io.Writer when absent")
+	}
+	if tplNeedsImport(nil, "string") {
+		t.Error("nil methods should return false")
+	}
+}
+
 func TestGenerateGateRejectsCompensableBadReturn(t *testing.T) {
 	r := NewGoReceiver()
 	desc := buildTestDescriptor(t, []map[string]any{

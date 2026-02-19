@@ -30,6 +30,7 @@ type generateDescriptor struct {
 	Namespace  string       // dotted namespace (e.g., "plan.file")
 	ImplType   string       // implementation struct name for delegation (e.g., "fileOps")
 	Methods    []methodInfo // analyzed methods
+	ExtraAttrs []string     // additional attr names from companion files (e.g., query methods)
 }
 
 // methodInfo holds analyzed information about a single method.
@@ -226,17 +227,21 @@ func isContentParam(p paramInfo, m methodInfo) bool {
 // =============================================================================
 
 var genTemplateFuncs = template.FuncMap{
-	"attrNamesList":      tplAttrNamesList,
-	"planUnpackArgs":     tplPlanUnpackArgs,
-	"planFillSlots":      tplPlanFillSlots,
-	"realtimeUnpackArgs": tplRealtimeUnpackArgs,
-	"graphReaders":       tplGraphReaders,
-	"dryRunFmt":          tplDryRunFmt,
-	"dryRunVars":         tplDryRunVars,
-	"dryRunChecksum":     tplDryRunChecksum,
-	"implArgs":           tplImplArgs,
-	"graphReturn":        tplGraphReturn,
-	"graphUndo":          tplGraphUndo,
+	"attrNamesList":        tplAttrNamesList,
+	"allAttrNames":         tplAllAttrNames,
+	"hasExtraAttrs":        tplHasExtraAttrs,
+	"planUnpackArgs":       tplPlanUnpackArgs,
+	"planFillSlots":        tplPlanFillSlots,
+	"realtimeUnpackArgs":   tplRealtimeUnpackArgs,
+	"realtimeProviderBody": tplRealtimeProviderBody,
+	"needsImport":          tplNeedsImport,
+	"graphReaders":         tplGraphReaders,
+	"dryRunFmt":            tplDryRunFmt,
+	"dryRunVars":           tplDryRunVars,
+	"dryRunChecksum":       tplDryRunChecksum,
+	"implArgs":             tplImplArgs,
+	"graphReturn":          tplGraphReturn,
+	"graphUndo":            tplGraphUndo,
 }
 
 func tplAttrNamesList(methods []methodInfo) string {
@@ -250,6 +255,28 @@ func tplAttrNamesList(methods []methodInfo) string {
 		quoted[i] = `"` + n + `"`
 	}
 	return strings.Join(quoted, ", ")
+}
+
+// tplAllAttrNames returns all attribute names (generated methods + extra attrs)
+// as a sorted, quoted, comma-separated string. Used by receivers with companion
+// query files that contribute additional attributes.
+func tplAllAttrNames(d *generateDescriptor) string {
+	names := make([]string, 0, len(d.Methods)+len(d.ExtraAttrs))
+	for _, m := range d.Methods {
+		names = append(names, m.SnakeName)
+	}
+	names = append(names, d.ExtraAttrs...)
+	sort.Strings(names)
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = `"` + n + `"`
+	}
+	return strings.Join(quoted, ", ")
+}
+
+// tplHasExtraAttrs returns true if the descriptor has extra attribute names.
+func tplHasExtraAttrs(d *generateDescriptor) bool {
+	return len(d.ExtraAttrs) > 0
 }
 
 func tplPlanUnpackArgs(m methodInfo) string {
@@ -318,6 +345,109 @@ func tplRealtimeUnpackArgs(m methodInfo) string {
 	}
 	buf.WriteString(fmt.Sprintf("if err := starlark.UnpackArgs(%q, args, kwargs, %s); err != nil {\nreturn nil, err\n}", m.SnakeName, strings.Join(pairs, ", ")))
 	return buf.String()
+}
+
+// tplRealtimeProviderBody generates the Provider delegation call body for a
+// receiver method. It maps parameters from their Starlark-unpacked types to
+// Provider method arguments, calls r.provider.GoName(...), and converts the
+// return value to a Starlark value. Compensation state is ignored — receivers
+// are immediate execution only.
+func tplRealtimeProviderBody(m methodInfo) string {
+	// Build conversion declarations and call args.
+	// Some types require multi-return conversion (e.g., starlarkDictToMap)
+	// which must be pre-computed as variable declarations.
+	var convDecls []string
+	var callArgs []string
+	for _, p := range m.Params {
+		decl, arg := realtimeArgExpr(p)
+		if decl != "" {
+			convDecls = append(convDecls, decl)
+		}
+		callArgs = append(callArgs, arg)
+	}
+
+	var buf strings.Builder
+	for _, d := range convDecls {
+		buf.WriteString(d + "\n")
+	}
+
+	call := fmt.Sprintf("r.provider.%s(%s)", m.GoName, strings.Join(callArgs, ", "))
+
+	if m.Compensable {
+		if m.ReturnType == "" {
+			buf.WriteString(fmt.Sprintf("\t_, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn starlark.None, nil", call))
+		} else {
+			buf.WriteString(fmt.Sprintf("\tresult, _, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, realtimeResultExpr(m.ReturnType, "result")))
+		}
+		return buf.String()
+	}
+
+	if m.ReturnType == "" {
+		buf.WriteString(fmt.Sprintf("\tif err := %s; err != nil {\n\t\treturn nil, err\n\t}\n\treturn starlark.None, nil", call))
+	} else {
+		buf.WriteString(fmt.Sprintf("\tresult, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, realtimeResultExpr(m.ReturnType, "result")))
+	}
+	return buf.String()
+}
+
+// realtimeArgExpr returns a conversion declaration (if needed) and the Go
+// expression for passing a parameter to a Provider method from a receiver.
+// Multi-return conversions (like starlarkDictToMap) produce a declaration
+// string; single-value conversions return only the inline expression.
+func realtimeArgExpr(p paramInfo) (decl, arg string) {
+	tm := typeMappings[p.GoType]
+	if tm.contextReader != "" {
+		return "", "r.output"
+	}
+	if !tm.starlarkFacing {
+		// Engine-injected dependency (callbacks) — not available from Starlark.
+		// Pass nil; wired via Provider struct fields when needed.
+		return "", "nil"
+	}
+	switch p.GoType {
+	case "os.FileMode":
+		return "", fmt.Sprintf("os.FileMode(%s)", p.GoName)
+	case "[]string":
+		return "", fmt.Sprintf("listToStringSlice(%s)", p.GoName)
+	case "map[string]any":
+		convVar := p.GoName + "Map"
+		d := fmt.Sprintf("\t%s, err := starlarkDictToMap(%s)\n\tif err != nil {\n\t\treturn nil, err\n\t}", convVar, p.GoName)
+		return d, convVar
+	default:
+		return "", p.GoName
+	}
+}
+
+// realtimeResultExpr returns the Go expression for converting a Provider
+// return value to a Starlark value.
+func realtimeResultExpr(goType, varName string) string {
+	switch goType {
+	case "string":
+		return fmt.Sprintf("starlark.String(%s)", varName)
+	case "bool":
+		return fmt.Sprintf("starlark.Bool(%s)", varName)
+	case "int":
+		return fmt.Sprintf("starlark.MakeInt(%s)", varName)
+	case "int64":
+		return fmt.Sprintf("starlark.MakeInt64(%s)", varName)
+	case "[]byte":
+		return fmt.Sprintf("starlark.Bytes(%s)", varName)
+	default:
+		return "starlark.None"
+	}
+}
+
+// tplNeedsImport checks whether any method parameter uses the given Go type.
+// Used in templates for conditional imports (e.g., "os" for os.FileMode).
+func tplNeedsImport(methods []methodInfo, goType string) bool {
+	for _, m := range methods {
+		for _, p := range m.Params {
+			if p.GoType == goType {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // tplGraphReaders generates variable declarations for Do: slot reads,
@@ -734,6 +864,19 @@ func descriptorFromValue(templateName string, v starlark.Value) (*generateDescri
 			return nil, fmt.Errorf("descriptor.methods[%d]: %w", i, err)
 		}
 		desc.Methods = append(desc.Methods, m)
+	}
+
+	// Optional: extra attribute names from companion files
+	extraVal, err := valueGetList(v, "extra_attrs")
+	if err != nil {
+		return nil, fmt.Errorf("descriptor.extra_attrs: %w", err)
+	}
+	for i := 0; i < extraVal.Len(); i++ {
+		s, ok := starlark.AsString(extraVal.Index(i))
+		if !ok {
+			return nil, fmt.Errorf("descriptor.extra_attrs[%d]: expected string, got %s", i, extraVal.Index(i).Type())
+		}
+		desc.ExtraAttrs = append(desc.ExtraAttrs, s)
 	}
 
 	return desc, nil
