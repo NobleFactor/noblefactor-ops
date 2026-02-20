@@ -164,6 +164,8 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("go.structs", r.goStructs), nil
 	case "template":
 		return MakeAttr("go.template", r.goTemplate), nil
+	case "type_doc":
+		return MakeAttr("go.type_doc", r.goTypeDoc), nil
 	default:
 		return nil, NoSuchAttrError("go", name)
 	}
@@ -171,7 +173,7 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 
 // AttrNames implements starlark.HasAttrs.
 func (r *GoReceiver) AttrNames() []string {
-	return []string{"calls", "composites", "const_groups", "deps", "funcs", "generate", "mapping", "methods", "metrics", "raw_string", "return_string", "structs", "template"}
+	return []string{"calls", "composites", "const_groups", "deps", "funcs", "generate", "mapping", "methods", "metrics", "raw_string", "return_string", "structs", "template", "type_doc"}
 }
 
 // =============================================================================
@@ -1042,9 +1044,79 @@ func (r *GoReceiver) goRawString(_ *starlark.Thread, _ *starlark.Builtin, args s
 	return starlark.String(rawStr), nil
 }
 
+// goTypeDoc returns the doc comment for a named type declaration.
+func (r *GoReceiver) goTypeDoc(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path string
+	var nameVal starlark.Value
+	if err := starlark.UnpackArgs("go.type_doc", args, kwargs, "path", &path, "name?", &nameVal); err != nil {
+		return nil, err
+	}
+	name := "Provider"
+	if s := optionalString(nameVal); s != "" {
+		name = s
+	}
+
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.type_doc: %w", err)
+	}
+
+	for _, file := range files {
+		_, node, err := r.parseFile(file)
+		if err != nil {
+			continue
+		}
+		for _, decl := range node.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range genDecl.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name.Name != name {
+					continue
+				}
+				// Doc comment can live on the TypeSpec (grouped) or the GenDecl (standalone).
+				// We use commentGroupRaw instead of Text() because Text() strips
+				// directive-style comments (//tool:directive with no space after //).
+				var cg *ast.CommentGroup
+				if ts.Doc != nil {
+					cg = ts.Doc
+				} else if genDecl.Doc != nil {
+					cg = genDecl.Doc
+				}
+				return starlark.String(commentGroupRaw(cg)), nil
+			}
+		}
+	}
+
+	return starlark.String(""), nil
+}
+
 // =============================================================================
 // SHARED HELPERS
 // =============================================================================
+
+// commentGroupRaw returns the full text of a comment group, preserving directive
+// lines (//tool:directive) that ast.CommentGroup.Text() strips since Go 1.21.
+func commentGroupRaw(cg *ast.CommentGroup) string {
+	if cg == nil {
+		return ""
+	}
+	var lines []string
+	for _, c := range cg.List {
+		text := c.Text
+		if strings.HasPrefix(text, "//") {
+			text = strings.TrimPrefix(text, "//")
+			// Strip at most one leading space (standard Go comment style).
+			if len(text) > 0 && text[0] == ' ' {
+				text = text[1:]
+			}
+		}
+		lines = append(lines, text)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
 
 func extractReturnString(body *ast.BlockStmt) string {
 	if body == nil || len(body.List) == 0 {
