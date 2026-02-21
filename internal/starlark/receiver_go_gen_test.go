@@ -65,8 +65,8 @@ func (p *{{$.StructName}}Plan) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Bu
 {{planUnpackArgs .}}
 
 	node := &execution.Node{
-		ID:      generateNodeID("{{$.Category}}-{{.SnakeName}}"),
-		Action:  p.reg.MustGet("{{$.Category}}.{{.SnakeName}}"),
+		ID:      generateNodeID("{{$.Provider}}-{{.SnakeName}}"),
+		Action:  p.reg.MustGet("{{$.Provider}}.{{.SnakeName}}"),
 		Project: p.project,
 	}
 {{planFillSlots .}}
@@ -92,13 +92,13 @@ import (
 // {{.GoName}} — {{.Doc}}
 type {{.GoName}} struct{ Impl *Provider }
 
-func (o *{{.GoName}}) Name() string { return "{{$.Category}}.{{.SnakeName}}" }
+func (o *{{.GoName}}) Name() string { return "{{$.Provider}}.{{.SnakeName}}" }
 
 func (o *{{.GoName}}) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.UndoState, error) {
 {{graphReaders .}}
 
 	if ctx.DryRun {
-		_, _ = fmt.Fprintf(ctx.Logger, "[dry-run] {{$.Category}}.{{.SnakeName}} {{dryRunFmt .}}\n"{{dryRunVars .}}){{dryRunChecksum .}}
+		_, _ = fmt.Fprintf(ctx.Writer, "[dry-run] {{$.Provider}}.{{.SnakeName}} {{dryRunFmt .}}\n"{{dryRunVars .}}){{dryRunChecksum .}}
 		return nil, nil, nil
 	}
 {{graphReturn . $.ImplType}}
@@ -106,7 +106,7 @@ func (o *{{.GoName}}) Do(ctx *execution.Context, slots map[string]any) (executio
 
 {{graphUndo .}}
 {{end}}
-// Register registers all {{.Category}} actions with the given registry.
+// Register registers all {{.Provider}} actions with the given registry.
 func Register(reg *execution.ActionRegistry) {
 	p := &Provider{}
 {{- range .Methods}}
@@ -244,7 +244,7 @@ func buildTestDescriptor(t *testing.T, methods []map[string]any) *starlark.Dict 
 	t.Helper()
 	desc := starlark.NewDict(5)
 	must(t, desc.SetKey(starlark.String("package"), starlark.String("starlark")))
-	must(t, desc.SetKey(starlark.String("category"), starlark.String("file")))
+	must(t, desc.SetKey(starlark.String("provider"), starlark.String("file")))
 	must(t, desc.SetKey(starlark.String("struct_name"), starlark.String("File")))
 	must(t, desc.SetKey(starlark.String("namespace"), starlark.String("plan.file")))
 
@@ -385,12 +385,12 @@ func TestGeneratePlanReceiver(t *testing.T) {
 		t.Error("missing namespace plan.file")
 	}
 
-	// Node ID includes category
+	// Node ID includes provider
 	if !strings.Contains(code, `generateNodeID("file-copy")`) {
-		t.Error("node ID should include category: file-copy")
+		t.Error("node ID should include provider: file-copy")
 	}
 	if !strings.Contains(code, `generateNodeID("file-remove")`) {
-		t.Error("node ID should include category: file-remove")
+		t.Error("node ID should include provider: file-remove")
 	}
 
 	// Action uses MustGet with dotted name
@@ -455,9 +455,12 @@ func TestGenerateGraphActions(t *testing.T) {
 		t.Error("missing Do method signature")
 	}
 
-	// Undo method stub
-	if !strings.Contains(code, "Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error") {
-		t.Error("missing Undo method stub")
+	// Non-compensable actions should NOT have Undo method
+	if strings.Contains(code, "func (o *Copy) Undo(") {
+		t.Error("non-compensable Copy should not have Undo method")
+	}
+	if strings.Contains(code, "func (o *Remove) Undo(") {
+		t.Error("non-compensable Remove should not have Undo method")
 	}
 
 	// Register function
@@ -754,12 +757,15 @@ func TestGenerateGraphActionsDelegation(t *testing.T) {
 		t.Error("slot readers should use slots map")
 	}
 
-	// Undo stubs
-	if !strings.Contains(code, "func (o *Link) Undo(") {
-		t.Error("missing Undo for Link")
+	// Non-compensable actions should NOT have Undo
+	if strings.Contains(code, "func (o *Link) Undo(") {
+		t.Error("non-compensable Link should not have Undo method")
 	}
-	if !strings.Contains(code, "func (o *Copy) Undo(") {
-		t.Error("missing Undo for Copy")
+	if strings.Contains(code, "func (o *Copy) Undo(") {
+		t.Error("non-compensable Copy should not have Undo method")
+	}
+	if strings.Contains(code, "func (o *Render) Undo(") {
+		t.Error("non-compensable Render should not have Undo method")
 	}
 
 	// Register function with Provider
@@ -824,8 +830,8 @@ func TestGoMappingRoundTrip(t *testing.T) {
 	if mapping.Package != "execution" {
 		t.Errorf("expected package execution, got %q", mapping.Package)
 	}
-	if mapping.Category != "file" {
-		t.Errorf("expected category file, got %q", mapping.Category)
+	if mapping.Provider != "file" {
+		t.Errorf("expected provider file, got %q", mapping.Provider)
 	}
 
 	// Verify operations
@@ -1142,7 +1148,7 @@ func TestGenerateGraphActionsConsumer(t *testing.T) {
 	}
 
 	// Dry-run checksum
-	if !strings.Contains(code, "ctx.TargetChecksum = ChecksumBytes(content)") {
+	if !strings.Contains(code, "ctx.TargetChecksum = execution.ChecksumBytes(content)") {
 		t.Error("consumer dry-run should set TargetChecksum")
 	}
 
@@ -1239,9 +1245,9 @@ func TestGenerateGraphActionsFramework(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// io.Writer read from ctx.Logger
-	if !strings.Contains(code, "output := ctx.Logger") {
-		t.Error("io.Writer should be read from ctx.Logger")
+	// io.Writer read from ctx.Writer
+	if !strings.Contains(code, "output := ctx.Writer") {
+		t.Error("io.Writer should be read from ctx.Writer")
 	}
 
 	// func type read from slots map
@@ -1524,15 +1530,12 @@ func TestGenerateGraphActionsNonCompensableUndo(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Non-compensable Undo uses blank identifiers and returns nil
-	if !strings.Contains(code, "func (o *Remove) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error") {
-		t.Error("non-compensable Undo should blank all params")
-	}
-	if !strings.Contains(code, "return nil") {
-		t.Error("non-compensable Undo should return nil")
+	// Non-compensable actions should NOT have Undo method at all
+	if strings.Contains(code, "func (o *Remove) Undo(") {
+		t.Error("non-compensable Remove should not have Undo method")
 	}
 	if strings.Contains(code, "CompensateRemove") {
-		t.Error("non-compensable Undo should NOT delegate to a Compensate method")
+		t.Error("non-compensable Remove should NOT reference a Compensate method")
 	}
 }
 

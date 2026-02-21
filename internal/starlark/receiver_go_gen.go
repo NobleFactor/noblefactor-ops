@@ -23,9 +23,9 @@ import (
 
 // generateDescriptor holds the complete input for code generation.
 type generateDescriptor struct {
-	Template   string       // "plan_receiver", "graph_ops", "realtime_receiver"
+	Template   string       // "plan_receiver", "graph_actions", "realtime_receiver"
 	Package    string       // Go package name for generated file
-	Category   string       // snake_case category (e.g., "file")
+	Provider   string       // snake_case provider (e.g., "file")
 	StructName string       // Go struct name (e.g., "File")
 	Namespace  string       // dotted namespace (e.g., "plan.file")
 	ImplType   string       // implementation struct name for delegation (e.g., "fileOps")
@@ -77,7 +77,7 @@ var typeMappings = map[string]typeMapping{
 	"func(string, []byte) ([]byte, error)": {slotReader: `slots["%s"].(func(string, []byte) ([]byte, error))`},
 	"func(string, string) error":           {slotReader: `slots["%s"].(func(string, string) error)`},
 	// Context-provided: read from context expression, not slots
-	"io.Writer": {contextReader: "ctx.Logger"},
+	"io.Writer": {contextReader: "ctx.Writer"},
 	// Content: read from slot with optional assertion (may come via promise)
 	"[]byte": {slotReader: `slots["%s"].([]byte)`},
 }
@@ -518,7 +518,7 @@ func tplDryRunChecksum(m methodInfo) string {
 	if m.ContentModel != "consumer" {
 		return ""
 	}
-	return "\nctx.TargetChecksum = ChecksumBytes(content)"
+	return "\nctx.TargetChecksum = execution.ChecksumBytes(content)"
 }
 
 // tplImplArgs generates all param names in order for the delegation call.
@@ -556,8 +556,8 @@ func tplGraphReturn(m methodInfo, implType string) string {
 			// Error-only return
 			return fmt.Sprintf("\nreturn nil, nil, %s", call)
 		}
-		// Has value type but not content model — discard value
-		return fmt.Sprintf("\n_, err := %s\nreturn nil, nil, err", call)
+		// Has value return — pass through as Result
+		return fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
 	}
 }
 
@@ -576,8 +576,8 @@ func tplGraphReturnCompensable(m methodInfo, call string) string {
 			// (map[string]any, error) — state only
 			return fmt.Sprintf("\nstate, err := %s\nreturn nil, state, err", call)
 		}
-		// (T, map[string]any, error) — value + state, discard value
-		return fmt.Sprintf("\n_, state, err := %s\nreturn nil, state, err", call)
+		// (T, map[string]any, error) — value + state, return value as Result
+		return fmt.Sprintf("\nresult, state, err := %s\nreturn result, state, err", call)
 	}
 }
 
@@ -586,7 +586,7 @@ func tplGraphReturnCompensable(m methodInfo, call string) string {
 // delegate to Impl.Compensate<GoName>(state). Non-compensable actions return nil.
 func tplGraphUndo(m methodInfo) string {
 	if !m.Compensable {
-		return fmt.Sprintf("func (o *%s) Undo(_ *execution.Context, _ map[string]any, _ execution.UndoState) error {\n\treturn nil\n}", m.GoName)
+		return "" // No Undo method — struct implements Action only, not Undoable.
 	}
 	return fmt.Sprintf("func (o *%s) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {\n\ts, _ := state.(map[string]any)\n\tif s == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(s)\n}", m.GoName, m.GoName)
 }
@@ -610,17 +610,17 @@ type {{.StructName}}Receiver struct {
 }
 
 func New{{.StructName}}Receiver() *{{.StructName}}Receiver {
-	return &{{.StructName}}Receiver{Receiver: NewReceiver("{{.Category}}")}
+	return &{{.StructName}}Receiver{Receiver: NewReceiver("{{.Provider}}")}
 }
 
 func (r *{{.StructName}}Receiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 {{- range .Methods}}
 	case "{{.SnakeName}}":
-		return MakeAttr("{{$.Category}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
+		return MakeAttr("{{$.Provider}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
 {{- end}}
 	default:
-		return nil, NoSuchAttrError("{{.Category}}", name)
+		return nil, NoSuchAttrError("{{.Provider}}", name)
 	}
 }
 
@@ -746,7 +746,7 @@ type mappingFile struct {
 	Version    string             `yaml:"version"`
 	Struct     string             `yaml:"struct"`
 	Package    string             `yaml:"package"`
-	Category   string             `yaml:"category"`
+	Provider   string             `yaml:"provider"`
 	Namespace  string             `yaml:"namespace"`
 	Operations []mappingOperation `yaml:"operations"`
 }
@@ -782,13 +782,13 @@ func (r *GoReceiver) goMapping(_ *starlark.Thread, _ *starlark.Builtin, args sta
 		Version:   "1.0",
 		Struct:    desc.ImplType,
 		Package:   desc.Package,
-		Category:  desc.Category,
+		Provider:  desc.Provider,
 		Namespace: desc.Namespace,
 	}
 
 	for _, m := range desc.Methods {
 		op := mappingOperation{
-			Name:     desc.Category + "." + m.SnakeName,
+			Name:     desc.Provider + "." + m.SnakeName,
 			GoMethod: m.GoName,
 		}
 
@@ -832,11 +832,11 @@ func descriptorFromValue(templateName string, v starlark.Value) (*generateDescri
 	}
 	desc.Package = pkg
 
-	category, err := valueGetString(v, "category")
+	provider, err := valueGetString(v, "provider")
 	if err != nil {
-		return nil, fmt.Errorf("descriptor.category: %w", err)
+		return nil, fmt.Errorf("descriptor.provider: %w", err)
 	}
-	desc.Category = category
+	desc.Provider = provider
 
 	structName, err := valueGetString(v, "struct_name")
 	if err != nil {

@@ -952,6 +952,77 @@ func (f *FileOps) Check() bool {
 	}
 }
 
+func TestGoTypeDoc(t *testing.T) {
+	dir := writeTempDir(t, map[string]string{
+		"provider.go": `package example
+
+// Provider provides file system actions.
+//
+// Compensable Forward methods return (map[string]any, error).
+//
+//devlore:plannable
+type Provider struct{}
+`,
+		"ui.go": `package example
+
+// UIHelper provides user-facing terminal messaging.
+type UIHelper struct{}
+`,
+		"grouped.go": `package example
+
+type (
+	// GroupedType is inside a grouped declaration.
+	GroupedType struct{}
+)
+`,
+	})
+
+	r := NewGoReceiver()
+
+	// Default name="Provider" — should find the plannable doc
+	result := callMethod(t, r, "type_doc", starlark.Tuple{starlark.String(dir)}, nil)
+	doc, _ := starlark.AsString(result)
+	if !contains(doc, "file system actions") {
+		t.Errorf("expected doc to contain 'file system actions', got %q", doc)
+	}
+	if !contains(doc, "devlore:plannable") {
+		t.Errorf("expected doc to contain 'devlore:plannable', got %q", doc)
+	}
+
+	// Explicit name — find UIHelper
+	result = callMethod(t, r, "type_doc",
+		starlark.Tuple{starlark.String(dir)},
+		[]starlark.Tuple{{starlark.String("name"), starlark.String("UIHelper")}},
+	)
+	doc, _ = starlark.AsString(result)
+	if !contains(doc, "terminal messaging") {
+		t.Errorf("expected UIHelper doc to contain 'terminal messaging', got %q", doc)
+	}
+	if contains(doc, "devlore:plannable") {
+		t.Errorf("UIHelper should not have plannable directive, got %q", doc)
+	}
+
+	// Grouped type — doc is on TypeSpec
+	result = callMethod(t, r, "type_doc",
+		starlark.Tuple{starlark.String(dir)},
+		[]starlark.Tuple{{starlark.String("name"), starlark.String("GroupedType")}},
+	)
+	doc, _ = starlark.AsString(result)
+	if !contains(doc, "grouped declaration") {
+		t.Errorf("expected GroupedType doc to contain 'grouped declaration', got %q", doc)
+	}
+
+	// Non-existent type — returns empty string
+	result = callMethod(t, r, "type_doc",
+		starlark.Tuple{starlark.String(dir)},
+		[]starlark.Tuple{{starlark.String("name"), starlark.String("NonExistent")}},
+	)
+	doc, _ = starlark.AsString(result)
+	if doc != "" {
+		t.Errorf("expected empty doc for non-existent type, got %q", doc)
+	}
+}
+
 func TestTypeToStringExtended(t *testing.T) {
 	dir := writeTempDir(t, map[string]string{
 		"showcase.go": `package example
