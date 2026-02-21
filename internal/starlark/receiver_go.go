@@ -160,6 +160,8 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 		return MakeAttr("go.raw_string", r.goRawString), nil
 	case "return_string":
 		return MakeAttr("go.return_string", r.goReturnString), nil
+	case "return_strings":
+		return MakeAttr("go.return_strings", r.goReturnStrings), nil
 	case "structs":
 		return MakeAttr("go.structs", r.goStructs), nil
 	case "template":
@@ -173,7 +175,7 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 
 // AttrNames implements starlark.HasAttrs.
 func (r *GoReceiver) AttrNames() []string {
-	return []string{"calls", "composites", "const_groups", "deps", "funcs", "generate", "mapping", "methods", "metrics", "raw_string", "return_string", "structs", "template", "type_doc"}
+	return []string{"calls", "composites", "const_groups", "deps", "funcs", "generate", "mapping", "methods", "metrics", "raw_string", "return_string", "return_strings", "structs", "template", "type_doc"}
 }
 
 // =============================================================================
@@ -1016,6 +1018,24 @@ func (r *GoReceiver) goReturnString(_ *starlark.Thread, _ *starlark.Builtin, arg
 	return starlark.String(extractReturnString(body)), nil
 }
 
+// goReturnStrings extracts string elements from a []string{...} return statement in a scope.
+func (r *GoReceiver) goReturnStrings(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var scope string
+	if err := starlark.UnpackArgs("go.return_strings", args, kwargs, "scope", &scope); err != nil {
+		return nil, err
+	}
+	_, body, err := r.findScopeBody(scope)
+	if err != nil {
+		return nil, fmt.Errorf("go.return_strings: %w", err)
+	}
+	strs := extractReturnStrings(body)
+	var elems []starlark.Value
+	for _, s := range strs {
+		elems = append(elems, starlark.String(s))
+	}
+	return starlark.NewList(elems), nil
+}
+
 // goRawString extracts the first backtick string literal from a scope.
 func (r *GoReceiver) goRawString(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var scope string
@@ -1138,6 +1158,46 @@ func extractReturnString(body *ast.BlockStmt) string {
 	}
 
 	return ""
+}
+
+func extractReturnStrings(body *ast.BlockStmt) []string {
+	if body == nil || len(body.List) == 0 {
+		return nil
+	}
+
+	for _, stmt := range body.List {
+		ret, ok := stmt.(*ast.ReturnStmt)
+		if !ok || len(ret.Results) != 1 {
+			continue
+		}
+
+		comp, ok := ret.Results[0].(*ast.CompositeLit)
+		if !ok {
+			continue
+		}
+
+		// Verify the type is []string.
+		arr, ok := comp.Type.(*ast.ArrayType)
+		if !ok || arr.Len != nil {
+			continue
+		}
+		ident, ok := arr.Elt.(*ast.Ident)
+		if !ok || ident.Name != "string" {
+			continue
+		}
+
+		var result []string
+		for _, elt := range comp.Elts {
+			lit, ok := elt.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				continue
+			}
+			result = append(result, strings.Trim(lit.Value, `"`))
+		}
+		return result
+	}
+
+	return nil
 }
 
 func typeToString(expr ast.Expr) string {

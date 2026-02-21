@@ -591,6 +591,50 @@ Known platforms: linux, darwin, windows
 	}
 }
 
+func TestGoReturnStrings(t *testing.T) {
+	dir := writeTempDir(t, map[string]string{
+		"provider.go": `package example
+
+type Provider struct{}
+
+func (p *Provider) AttrNames() []string {
+	return []string{"backup", "copy", "link", "mkdir"}
+}
+`,
+	})
+
+	r := NewGoReceiver()
+
+	methods := callMethod(t, r, "methods",
+		starlark.Tuple{starlark.String(dir)},
+		[]starlark.Tuple{
+			{starlark.String("name"), starlark.String("AttrNames")},
+			{starlark.String("receiver_type"), starlark.String("Provider")},
+		},
+	)
+	if getListLen(t, methods) != 1 {
+		t.Fatalf("expected 1 method, got %d", getListLen(t, methods))
+	}
+	scope := getStructAttr(t, getListItem(t, methods, 0), "scope")
+
+	result := callMethod(t, r, "return_strings", starlark.Tuple{starlark.String(scope)}, nil)
+	list, ok := result.(*starlark.List)
+	if !ok {
+		t.Fatalf("expected list, got %T", result)
+	}
+
+	expected := []string{"backup", "copy", "link", "mkdir"}
+	if list.Len() != len(expected) {
+		t.Fatalf("expected %d elements, got %d", len(expected), list.Len())
+	}
+	for i, want := range expected {
+		got, _ := starlark.AsString(list.Index(i))
+		if got != want {
+			t.Errorf("element[%d]: got %q, want %q", i, got, want)
+		}
+	}
+}
+
 func TestGoScope_InvalidScope(t *testing.T) {
 	r := NewGoReceiver()
 
