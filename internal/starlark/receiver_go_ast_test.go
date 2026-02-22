@@ -1067,6 +1067,133 @@ type (
 	}
 }
 
+func TestParseParamDocs(t *testing.T) {
+	tests := []struct {
+		name     string
+		doc      string
+		wantDoc  string
+		wantDocs map[string]string
+	}{
+		{
+			name:     "empty",
+			doc:      "",
+			wantDoc:  "",
+			wantDocs: map[string]string{},
+		},
+		{
+			name:     "no Parameters section",
+			doc:      "Link creates a symlink at path pointing to source.",
+			wantDoc:  "Link creates a symlink at path pointing to source.",
+			wantDocs: map[string]string{},
+		},
+		{
+			name:     "with Parameters section",
+			doc:      "Link creates a symlink.\n\nParameters:\n  - source: Absolute path to the symlink target\n  - path: Absolute path where the symlink will be created",
+			wantDoc:  "Link creates a symlink.",
+			wantDocs: map[string]string{"source": "Absolute path to the symlink target", "path": "Absolute path where the symlink will be created"},
+		},
+		{
+			name:     "Parameters only",
+			doc:      "Parameters:\n  - name: Package name",
+			wantDoc:  "",
+			wantDocs: map[string]string{"name": "Package name"},
+		},
+		{
+			name:     "content after Parameters",
+			doc:      "Copy writes content.\n\nParameters:\n  - path: Destination path\n  - mode: File permissions\n\nReturns: checksum",
+			wantDoc:  "Copy writes content.\n\nReturns: checksum",
+			wantDocs: map[string]string{"path": "Destination path", "mode": "File permissions"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotDoc, gotDocs := parseParamDocs(tc.doc)
+			if gotDoc != tc.wantDoc {
+				t.Errorf("cleanDoc:\n  got:  %q\n  want: %q", gotDoc, tc.wantDoc)
+			}
+			if len(gotDocs) != len(tc.wantDocs) {
+				t.Errorf("paramDocs length: got %d, want %d", len(gotDocs), len(tc.wantDocs))
+			}
+			for k, wantV := range tc.wantDocs {
+				if gotV, ok := gotDocs[k]; !ok {
+					t.Errorf("missing param doc for %q", k)
+				} else if gotV != wantV {
+					t.Errorf("param doc %q: got %q, want %q", k, gotV, wantV)
+				}
+			}
+		})
+	}
+}
+
+func TestGoMethodsParamDocs(t *testing.T) {
+	dir := writeTempDir(t, map[string]string{
+		"provider.go": `package example
+
+type Provider struct{}
+
+// Link creates a symlink at path pointing to source.
+//
+// Parameters:
+//   - source: Absolute path to the symlink target
+//   - path: Absolute path where the symlink will be created
+func (p *Provider) Link(source, path string) (string, error) {
+	return path, nil
+}
+
+// NoDocs has no parameter documentation.
+func (p *Provider) NoDocs(name string) (string, error) {
+	return name, nil
+}
+`,
+	})
+
+	r := NewGoReceiver()
+
+	// Link should have param docs stripped from method doc
+	result := callMethod(t, r, "methods",
+		starlark.Tuple{starlark.String(dir)},
+		[]starlark.Tuple{{starlark.String("name"), starlark.String("Link")}},
+	)
+	if getListLen(t, result) != 1 {
+		t.Fatalf("expected 1 Link method, got %d", getListLen(t, result))
+	}
+	link := getListItem(t, result, 0)
+	doc := getStructAttr(t, link, "doc")
+	if doc != "Link creates a symlink at path pointing to source." {
+		t.Errorf("doc should be description only, got %q", doc)
+	}
+
+	// Check param docs are populated
+	s := link.(*starlarkstruct.Struct)
+	paramsAttr, _ := s.Attr("params")
+	params := paramsAttr.(*starlark.List)
+	if params.Len() != 2 {
+		t.Fatalf("expected 2 params, got %d", params.Len())
+	}
+	sourceDoc := getStructAttr(t, params.Index(0), "doc")
+	if sourceDoc != "Absolute path to the symlink target" {
+		t.Errorf("source doc: got %q", sourceDoc)
+	}
+	pathDoc := getStructAttr(t, params.Index(1), "doc")
+	if pathDoc != "Absolute path where the symlink will be created" {
+		t.Errorf("path doc: got %q", pathDoc)
+	}
+
+	// NoDocs should have empty param docs
+	result = callMethod(t, r, "methods",
+		starlark.Tuple{starlark.String(dir)},
+		[]starlark.Tuple{{starlark.String("name"), starlark.String("NoDocs")}},
+	)
+	noDocs := getListItem(t, result, 0)
+	s2 := noDocs.(*starlarkstruct.Struct)
+	paramsAttr2, _ := s2.Attr("params")
+	params2 := paramsAttr2.(*starlark.List)
+	nameDoc := getStructAttr(t, params2.Index(0), "doc")
+	if nameDoc != "" {
+		t.Errorf("expected empty doc for NoDocs.name, got %q", nameDoc)
+	}
+}
+
 func TestTypeToStringExtended(t *testing.T) {
 	dir := writeTempDir(t, map[string]string{
 		"showcase.go": `package example

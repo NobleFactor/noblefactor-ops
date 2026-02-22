@@ -800,19 +800,20 @@ func (r *GoReceiver) goMethods(_ *starlark.Thread, _ *starlark.Builtin, args sta
 			if retF != "" && returns != retF {
 				continue
 			}
-			doc := ""
+			rawDoc := ""
 			if fn.Doc != nil {
-				doc = strings.TrimSpace(fn.Doc.Text())
+				rawDoc = strings.TrimSpace(fn.Doc.Text())
 			}
+			cleanDoc, paramDocs := parseParamDocs(rawDoc)
 			scope := encodeScope(file, strings.TrimPrefix(recvType, "*")+"."+fn.Name.Name)
 			result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 				"name":          starlark.String(fn.Name.Name),
 				"receiver_type": starlark.String(recvType),
 				"returns":       starlark.String(returns),
-				"params":        extractParams(fn.Type.Params),
+				"params":        extractParams(fn.Type.Params, paramDocs),
 				"file":          starlark.String(filepath.Base(file)),
 				"line":          starlark.MakeInt(fset.Position(fn.Pos()).Line),
-				"doc":           starlark.String(doc),
+				"doc":           starlark.String(cleanDoc),
 				"scope":         starlark.String(scope),
 			}))
 		}
@@ -857,7 +858,7 @@ func (r *GoReceiver) goFuncs(_ *starlark.Thread, _ *starlark.Builtin, args starl
 			result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 				"name":    starlark.String(fn.Name.Name),
 				"returns": starlark.String(returns),
-				"params":  extractParams(fn.Type.Params),
+				"params":  extractParams(fn.Type.Params, nil),
 				"file":    starlark.String(filepath.Base(file)),
 				"line":    starlark.MakeInt(fset.Position(fn.Pos()).Line),
 				"doc":     starlark.String(doc),
@@ -1260,8 +1261,53 @@ func typeToString(expr ast.Expr) string {
 	}
 }
 
+// parseParamDocs extracts parameter documentation from a method doc comment.
+// It looks for a "Parameters:" section and parses "- name: description" lines.
+// Returns the doc with the Parameters: section removed, and a map of param
+// name to description.
+func parseParamDocs(doc string) (string, map[string]string) {
+	docs := make(map[string]string)
+	if doc == "" {
+		return doc, docs
+	}
+
+	lines := strings.Split(doc, "\n")
+	var descLines []string
+	inParams := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "Parameters:" {
+			inParams = true
+			continue
+		}
+		if inParams {
+			if strings.HasPrefix(trimmed, "- ") {
+				entry := strings.TrimPrefix(trimmed, "- ")
+				if colonIdx := strings.Index(entry, ": "); colonIdx > 0 {
+					docs[entry[:colonIdx]] = entry[colonIdx+2:]
+				}
+				continue
+			}
+			if trimmed == "" {
+				inParams = false
+				continue
+			}
+			// Non-entry line ends the Parameters section
+			inParams = false
+			descLines = append(descLines, line)
+			continue
+		}
+		descLines = append(descLines, line)
+	}
+
+	cleanDoc := strings.TrimSpace(strings.Join(descLines, "\n"))
+	return cleanDoc, docs
+}
+
 // extractParams converts a function's parameter list to a Starlark list of param structs.
-func extractParams(params *ast.FieldList) starlark.Value {
+// If paramDocs is non-nil, each param's doc field is populated from the map.
+func extractParams(params *ast.FieldList, paramDocs map[string]string) starlark.Value {
 	var result []starlark.Value
 	if params == nil {
 		return starlark.NewList(result)
@@ -1281,13 +1327,19 @@ func extractParams(params *ast.FieldList) starlark.Value {
 				"name":     starlark.String(""),
 				"type":     starlark.String(typeStr),
 				"variadic": starlark.Bool(variadic),
+				"doc":      starlark.String(""),
 			}))
 		} else {
 			for _, name := range field.Names {
+				doc := ""
+				if paramDocs != nil {
+					doc = paramDocs[name.Name]
+				}
 				result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 					"name":     starlark.String(name.Name),
 					"type":     starlark.String(typeStr),
 					"variadic": starlark.Bool(variadic),
+					"doc":      starlark.String(doc),
 				}))
 			}
 		}
