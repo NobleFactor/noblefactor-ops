@@ -1803,6 +1803,11 @@ func TestDocSummary(t *testing.T) {
 			doc:  "Description.\nReturns: the result",
 			want: "Description.",
 		},
+		{
+			name: "stops at Parameters:",
+			doc:  "Link creates a symlink.\nParameters:\n  - source: Target",
+			want: "Link creates a symlink.",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1812,6 +1817,136 @@ func TestDocSummary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHasSlotDocs(t *testing.T) {
+	withDocs := methodInfo{
+		GoName:       "Link",
+		ContentModel: "none",
+		Params: []paramInfo{
+			{GoName: "source", SnakeName: "source", GoType: "string", Doc: "Symlink target"},
+			{GoName: "path", SnakeName: "path", GoType: "string", Doc: "Symlink location"},
+		},
+	}
+	if !tplHasSlotDocs(withDocs) {
+		t.Error("should return true when starlark-facing params have docs")
+	}
+
+	noDocs := methodInfo{
+		GoName:       "Link",
+		ContentModel: "none",
+		Params: []paramInfo{
+			{GoName: "source", SnakeName: "source", GoType: "string"},
+			{GoName: "path", SnakeName: "path", GoType: "string"},
+		},
+	}
+	if tplHasSlotDocs(noDocs) {
+		t.Error("should return false when no params have docs")
+	}
+
+	// Content param docs don't count
+	contentOnly := methodInfo{
+		GoName:       "Decrypt",
+		ContentModel: "consumer",
+		Params: []paramInfo{
+			{GoName: "source", SnakeName: "source", GoType: "string"},
+			{GoName: "content", SnakeName: "content", GoType: "[]byte", Doc: "Input bytes"},
+		},
+	}
+	if tplHasSlotDocs(contentOnly) {
+		t.Error("should return false when only content param has docs")
+	}
+
+	// Engine-injected param docs don't count
+	engineOnly := methodInfo{
+		GoName:       "Shell",
+		ContentModel: "none",
+		Params: []paramInfo{
+			{GoName: "output", SnakeName: "output", GoType: "io.Writer", Doc: "Output writer"},
+		},
+	}
+	if tplHasSlotDocs(engineOnly) {
+		t.Error("should return false for non-starlark-facing param docs")
+	}
+}
+
+func TestSlotDocs(t *testing.T) {
+	t.Run("with docs", func(t *testing.T) {
+		m := methodInfo{
+			GoName:       "Link",
+			ContentModel: "none",
+			Params: []paramInfo{
+				{GoName: "source", SnakeName: "source", GoType: "string", Doc: "Symlink target"},
+				{GoName: "path", SnakeName: "path", GoType: "string", Doc: "Symlink location"},
+			},
+		}
+		got := tplSlotDocs(m)
+		want := "\n//\n// Slots:\n//   - source: Symlink target\n//   - path: Symlink location"
+		if got != want {
+			t.Errorf("slotDocs:\n  got:  %q\n  want: %q", got, want)
+		}
+	})
+
+	t.Run("no docs", func(t *testing.T) {
+		m := methodInfo{
+			GoName:       "Link",
+			ContentModel: "none",
+			Params: []paramInfo{
+				{GoName: "source", SnakeName: "source", GoType: "string"},
+			},
+		}
+		got := tplSlotDocs(m)
+		if got != "" {
+			t.Errorf("expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("skips content param", func(t *testing.T) {
+		m := methodInfo{
+			GoName:       "Decrypt",
+			ContentModel: "consumer",
+			Params: []paramInfo{
+				{GoName: "source", SnakeName: "source", GoType: "string", Doc: "Source file"},
+				{GoName: "content", SnakeName: "content", GoType: "[]byte", Doc: "Input bytes"},
+			},
+		}
+		got := tplSlotDocs(m)
+		want := "\n//\n// Slots:\n//   - source: Source file"
+		if got != want {
+			t.Errorf("slotDocs:\n  got:  %q\n  want: %q", got, want)
+		}
+	})
+
+	t.Run("skips non-starlark-facing", func(t *testing.T) {
+		m := methodInfo{
+			GoName:       "Move",
+			ContentModel: "none",
+			Params: []paramInfo{
+				{GoName: "gitMv", SnakeName: "git_mv", GoType: "func(string, string) error", Doc: "Git move fn"},
+				{GoName: "source", SnakeName: "source", GoType: "string", Doc: "Source path"},
+				{GoName: "path", SnakeName: "path", GoType: "string", Doc: "Destination path"},
+			},
+		}
+		got := tplSlotDocs(m)
+		want := "\n//\n// Slots:\n//   - source: Source path\n//   - path: Destination path"
+		if got != want {
+			t.Errorf("slotDocs:\n  got:  %q\n  want: %q", got, want)
+		}
+	})
+
+	t.Run("uses snake_case names", func(t *testing.T) {
+		m := methodInfo{
+			GoName:       "Unlink",
+			ContentModel: "none",
+			Params: []paramInfo{
+				{GoName: "pruneBoundary", SnakeName: "prune_boundary", GoType: "string", Doc: "Stop pruning here"},
+			},
+		}
+		got := tplSlotDocs(m)
+		if !strings.Contains(got, "prune_boundary") {
+			t.Errorf("expected snake_case name, got %q", got)
+		}
+	})
 }
 
 func TestAllAttrNames(t *testing.T) {

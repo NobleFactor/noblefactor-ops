@@ -52,6 +52,7 @@ type paramInfo struct {
 	SnakeName string // snake_case name
 	GoType    string // Go type string
 	Variadic  bool
+	Doc       string // parameter description from Parameters: section
 }
 
 // =============================================================================
@@ -275,6 +276,8 @@ var genTemplateFuncs = template.FuncMap{
 	"graphUndo":            tplGraphUndo,
 	"docComment":           tplDocComment,
 	"docSummary":           tplDocSummary,
+	"hasSlotDocs":          tplHasSlotDocs,
+	"slotDocs":             tplSlotDocs,
 }
 
 func tplAttrNamesList(methods []methodInfo) string {
@@ -643,7 +646,7 @@ func tplDocComment(snakeName, doc string) string {
 }
 
 // tplDocSummary returns the description portion of a doc string — text before
-// the first blank line or structured section (Slots:, Usage:, Returns:).
+// the first blank line or structured section (Slots:, Parameters:, Usage:, Returns:).
 func tplDocSummary(doc string) string {
 	if doc == "" {
 		return ""
@@ -656,6 +659,7 @@ func tplDocSummary(doc string) string {
 			break
 		}
 		if strings.HasPrefix(trimmed, "Slots:") ||
+			strings.HasPrefix(trimmed, "Parameters:") ||
 			strings.HasPrefix(trimmed, "Usage:") ||
 			strings.HasPrefix(trimmed, "Returns:") {
 			break
@@ -663,6 +667,34 @@ func tplDocSummary(doc string) string {
 		descLines = append(descLines, trimmed)
 	}
 	return strings.Join(descLines, " ")
+}
+
+// tplHasSlotDocs returns true if any starlark-facing parameter has documentation.
+func tplHasSlotDocs(m methodInfo) bool {
+	for _, p := range m.Params {
+		tm := typeMappings[p.GoType]
+		if tm.starlarkFacing && p.Doc != "" && !isContentParam(p, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// tplSlotDocs generates a "// Slots:" comment block from structured parameter docs.
+// Returns empty string if no starlark-facing params have docs.
+func tplSlotDocs(m methodInfo) string {
+	var entries []string
+	for _, p := range m.Params {
+		tm := typeMappings[p.GoType]
+		if !tm.starlarkFacing || p.Doc == "" || isContentParam(p, m) {
+			continue
+		}
+		entries = append(entries, fmt.Sprintf("//   - %s: %s", p.SnakeName, p.Doc))
+	}
+	if len(entries) == 0 {
+		return ""
+	}
+	return "\n//\n// Slots:\n" + strings.Join(entries, "\n")
 }
 
 // =============================================================================
@@ -1019,11 +1051,14 @@ func paramInfoFromValue(v starlark.Value) (paramInfo, error) {
 		return paramInfo{}, fmt.Errorf("variadic: %w", err)
 	}
 
+	doc, _ := valueGetString(v, "doc") // optional
+
 	return paramInfo{
 		GoName:    name,
 		SnakeName: camelToSnake(name),
 		GoType:    goType,
 		Variadic:  variadic,
+		Doc:       doc,
 	}, nil
 }
 
