@@ -150,7 +150,7 @@ func TestValidateReturnSignature(t *testing.T) {
 		{"(int, error)", "int", false},
 		{"([]string, error)", "[]string", false},
 		{"([]byte, error)", "[]byte", false},
-		{"error", "", false}, // plain error return — no value type
+		{"error", "", true}, // plain error return rejected — every method must return a Result
 		{"string", "", true},
 		{"(string, int, error)", "", true},
 		{"", "", true},
@@ -556,8 +556,8 @@ func TestGenerateGateRejectsBadReturn(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for bad return signature")
 	}
-	if !strings.Contains(err.Error(), "must return error or (T, error)") {
-		t.Errorf("error should mention return format: %v", err)
+	if !strings.Contains(err.Error(), "expected (T, error)") {
+		t.Errorf("error should mention expected format: %v", err)
 	}
 }
 
@@ -915,7 +915,7 @@ func TestGoMappingFrameworkTypes(t *testing.T) {
 		},
 		{
 			"name":    "Shell",
-			"returns": "error",
+			"returns": "(bool, error)",
 			"params": []map[string]any{
 				{"name": "command", "type": "string"},
 				{"name": "output", "type": "io.Writer"},
@@ -963,7 +963,7 @@ func TestGoMappingFrameworkTypes(t *testing.T) {
 		t.Errorf("expected func type, got %q", decrypt.Params[0].Type)
 	}
 
-	// Shell has error-only return and io.Writer param
+	// Shell has bool return and io.Writer param
 	shell := mapping.Operations[1]
 	if shell.Name != "file.shell" {
 		t.Errorf("expected file.shell, got %q", shell.Name)
@@ -1015,7 +1015,7 @@ func TestGoMappingGateEnforcement(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for bad return signature")
 		}
-		if !strings.Contains(err.Error(), "must return error or (T, error)") {
+		if !strings.Contains(err.Error(), "expected (T, error)") {
 			t.Errorf("error should mention return format: %v", err)
 		}
 	})
@@ -1147,11 +1147,6 @@ func TestGenerateGraphActionsConsumer(t *testing.T) {
 		t.Error("consumer should read content via slots map with optional assertion")
 	}
 
-	// Dry-run checksum
-	if !strings.Contains(code, "ctx.TargetChecksum = execution.ChecksumBytes(content)") {
-		t.Error("consumer dry-run should set TargetChecksum")
-	}
-
 	// Delegation uses Impl (exported)
 	if !strings.Contains(code, "o.Impl.Decrypt(source, content)") {
 		t.Error("consumer should delegate to Impl.Decrypt")
@@ -1214,7 +1209,7 @@ func TestGenerateGraphActionsFramework(t *testing.T) {
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":    "Shell",
-			"returns": "error",
+			"returns": "(bool, error)",
 			"params": []map[string]any{
 				{"name": "command", "type": "string"},
 				{"name": "output", "type": "io.Writer"},
@@ -1222,7 +1217,7 @@ func TestGenerateGraphActionsFramework(t *testing.T) {
 		},
 		{
 			"name":    "Move",
-			"returns": "error",
+			"returns": "(bool, error)",
 			"params": []map[string]any{
 				{"name": "source", "type": "string"},
 				{"name": "path", "type": "string"},
@@ -1261,12 +1256,12 @@ func TestGenerateGraphActionsFramework(t *testing.T) {
 	}
 }
 
-func TestGenerateGraphActionsErrorOnly(t *testing.T) {
+func TestGenerateGraphActionsValueReturn(t *testing.T) {
 	r := NewGoReceiver()
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":    "Remove",
-			"returns": "error",
+			"returns": "(bool, error)",
 			"params": []map[string]any{
 				{"name": "path", "type": "string"},
 			},
@@ -1287,17 +1282,20 @@ func TestGenerateGraphActionsErrorOnly(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Error-only return: three values with delegation
-	if !strings.Contains(code, "return nil, nil, o.Impl.Remove(path)") {
-		t.Error("error-only should return nil, nil, delegation")
+	// Value return: captures result and returns it
+	if !strings.Contains(code, "result, err := o.Impl.Remove(path)") {
+		t.Error("value return should capture result from delegation")
+	}
+	if !strings.Contains(code, "return result, nil, err") {
+		t.Error("value return should return result, nil, err")
 	}
 
 	// No content handling
 	if strings.Contains(code, "ContentFor") {
-		t.Error("error-only should not use ContentFor")
+		t.Error("should not use ContentFor")
 	}
 	if strings.Contains(code, "TargetChecksum") {
-		t.Error("error-only should not set TargetChecksum")
+		t.Error("should not set TargetChecksum")
 	}
 }
 
@@ -1315,7 +1313,7 @@ func TestPlanReceiverSkipsFramework(t *testing.T) {
 		},
 		{
 			"name":    "Shell",
-			"returns": "error",
+			"returns": "(bool, error)",
 			"params": []map[string]any{
 				{"name": "command", "type": "string"},
 				{"name": "output", "type": "io.Writer"},
@@ -1372,19 +1370,23 @@ func TestValidateCompensableReturn(t *testing.T) {
 		wantValue string
 		wantErr   bool
 	}{
-		// State-only: (map[string]any, error)
-		{"(map[string]any, error)", "", false},
-		// Value + state: (T, map[string]any, error)
+		// Valid: (T, U, error)
 		{"(string, map[string]any, error)", "string", false},
 		{"([]byte, map[string]any, error)", "[]byte", false},
-		{"(bool, map[string]any, error)", "bool", false},
-		// Invalid
-		{"error", "", true},
+		{"(bool, int, error)", "bool", false},
+		{"(int, int, error)", "int", false},
+		{"(int, any, error)", "int", false},
+		// Invalid: missing Result or UndoState
+		{"(map[string]any, error)", "", true},
 		{"(string, error)", "", true},
+		{"(int, error)", "", true},
+		// Invalid: wrong shape
+		{"error", "", true},
 		{"", "", true},
 		{"string", "", true},
 		{"(map[string]any)", "", true},
 		{"(, map[string]any, error)", "", true},
+		{"(int, int, int, error)", "", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
@@ -1410,7 +1412,7 @@ func TestGenerateGraphActionsCompensable(t *testing.T) {
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":        "Install",
-			"returns":     "(map[string]any, error)",
+			"returns":     "(any, map[string]any, error)",
 			"compensable": true,
 			"params": []map[string]any{
 				{"name": "name", "type": "string"},
@@ -1433,22 +1435,22 @@ func TestGenerateGraphActionsCompensable(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Do captures state from forward method
-	if !strings.Contains(code, "state, err := o.Impl.Install(name, version)") {
-		t.Error("compensable Do should capture state from forward method")
+	// Do captures result and state from forward method
+	if !strings.Contains(code, "result, state, err := o.Impl.Install(name, version)") {
+		t.Error("compensable Do should capture result and state from forward method")
 	}
-	if !strings.Contains(code, "return nil, state, err") {
-		t.Error("compensable Do should return state as UndoState")
+	if !strings.Contains(code, "return result, state, err") {
+		t.Error("compensable Do should return result and state")
 	}
 
 	// Undo delegates to CompensateInstall
-	if !strings.Contains(code, "func (o *Install) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error") {
+	if !strings.Contains(code, "func (o *Install) Undo(state execution.UndoState) error") {
 		t.Error("compensable Undo should accept state parameter")
 	}
-	if !strings.Contains(code, "s, _ := state.(map[string]any)") {
-		t.Error("compensable Undo should type-assert state")
+	if !strings.Contains(code, "if state == nil") {
+		t.Error("compensable Undo should nil-guard state")
 	}
-	if !strings.Contains(code, "return o.Impl.CompensateInstall(s)") {
+	if !strings.Contains(code, "return o.Impl.CompensateInstall(state)") {
 		t.Error("compensable Undo should delegate to Impl.CompensateInstall")
 	}
 
@@ -1487,19 +1489,16 @@ func TestGenerateGraphActionsCompensableWithValue(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Consumer model with compensation: captures checksum + state
-	if !strings.Contains(code, "checksum, state, err := o.Impl.Copy(source, path, content)") {
-		t.Error("compensable consumer should capture checksum and state")
+	// Consumer model with compensation: captures result + state
+	if !strings.Contains(code, "result, state, err := o.Impl.Copy(source, path, content)") {
+		t.Error("compensable consumer should capture result and state")
 	}
-	if !strings.Contains(code, "ctx.TargetChecksum = checksum") {
-		t.Error("compensable consumer should set TargetChecksum")
-	}
-	if !strings.Contains(code, "return nil, state, nil") {
-		t.Error("compensable consumer should return state as UndoState")
+	if !strings.Contains(code, "return result, state, nil") {
+		t.Error("compensable consumer should return result and state")
 	}
 
 	// Undo delegates to CompensateCopy
-	if !strings.Contains(code, "return o.Impl.CompensateCopy(s)") {
+	if !strings.Contains(code, "return o.Impl.CompensateCopy(state)") {
 		t.Error("compensable Undo should delegate to Impl.CompensateCopy")
 	}
 }
@@ -1509,7 +1508,7 @@ func TestGenerateGraphActionsNonCompensableUndo(t *testing.T) {
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":    "Remove",
-			"returns": "error",
+			"returns": "(bool, error)",
 			"params": []map[string]any{
 				{"name": "path", "type": "string"},
 			},
@@ -1721,6 +1720,100 @@ func TestRealtimeProviderBodyDictConversion(t *testing.T) {
 	}
 }
 
+func TestDocComment(t *testing.T) {
+	tests := []struct {
+		name      string
+		snakeName string
+		doc       string
+		want      string
+	}{
+		{
+			name:      "empty doc",
+			snakeName: "link",
+			doc:       "",
+			want:      "// link",
+		},
+		{
+			name:      "single line",
+			snakeName: "link",
+			doc:       "Link creates a symlink.",
+			want:      "// link Link creates a symlink.",
+		},
+		{
+			name:      "multi-line with slots",
+			snakeName: "link",
+			doc:       "Link creates a symlink.\n\nSlots:\n  - source: Target path\n  - path: Symlink location",
+			want:      "// link Link creates a symlink.\n//\n// Slots:\n//   - source: Target path\n//   - path: Symlink location",
+		},
+		{
+			name:      "trailing newline stripped",
+			snakeName: "copy",
+			doc:       "Copy writes content.\n",
+			want:      "// copy Copy writes content.",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tplDocComment(tc.snakeName, tc.doc)
+			if got != tc.want {
+				t.Errorf("tplDocComment(%q, %q):\n  got:  %q\n  want: %q", tc.snakeName, tc.doc, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDocSummary(t *testing.T) {
+	tests := []struct {
+		name string
+		doc  string
+		want string
+	}{
+		{
+			name: "empty",
+			doc:  "",
+			want: "",
+		},
+		{
+			name: "single line",
+			doc:  "Link creates a symlink.",
+			want: "Link creates a symlink.",
+		},
+		{
+			name: "multi-line description",
+			doc:  "Link creates a symlink at path\npointing to source.",
+			want: "Link creates a symlink at path pointing to source.",
+		},
+		{
+			name: "stops at blank line",
+			doc:  "Link creates a symlink.\n\nSlots:\n  - source: Target",
+			want: "Link creates a symlink.",
+		},
+		{
+			name: "stops at Slots:",
+			doc:  "Link creates a symlink.\nSlots:\n  - source: Target",
+			want: "Link creates a symlink.",
+		},
+		{
+			name: "stops at Usage:",
+			doc:  "Description.\nUsage: plan.file.link(source, path)",
+			want: "Description.",
+		},
+		{
+			name: "stops at Returns:",
+			doc:  "Description.\nReturns: the result",
+			want: "Description.",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tplDocSummary(tc.doc)
+			if got != tc.want {
+				t.Errorf("tplDocSummary(%q) = %q, want %q", tc.doc, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAllAttrNames(t *testing.T) {
 	d := &generateDescriptor{
 		Methods: []methodInfo{
@@ -1781,7 +1874,7 @@ func TestGenerateGateRejectsCompensableBadReturn(t *testing.T) {
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
 			"name":        "Install",
-			"returns":     "(string, error)",
+			"returns":     "error",
 			"compensable": true,
 			"params":      []map[string]any{},
 		},
@@ -1792,9 +1885,161 @@ func TestGenerateGateRejectsCompensableBadReturn(t *testing.T) {
 	fn := attr.(*starlark.Builtin)
 	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 	if err == nil {
-		t.Fatal("expected error for compensable method with (string, error) return")
+		t.Fatal("expected error for compensable method with error-only return")
 	}
-	if !strings.Contains(err.Error(), "compensable method must return") {
-		t.Errorf("error should mention compensable return format: %v", err)
+	if !strings.Contains(err.Error(), "expected (T, U, error)") {
+		t.Errorf("error should mention expected format: %v", err)
 	}
+}
+
+func TestGenerateSignatureErrors(t *testing.T) {
+	generateErr := func(t *testing.T, methods []map[string]any) error {
+		t.Helper()
+		r := NewGoReceiver()
+		desc := buildTestDescriptor(t, methods)
+		must(t, desc.SetKey(starlark.String("package"), starlark.String("file")))
+		must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+		thread := &starlark.Thread{Name: "test"}
+		attr, _ := r.Attr("generate")
+		fn := attr.(*starlark.Builtin)
+		_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+		return err
+	}
+
+	t.Run("compensable with non-compensable signature", func(t *testing.T) {
+		err := generateErr(t, []map[string]any{
+			{
+				"name":        "Link",
+				"returns":     "(string, error)",
+				"compensable": true,
+				"params": []map[string]any{
+					{"name": "source", "type": "string"},
+				},
+			},
+		})
+		if err == nil {
+			t.Fatal("expected error for compensable method with (T, error) return")
+		}
+		if !strings.Contains(err.Error(), "expected (T, U, error)") {
+			t.Errorf("should say expected (T, U, error), got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "missing Result or UndoState") {
+			t.Errorf("should hint missing Result or UndoState, got: %v", err)
+		}
+	})
+
+	t.Run("non-compensable with compensable signature", func(t *testing.T) {
+		err := generateErr(t, []map[string]any{
+			{
+				"name":    "Link",
+				"returns": "(string, map[string]any, error)",
+				"params": []map[string]any{
+					{"name": "source", "type": "string"},
+				},
+			},
+		})
+		if err == nil {
+			t.Fatal("expected error for non-compensable method with (T, U, error) return")
+		}
+		if !strings.Contains(err.Error(), "expected (T, error)") {
+			t.Errorf("should say expected (T, error), got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "CompensateMethod") {
+			t.Errorf("should suggest adding CompensateMethod, got: %v", err)
+		}
+	})
+
+	t.Run("non-compensable with error only", func(t *testing.T) {
+		err := generateErr(t, []map[string]any{
+			{
+				"name":    "Remove",
+				"returns": "error",
+				"params": []map[string]any{
+					{"name": "path", "type": "string"},
+				},
+			},
+		})
+		if err == nil {
+			t.Fatal("expected error for method with error-only return")
+		}
+		if !strings.Contains(err.Error(), "every method must return a Result") {
+			t.Errorf("should say every method must return a Result, got: %v", err)
+		}
+	})
+
+	t.Run("compensable with error only", func(t *testing.T) {
+		err := generateErr(t, []map[string]any{
+			{
+				"name":        "Install",
+				"returns":     "error",
+				"compensable": true,
+				"params":      []map[string]any{},
+			},
+		})
+		if err == nil {
+			t.Fatal("expected error for compensable method with error-only return")
+		}
+		if !strings.Contains(err.Error(), "expected (T, U, error)") {
+			t.Errorf("should say expected (T, U, error), got: %v", err)
+		}
+	})
+
+	t.Run("no return value", func(t *testing.T) {
+		err := generateErr(t, []map[string]any{
+			{
+				"name":    "Noop",
+				"returns": "",
+				"params":  []map[string]any{},
+			},
+		})
+		if err == nil {
+			t.Fatal("expected error for method with no return value")
+		}
+		if !strings.Contains(err.Error(), "got no return value") {
+			t.Errorf("should say got no return value, got: %v", err)
+		}
+	})
+
+	t.Run("too many return values", func(t *testing.T) {
+		err := generateErr(t, []map[string]any{
+			{
+				"name":        "Bad",
+				"returns":     "(int, int, int, error)",
+				"compensable": true,
+				"params":      []map[string]any{},
+			},
+		})
+		if err == nil {
+			t.Fatal("expected error for too many return values")
+		}
+		if !strings.Contains(err.Error(), "too many return values") {
+			t.Errorf("should say too many return values, got: %v", err)
+		}
+	})
+}
+
+func TestMethodLocationInErrors(t *testing.T) {
+	t.Run("with file and line", func(t *testing.T) {
+		m := methodInfo{GoName: "Link", File: "provider.go", Line: 42}
+		loc := methodLocation(m)
+		if loc != "provider.go:42: Link" {
+			t.Errorf("expected 'provider.go:42: Link', got %q", loc)
+		}
+	})
+
+	t.Run("without file", func(t *testing.T) {
+		m := methodInfo{GoName: "Link"}
+		loc := methodLocation(m)
+		if loc != "Link" {
+			t.Errorf("expected 'Link', got %q", loc)
+		}
+	})
+
+	t.Run("file only no line", func(t *testing.T) {
+		m := methodInfo{GoName: "Link", File: "provider.go"}
+		loc := methodLocation(m)
+		if loc != "Link" {
+			t.Errorf("expected fallback to 'Link' when line is 0, got %q", loc)
+		}
+	})
 }

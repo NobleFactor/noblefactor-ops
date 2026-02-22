@@ -42,6 +42,8 @@ type methodInfo struct {
 	ContentModel string // "none", "consumer", "transformer"
 	Compensable  bool   // has a Compensate<GoName> pair on the provider
 	Doc          string
+	File         string // source file basename (e.g., "provider.go")
+	Line         int    // source line number
 }
 
 // paramInfo holds information about a single parameter.
@@ -112,60 +114,89 @@ func camelToSnake(s string) string {
 // GATE VALIDATION
 // =============================================================================
 
-// validateReturnSignature checks that a return type string matches (T, error).
+// methodLocation formats a method's source location for error messages.
+// Returns "File:Line: Method" if location is available, otherwise just "Method".
+func methodLocation(m methodInfo) string {
+	if m.File != "" && m.Line > 0 {
+		return fmt.Sprintf("%s:%d: %s", m.File, m.Line, m.GoName)
+	}
+	return m.GoName
+}
+
+// validateReturnSignature checks that a non-compensable method returns (T, error).
+// Every provider method has a Result — plain error returns are not valid.
 func validateReturnSignature(returns string) (string, error) {
 	if returns == "" {
-		return "", fmt.Errorf("must return error or (T, error), got empty return")
+		return "", fmt.Errorf("expected (T, error), got no return value")
 	}
-	// Plain error return — no value type
 	if returns == "error" {
-		return "", nil
+		return "", fmt.Errorf("expected (T, error), got error — every method must return a Result")
 	}
 	if !strings.HasPrefix(returns, "(") || !strings.HasSuffix(returns, ")") {
-		return "", fmt.Errorf("must return error or (T, error), got %s", returns)
+		return "", fmt.Errorf("expected (T, error), got %s", returns)
 	}
 	inner := returns[1 : len(returns)-1]
 	if !strings.HasSuffix(inner, ", error") {
-		return "", fmt.Errorf("must return error or (T, error), got %s", returns)
+		return "", fmt.Errorf("expected (T, error), got %s", returns)
 	}
 	valueType := strings.TrimSuffix(inner, ", error")
-	if valueType == "" || strings.Contains(valueType, ", ") {
-		return "", fmt.Errorf("must return error or (T, error), got %s", returns)
+	if valueType == "" {
+		return "", fmt.Errorf("expected (T, error), got %s — missing Result type", returns)
+	}
+	if strings.Contains(valueType, ", ") {
+		return "", fmt.Errorf("expected (T, error), got %s — use CompensateMethod for (T, U, error)", returns)
 	}
 	return valueType, nil
 }
 
-// validateCompensableReturn checks the return signature of a compensable method.
-// Accepts (map[string]any, error) or (T, map[string]any, error).
-// Returns the business value type (empty if state-only).
+// validateCompensableReturn checks that a compensable method returns (T, U, error).
+// T is the Result, U is the UndoState. Every method has a Result.
 func validateCompensableReturn(returns string) (string, error) {
 	if returns == "" {
-		return "", fmt.Errorf("compensable method must return (map[string]any, error) or (T, map[string]any, error), got empty return")
+		return "", fmt.Errorf("expected (T, U, error), got no return value")
 	}
 	if !strings.HasPrefix(returns, "(") || !strings.HasSuffix(returns, ")") {
-		return "", fmt.Errorf("compensable method must return (map[string]any, error) or (T, map[string]any, error), got %s", returns)
+		return "", fmt.Errorf("expected (T, U, error), got %s", returns)
 	}
 	inner := returns[1 : len(returns)-1]
 	if !strings.HasSuffix(inner, ", error") {
-		return "", fmt.Errorf("compensable method must return (..., error), got %s", returns)
+		return "", fmt.Errorf("expected (T, U, error), got %s — must end with error", returns)
 	}
 	withoutError := strings.TrimSuffix(inner, ", error")
-
-	// Case 1: (map[string]any, error) — state only, no business value
-	if withoutError == "map[string]any" {
-		return "", nil
+	if withoutError == "" {
+		return "", fmt.Errorf("expected (T, U, error), got %s — missing Result and UndoState", returns)
 	}
 
-	// Case 2: (T, map[string]any, error) — business value + state
-	if strings.HasSuffix(withoutError, ", map[string]any") {
-		valueType := strings.TrimSuffix(withoutError, ", map[string]any")
+	// Count top-level commas (not inside brackets) to find T and U.
+	var topLevelCommas []int
+	depth := 0
+	for i, ch := range withoutError {
+		switch ch {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				topLevelCommas = append(topLevelCommas, i)
+			}
+		}
+	}
+
+	switch len(topLevelCommas) {
+	case 0:
+		// Only one type before error — missing either Result or UndoState.
+		return "", fmt.Errorf("expected (T, U, error), got (%s, error) — missing Result or UndoState", withoutError)
+	case 1:
+		// (T, U, error) — Result + UndoState
+		valueType := strings.TrimSpace(withoutError[:topLevelCommas[0]])
 		if valueType == "" {
-			return "", fmt.Errorf("compensable method has empty value type in %s", returns)
+			return "", fmt.Errorf("expected (T, U, error), got %s — empty Result type", returns)
 		}
 		return valueType, nil
+	default:
+		return "", fmt.Errorf("expected (T, U, error), got %s — too many return values", returns)
 	}
-
-	return "", fmt.Errorf("compensable method must return (map[string]any, error) or (T, map[string]any, error), got %s", returns)
 }
 
 // validateParamTypes checks that all parameter types have Starlark mappings.
@@ -242,6 +273,8 @@ var genTemplateFuncs = template.FuncMap{
 	"implArgs":             tplImplArgs,
 	"graphReturn":          tplGraphReturn,
 	"graphUndo":            tplGraphUndo,
+	"docComment":           tplDocComment,
+	"docSummary":           tplDocSummary,
 }
 
 func tplAttrNamesList(methods []methodInfo) string {
@@ -513,12 +546,10 @@ func tplDryRunVars(m methodInfo) string {
 	return ", " + strings.Join(names, ", ")
 }
 
-// tplDryRunChecksum generates the checksum line for consumer content model.
+// tplDryRunChecksum generates additional dry-run output for consumer content model.
+// Previously emitted ctx.TargetChecksum; now a no-op (checksums removed from Context).
 func tplDryRunChecksum(m methodInfo) string {
-	if m.ContentModel != "consumer" {
-		return ""
-	}
-	return "\nctx.TargetChecksum = execution.ChecksumBytes(content)"
+	return ""
 }
 
 // tplImplArgs generates all param names in order for the delegation call.
@@ -546,8 +577,8 @@ func tplGraphReturn(m methodInfo, implType string) string {
 
 	switch m.ContentModel {
 	case "consumer":
-		// Consumer discards value return, returns (nil, nil, error)
-		return fmt.Sprintf("\n_, err := %s\nreturn nil, nil, err", call)
+		// Consumer returns result (e.g., checksum), no undo state
+		return fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
 	case "transformer":
 		// Transformer returns transformed content as Result
 		return fmt.Sprintf("\nresult, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, nil, nil", call)
@@ -562,21 +593,21 @@ func tplGraphReturn(m methodInfo, implType string) string {
 }
 
 // tplGraphReturnCompensable generates the delegation call for compensable methods.
-// Compensable methods return state as map[string]any which becomes UndoState.
+// Compensable methods return (U, error) or (T, U, error) where U becomes UndoState.
 func tplGraphReturnCompensable(m methodInfo, call string) string {
 	switch m.ContentModel {
 	case "consumer":
-		// (string, map[string]any, error) — checksum + state
-		return fmt.Sprintf("\nchecksum, state, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nctx.TargetChecksum = checksum\nreturn nil, state, nil", call)
+		// (string, U, error) — result + state; result flows to downstream nodes
+		return fmt.Sprintf("\nresult, state, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, state, nil", call)
 	case "transformer":
-		// ([]byte, map[string]any, error) — result + state
+		// ([]byte, U, error) — result + state
 		return fmt.Sprintf("\nresult, state, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, state, nil", call)
 	default: // "none"
 		if m.ReturnType == "" {
-			// (map[string]any, error) — state only
+			// (U, error) — state only
 			return fmt.Sprintf("\nstate, err := %s\nreturn nil, state, err", call)
 		}
-		// (T, map[string]any, error) — value + state, return value as Result
+		// (T, U, error) — value + state, return value as Result
 		return fmt.Sprintf("\nresult, state, err := %s\nreturn result, state, err", call)
 	}
 }
@@ -588,7 +619,50 @@ func tplGraphUndo(m methodInfo) string {
 	if !m.Compensable {
 		return "" // No Undo method — struct implements Action only, not Undoable.
 	}
-	return fmt.Sprintf("func (o *%s) Undo(_ *execution.Context, _ map[string]any, state execution.UndoState) error {\n\ts, _ := state.(map[string]any)\n\tif s == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(s)\n}", m.GoName, m.GoName)
+	return fmt.Sprintf("func (o *%s) Undo(state execution.UndoState) error {\n\tif state == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(state)\n}", m.GoName, m.GoName)
+}
+
+// tplDocComment renders a multi-line Go doc comment. The first line is prefixed
+// with "// snakeName ", subsequent lines get "// " (or "//" for blank lines).
+func tplDocComment(snakeName, doc string) string {
+	if doc == "" {
+		return "// " + snakeName
+	}
+	lines := strings.Split(strings.TrimRight(doc, "\n"), "\n")
+	var result []string
+	for i, line := range lines {
+		if i == 0 {
+			result = append(result, "// "+snakeName+" "+line)
+		} else if line == "" {
+			result = append(result, "//")
+		} else {
+			result = append(result, "// "+line)
+		}
+	}
+	return strings.Join(result, "\n")
+}
+
+// tplDocSummary returns the description portion of a doc string — text before
+// the first blank line or structured section (Slots:, Usage:, Returns:).
+func tplDocSummary(doc string) string {
+	if doc == "" {
+		return ""
+	}
+	lines := strings.Split(doc, "\n")
+	var descLines []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			break
+		}
+		if strings.HasPrefix(trimmed, "Slots:") ||
+			strings.HasPrefix(trimmed, "Usage:") ||
+			strings.HasPrefix(trimmed, "Returns:") {
+			break
+		}
+		descLines = append(descLines, trimmed)
+	}
+	return strings.Join(descLines, " ")
 }
 
 // =============================================================================
@@ -688,21 +762,23 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 	// Gate 1: validate param types
 	for _, m := range desc.Methods {
 		if err := validateParamTypes(m.Params); err != nil {
-			return nil, fmt.Errorf("go.generate: method %s: %w", m.GoName, err)
+			return nil, fmt.Errorf("go.generate: %s: %w", methodLocation(m), err)
 		}
 	}
 
 	// Gate 2: validate return signatures and infer content models
 	for i, m := range desc.Methods {
+		rawReturn := m.ReturnType
+
 		var valueType string
 		var err error
 		if m.Compensable {
-			valueType, err = validateCompensableReturn(m.ReturnType)
+			valueType, err = validateCompensableReturn(rawReturn)
 		} else {
-			valueType, err = validateReturnSignature(m.ReturnType)
+			valueType, err = validateReturnSignature(rawReturn)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("go.generate: method %s: %w", m.GoName, err)
+			return nil, fmt.Errorf("go.generate: %s: %w", methodLocation(m), err)
 		}
 		desc.Methods[i].ReturnType = valueType
 		desc.Methods[i].ContentModel = inferContentModel(valueType, m.Params)
@@ -766,14 +842,14 @@ func (r *GoReceiver) goMapping(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	// Gate 1: validate param types
 	for _, m := range desc.Methods {
 		if err := validateParamTypes(m.Params); err != nil {
-			return nil, fmt.Errorf("go.mapping: method %s: %w", m.GoName, err)
+			return nil, fmt.Errorf("go.mapping: %s: %w", methodLocation(m), err)
 		}
 	}
 
 	// Gate 2: validate return signatures
 	for _, m := range desc.Methods {
 		if _, err := validateReturnSignature(m.ReturnType); err != nil {
-			return nil, fmt.Errorf("go.mapping: method %s: %w", m.GoName, err)
+			return nil, fmt.Errorf("go.mapping: %s: %w", methodLocation(m), err)
 		}
 	}
 
@@ -911,6 +987,8 @@ func methodInfoFromValue(v starlark.Value) (methodInfo, error) {
 	}
 
 	compensable, _ := valueGetBool(v, "compensable")
+	file, _ := valueGetString(v, "file")
+	line, _ := valueGetInt(v, "line")
 
 	return methodInfo{
 		GoName:      name,
@@ -919,6 +997,8 @@ func methodInfoFromValue(v starlark.Value) (methodInfo, error) {
 		ReturnType:  returns,
 		Compensable: compensable,
 		Doc:         doc,
+		File:        file,
+		Line:        line,
 	}, nil
 }
 
@@ -1010,6 +1090,37 @@ func valueGetBool(v starlark.Value, key string) (bool, error) {
 		return bool(b), nil
 	default:
 		return false, fmt.Errorf("expected dict or struct, got %s", v.Type())
+	}
+}
+
+// valueGetInt extracts an int field from a dict or struct.
+func valueGetInt(v starlark.Value, key string) (int, error) {
+	switch val := v.(type) {
+	case *starlark.Dict:
+		result, found, err := val.Get(starlark.String(key))
+		if err != nil {
+			return 0, err
+		}
+		if !found {
+			return 0, nil
+		}
+		n, err := starlark.AsInt32(result)
+		if err != nil {
+			return 0, fmt.Errorf("expected int, got %s", result.Type())
+		}
+		return int(n), nil
+	case *starlarkstruct.Struct:
+		attr, err := val.Attr(key)
+		if err != nil {
+			return 0, nil
+		}
+		n, err := starlark.AsInt32(attr)
+		if err != nil {
+			return 0, fmt.Errorf("expected int, got %s", attr.Type())
+		}
+		return int(n), nil
+	default:
+		return 0, fmt.Errorf("expected dict or struct, got %s", v.Type())
 	}
 }
 
