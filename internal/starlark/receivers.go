@@ -17,8 +17,8 @@ var (
 	// Schema provides JSON Schema validation operations.
 	Schema = NewSchemaReceiver()
 
-	// Shell provides shell script analysis operations.
-	Shell = NewShellReceiver()
+	// Shellcheck provides shell script analysis operations.
+	Shellcheck = NewShellcheckReceiver()
 
 	// Regexp provides regular expression operations with pattern caching.
 	Regexp = NewRegexpReceiver()

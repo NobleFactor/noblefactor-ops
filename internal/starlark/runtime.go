@@ -277,7 +277,7 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 		"json":           JSON,
 		"yaml":           YAML,
 		"schema":         Schema,
-		"shell":          Shell,
+		"shellcheck":     Shellcheck,
 		"regexp":         Regexp,
 		"go":             Go,
 		"lint":           Lint,
