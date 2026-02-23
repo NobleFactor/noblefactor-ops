@@ -18,18 +18,22 @@ import (
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/noblefactor-ops/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
 
 // LintReceiver provides static analysis operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type LintReceiver struct {
 	op.Receiver
+	ui *ui.Provider
 }
 
 // NewLintReceiver creates a new LintReceiver.
-func NewLintReceiver() *LintReceiver {
-	return &LintReceiver{Receiver: op.NewReceiver("lint")}
+func NewLintReceiver(p *ui.Provider) *LintReceiver {
+	return &LintReceiver{
+		Receiver: op.NewReceiver("lint"),
+		ui:       p,
+	}
 }
 
 // Attr implements starlark.HasAttrs.
@@ -348,7 +352,7 @@ func (r *LintReceiver) lintGo(_ *starlark.Thread, _ *starlark.Builtin, args star
 			return nil, fmt.Errorf("lint.go: %w", err)
 		}
 		if configCreated {
-			cli.Note("created %s with NobleFactor defaults", config)
+			r.ui.Note(fmt.Sprintf("created %s with NobleFactor defaults", config))
 		}
 	}
 

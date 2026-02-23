@@ -23,8 +23,8 @@ def run(ctx):
 
     # Report
     if len(issues) == 0:
-        success("Repository setup is complete")
+        ui.success("Repository setup is complete")
     else:
         for issue in issues:
-            error(issue)
-        fail(str(len(issues)) + " setup issues found")
+            ui.error(issue)
+        ui.fail(str(len(issues)) + " setup issues found")

@@ -406,12 +406,12 @@ func TestGeneratePlanReceiver(t *testing.T) {
 		t.Error("struct should have reg field")
 	}
 
-	// FillSlot calls
-	if !strings.Contains(code, `FillSlot(node, p.graph, "source"`) {
-		t.Error("missing FillSlot for source")
+	// FillSlot calls (qualified with op. package prefix)
+	if !strings.Contains(code, `op.FillSlot(node, p.graph, "source"`) {
+		t.Error("missing op.FillSlot for source")
 	}
-	if !strings.Contains(code, `FillSlot(node, p.graph, "path"`) {
-		t.Error("missing FillSlot for path")
+	if !strings.Contains(code, `op.FillSlot(node, p.graph, "path"`) {
+		t.Error("missing op.FillSlot for path")
 	}
 }
 
@@ -1333,12 +1333,12 @@ func TestPlanReceiverSkipsFramework(t *testing.T) {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
 	}
 
-	// Starlark-facing params present in FillSlot
-	if !strings.Contains(code, `FillSlot(node, p.graph, "source"`) {
-		t.Error("source should have FillSlot")
+	// Starlark-facing params present in FillSlot (qualified with op.)
+	if !strings.Contains(code, `op.FillSlot(node, p.graph, "source"`) {
+		t.Error("source should have op.FillSlot")
 	}
-	if !strings.Contains(code, `FillSlot(node, p.graph, "command"`) {
-		t.Error("command should have FillSlot")
+	if !strings.Contains(code, `op.FillSlot(node, p.graph, "command"`) {
+		t.Error("command should have op.FillSlot")
 	}
 
 	// Non-starlark-facing params absent from FillSlot
@@ -1547,7 +1547,7 @@ func TestImmediateProviderBodyErrorOnly(t *testing.T) {
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "r.provider.Remove(path)") {
 		t.Errorf("should delegate to r.provider.Remove, got:\n%s", body)
 	}
@@ -1565,7 +1565,7 @@ func TestImmediateProviderBodyStringReturn(t *testing.T) {
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "r.provider.Source(path)") {
 		t.Errorf("should delegate to r.provider.Source, got:\n%s", body)
 	}
@@ -1583,7 +1583,7 @@ func TestImmediateProviderBodyBytesReturn(t *testing.T) {
 			{GoName: "url", SnakeName: "url", GoType: "string"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "r.provider.Download(url)") {
 		t.Errorf("should delegate to r.provider.Download, got:\n%s", body)
 	}
@@ -1602,7 +1602,7 @@ func TestImmediateProviderBodyCompensableStateOnly(t *testing.T) {
 			{GoName: "name", SnakeName: "name", GoType: "string"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "_, err := r.provider.Install(name)") {
 		t.Errorf("compensable state-only should discard state, got:\n%s", body)
 	}
@@ -1621,7 +1621,7 @@ func TestImmediateProviderBodyCompensableWithValue(t *testing.T) {
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "result, _, err := r.provider.Copy(path)") {
 		t.Errorf("compensable with value should capture result and discard state, got:\n%s", body)
 	}
@@ -1640,7 +1640,7 @@ func TestImmediateProviderBodyIOWriter(t *testing.T) {
 			{GoName: "output", SnakeName: "output", GoType: "io.Writer"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "r.provider.Shell(command, r.output)") {
 		t.Errorf("io.Writer should map to r.output, got:\n%s", body)
 	}
@@ -1656,7 +1656,7 @@ func TestImmediateProviderBodyFileMode(t *testing.T) {
 			{GoName: "mode", SnakeName: "mode", GoType: "os.FileMode"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "r.provider.Mkdir(path, os.FileMode(mode))") {
 		t.Errorf("os.FileMode should be cast from int, got:\n%s", body)
 	}
@@ -1674,7 +1674,7 @@ func TestImmediateProviderBodyStringSlice(t *testing.T) {
 			{GoName: "cask", SnakeName: "cask", GoType: "bool"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "op.ListToStringSlice(packages)") {
 		t.Errorf("[]string should use op.ListToStringSlice, got:\n%s", body)
 	}
@@ -1694,7 +1694,7 @@ func TestImmediateProviderBodyCallback(t *testing.T) {
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	if !strings.Contains(body, "r.provider.Move(nil, source, path)") {
 		t.Errorf("engine-injected callback should pass nil, got:\n%s", body)
 	}
@@ -1710,7 +1710,7 @@ func TestImmediateProviderBodyDictConversion(t *testing.T) {
 			{GoName: "source", SnakeName: "source", GoType: "string"},
 		},
 	}
-	body := tplImmediateProviderBody(m)
+	body := templateFuncImmediateProviderBody(m)
 	// Must pre-compute dict conversion (multi-return)
 	if !strings.Contains(body, "templateDataMap, err := op.StarlarkDictToMap(templateData)") {
 		t.Errorf("should pre-compute dict conversion, got:\n%s", body)
@@ -1754,9 +1754,9 @@ func TestDocComment(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tplDocComment(tc.snakeName, tc.doc)
+			got := templateFuncDocComment(tc.snakeName, tc.doc)
 			if got != tc.want {
-				t.Errorf("tplDocComment(%q, %q):\n  got:  %q\n  want: %q", tc.snakeName, tc.doc, got, tc.want)
+				t.Errorf("templateFuncDocComment(%q, %q):\n  got:  %q\n  want: %q", tc.snakeName, tc.doc, got, tc.want)
 			}
 		})
 	}
@@ -1811,9 +1811,9 @@ func TestDocSummary(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tplDocSummary(tc.doc)
+			got := templateFuncDocSummary(tc.doc)
 			if got != tc.want {
-				t.Errorf("tplDocSummary(%q) = %q, want %q", tc.doc, got, tc.want)
+				t.Errorf("templateFuncDocSummary(%q) = %q, want %q", tc.doc, got, tc.want)
 			}
 		})
 	}
@@ -1828,7 +1828,7 @@ func TestHasSlotDocs(t *testing.T) {
 			{GoName: "path", SnakeName: "path", GoType: "string", Doc: "Symlink location"},
 		},
 	}
-	if !tplHasSlotDocs(withDocs) {
+	if !templateFuncHasSlotDocs(withDocs) {
 		t.Error("should return true when starlark-facing params have docs")
 	}
 
@@ -1840,7 +1840,7 @@ func TestHasSlotDocs(t *testing.T) {
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 		},
 	}
-	if tplHasSlotDocs(noDocs) {
+	if templateFuncHasSlotDocs(noDocs) {
 		t.Error("should return false when no params have docs")
 	}
 
@@ -1853,7 +1853,7 @@ func TestHasSlotDocs(t *testing.T) {
 			{GoName: "content", SnakeName: "content", GoType: "[]byte", Doc: "Input bytes"},
 		},
 	}
-	if tplHasSlotDocs(contentOnly) {
+	if templateFuncHasSlotDocs(contentOnly) {
 		t.Error("should return false when only content param has docs")
 	}
 
@@ -1865,7 +1865,7 @@ func TestHasSlotDocs(t *testing.T) {
 			{GoName: "output", SnakeName: "output", GoType: "io.Writer", Doc: "Output writer"},
 		},
 	}
-	if tplHasSlotDocs(engineOnly) {
+	if templateFuncHasSlotDocs(engineOnly) {
 		t.Error("should return false for non-starlark-facing param docs")
 	}
 }
@@ -1880,7 +1880,7 @@ func TestSlotDocs(t *testing.T) {
 				{GoName: "path", SnakeName: "path", GoType: "string", Doc: "Symlink location"},
 			},
 		}
-		got := tplSlotDocs(m)
+		got := templateFuncSlotDocs(m)
 		want := "\n//\n// Slots:\n//   - source: Symlink target\n//   - path: Symlink location"
 		if got != want {
 			t.Errorf("slotDocs:\n  got:  %q\n  want: %q", got, want)
@@ -1895,7 +1895,7 @@ func TestSlotDocs(t *testing.T) {
 				{GoName: "source", SnakeName: "source", GoType: "string"},
 			},
 		}
-		got := tplSlotDocs(m)
+		got := templateFuncSlotDocs(m)
 		if got != "" {
 			t.Errorf("expected empty string, got %q", got)
 		}
@@ -1910,7 +1910,7 @@ func TestSlotDocs(t *testing.T) {
 				{GoName: "content", SnakeName: "content", GoType: "[]byte", Doc: "Input bytes"},
 			},
 		}
-		got := tplSlotDocs(m)
+		got := templateFuncSlotDocs(m)
 		want := "\n//\n// Slots:\n//   - source: Source file"
 		if got != want {
 			t.Errorf("slotDocs:\n  got:  %q\n  want: %q", got, want)
@@ -1927,7 +1927,7 @@ func TestSlotDocs(t *testing.T) {
 				{GoName: "path", SnakeName: "path", GoType: "string", Doc: "Destination path"},
 			},
 		}
-		got := tplSlotDocs(m)
+		got := templateFuncSlotDocs(m)
 		want := "\n//\n// Slots:\n//   - source: Source path\n//   - path: Destination path"
 		if got != want {
 			t.Errorf("slotDocs:\n  got:  %q\n  want: %q", got, want)
@@ -1942,7 +1942,7 @@ func TestSlotDocs(t *testing.T) {
 				{GoName: "pruneBoundary", SnakeName: "prune_boundary", GoType: "string", Doc: "Stop pruning here"},
 			},
 		}
-		got := tplSlotDocs(m)
+		got := templateFuncSlotDocs(m)
 		if !strings.Contains(got, "prune_boundary") {
 			t.Errorf("expected snake_case name, got %q", got)
 		}
@@ -1957,7 +1957,7 @@ func TestAllAttrNames(t *testing.T) {
 		},
 		ExtraAttrs: []string{"manager", "installed", "version"},
 	}
-	got := tplAllAttrNames(d)
+	got := templateFuncAllAttrNames(d)
 	want := `"install", "installed", "manager", "remove", "version"`
 	if got != want {
 		t.Errorf("allAttrNames = %q, want %q", got, want)
@@ -1970,7 +1970,7 @@ func TestAllAttrNamesNoExtras(t *testing.T) {
 			{SnakeName: "extract"},
 		},
 	}
-	got := tplAllAttrNames(d)
+	got := templateFuncAllAttrNames(d)
 	want := `"extract"`
 	if got != want {
 		t.Errorf("allAttrNames = %q, want %q", got, want)
@@ -1980,10 +1980,10 @@ func TestAllAttrNamesNoExtras(t *testing.T) {
 func TestHasExtraAttrs(t *testing.T) {
 	with := &generateDescriptor{ExtraAttrs: []string{"manager"}}
 	without := &generateDescriptor{}
-	if !tplHasExtraAttrs(with) {
+	if !templateFuncHasExtraAttrs(with) {
 		t.Error("should return true when extra attrs present")
 	}
-	if tplHasExtraAttrs(without) {
+	if templateFuncHasExtraAttrs(without) {
 		t.Error("should return false when no extra attrs")
 	}
 }
@@ -1993,13 +1993,13 @@ func TestNeedsImport(t *testing.T) {
 		{Params: []paramInfo{{GoType: "string"}, {GoType: "bool"}}},
 		{Params: []paramInfo{{GoType: "os.FileMode"}, {GoType: "string"}}},
 	}
-	if !tplNeedsImport(methods, "os.FileMode") {
+	if !templateFuncNeedsImport(methods, "os.FileMode") {
 		t.Error("should detect os.FileMode")
 	}
-	if tplNeedsImport(methods, "io.Writer") {
+	if templateFuncNeedsImport(methods, "io.Writer") {
 		t.Error("should not detect io.Writer when absent")
 	}
-	if tplNeedsImport(nil, "string") {
+	if templateFuncNeedsImport(nil, "string") {
 		t.Error("nil methods should return false")
 	}
 }

@@ -259,28 +259,28 @@ func isContentParam(p paramInfo, m methodInfo) bool {
 // =============================================================================
 
 var genTemplateFuncs = template.FuncMap{
-	"attrNamesList":        tplAttrNamesList,
-	"allAttrNames":         tplAllAttrNames,
-	"hasExtraAttrs":        tplHasExtraAttrs,
-	"planUnpackArgs":       tplPlanUnpackArgs,
-	"planFillSlots":        tplPlanFillSlots,
-	"immediateUnpackArgs":   tplImmediateUnpackArgs,
-	"immediateProviderBody": tplImmediateProviderBody,
-	"needsImport":          tplNeedsImport,
-	"graphReaders":         tplGraphReaders,
-	"dryRunFmt":            tplDryRunFmt,
-	"dryRunVars":           tplDryRunVars,
-	"dryRunChecksum":       tplDryRunChecksum,
-	"implArgs":             tplImplArgs,
-	"graphReturn":          tplGraphReturn,
-	"graphUndo":            tplGraphUndo,
-	"docComment":           tplDocComment,
-	"docSummary":           tplDocSummary,
-	"hasSlotDocs":          tplHasSlotDocs,
-	"slotDocs":             tplSlotDocs,
+	"attrNamesList":        templateFuncAttrNamesList,
+	"allAttrNames":         templateFuncAllAttrNames,
+	"hasExtraAttrs":        templateFuncHasExtraAttrs,
+	"planUnpackArgs":       templateFuncPlanUnpackArgs,
+	"planFillSlots":        templateFuncPlanFillSlots,
+	"immediateUnpackArgs":   templateFuncImmediateUnpackArgs,
+	"immediateProviderBody": templateFuncImmediateProviderBody,
+	"needsImport":          templateFuncNeedsImport,
+	"graphReaders":         templateFuncGraphReaders,
+	"dryRunFmt":            templateFuncDryRunFmt,
+	"dryRunVars":           templateFuncDryRunVars,
+	"dryRunChecksum":       templateFuncDryRunChecksum,
+	"implArgs":             templateFuncImplArgs,
+	"graphReturn":          templateFuncGraphReturn,
+	"graphUndo":            templateFuncGraphUndo,
+	"docComment":           templateFuncDocComment,
+	"docSummary":           templateFuncDocSummary,
+	"hasSlotDocs":          templateFuncHasSlotDocs,
+	"slotDocs":             templateFuncSlotDocs,
 }
 
-func tplAttrNamesList(methods []methodInfo) string {
+func templateFuncAttrNamesList(methods []methodInfo) string {
 	names := make([]string, len(methods))
 	for i, m := range methods {
 		names[i] = m.SnakeName
@@ -293,10 +293,10 @@ func tplAttrNamesList(methods []methodInfo) string {
 	return strings.Join(quoted, ", ")
 }
 
-// tplAllAttrNames returns all attribute names (generated methods + extra attrs)
+// templateFuncAllAttrNames returns all attribute names (generated methods + extra attrs)
 // as a sorted, quoted, comma-separated string. Used by receivers with companion
 // query files that contribute additional attributes.
-func tplAllAttrNames(d *generateDescriptor) string {
+func templateFuncAllAttrNames(d *generateDescriptor) string {
 	names := make([]string, 0, len(d.Methods)+len(d.ExtraAttrs))
 	for _, m := range d.Methods {
 		names = append(names, m.SnakeName)
@@ -310,12 +310,12 @@ func tplAllAttrNames(d *generateDescriptor) string {
 	return strings.Join(quoted, ", ")
 }
 
-// tplHasExtraAttrs returns true if the descriptor has extra attribute names.
-func tplHasExtraAttrs(d *generateDescriptor) bool {
+// templateFuncHasExtraAttrs returns true if the descriptor has extra attribute names.
+func templateFuncHasExtraAttrs(d *generateDescriptor) bool {
 	return len(d.ExtraAttrs) > 0
 }
 
-func tplPlanUnpackArgs(m methodInfo) string {
+func templateFuncPlanUnpackArgs(m methodInfo) string {
 	var starlarkParams []paramInfo
 	for _, p := range m.Params {
 		tm := typeMappings[p.GoType]
@@ -342,8 +342,8 @@ func tplPlanUnpackArgs(m methodInfo) string {
 	return buf.String()
 }
 
-// tplPlanFillSlots generates FillSlot calls for starlark-facing params only.
-func tplPlanFillSlots(m methodInfo) string {
+// templateFuncPlanFillSlots generates FillSlot calls for starlark-facing params only.
+func templateFuncPlanFillSlots(m methodInfo) string {
 	var lines []string
 	for _, p := range m.Params {
 		tm := typeMappings[p.GoType]
@@ -353,12 +353,12 @@ func tplPlanFillSlots(m methodInfo) string {
 		if isContentParam(p, m) {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("if err := FillSlot(node, p.graph, %q, %s); err != nil {\nreturn nil, fmt.Errorf(%q, err)\n}", p.SnakeName, p.GoName, p.SnakeName+": %w"))
+		lines = append(lines, fmt.Sprintf("if err := op.FillSlot(node, p.graph, %q, %s); err != nil {\nreturn nil, fmt.Errorf(%q, err)\n}", p.SnakeName, p.GoName, p.SnakeName+": %w"))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func tplImmediateUnpackArgs(m methodInfo) string {
+func templateFuncImmediateUnpackArgs(m methodInfo) string {
 	if len(m.Params) == 0 {
 		return ""
 	}
@@ -383,12 +383,12 @@ func tplImmediateUnpackArgs(m methodInfo) string {
 	return buf.String()
 }
 
-// tplImmediateProviderBody generates the Provider delegation call body for an
+// templateFuncImmediateProviderBody generates the Provider delegation call body for an
 // immediate receiver method. It maps parameters from their Starlark-unpacked
 // types to Provider method arguments, calls r.provider.GoName(...), and converts
 // the return value to a Starlark value. Compensation state is ignored —
 // immediate receivers discard undo state.
-func tplImmediateProviderBody(m methodInfo) string {
+func templateFuncImmediateProviderBody(m methodInfo) string {
 	// Build conversion declarations and call args.
 	// Some types require multi-return conversion (e.g., op.StarlarkDictToMap)
 	// which must be pre-computed as variable declarations.
@@ -473,9 +473,9 @@ func immediateResultExpr(goType, varName string) string {
 	}
 }
 
-// tplNeedsImport checks whether any method parameter uses the given Go type.
+// templateFuncNeedsImport checks whether any method parameter uses the given Go type.
 // Used in templates for conditional imports (e.g., "os" for os.FileMode).
-func tplNeedsImport(methods []methodInfo, goType string) bool {
+func templateFuncNeedsImport(methods []methodInfo, goType string) bool {
 	for _, m := range methods {
 		for _, p := range m.Params {
 			if p.GoType == goType {
@@ -486,10 +486,10 @@ func tplNeedsImport(methods []methodInfo, goType string) bool {
 	return false
 }
 
-// tplGraphReaders generates variable declarations for Do: slot reads,
+// templateFuncGraphReaders generates variable declarations for Do: slot reads,
 // context reads, and engine-injected reads. Content params use optional
 // assertion (_, ok pattern) since they may arrive via promise slots.
-func tplGraphReaders(m methodInfo) string {
+func templateFuncGraphReaders(m methodInfo) string {
 	var slotLines, contextLines, engineLines []string
 
 	for _, p := range m.Params {
@@ -514,8 +514,8 @@ func tplGraphReaders(m methodInfo) string {
 	return strings.Join(lines, "\n")
 }
 
-// tplDryRunFmt generates format verbs for starlark-facing params only.
-func tplDryRunFmt(m methodInfo) string {
+// templateFuncDryRunFmt generates format verbs for starlark-facing params only.
+func templateFuncDryRunFmt(m methodInfo) string {
 	var parts []string
 	for _, p := range m.Params {
 		if isContentParam(p, m) {
@@ -530,8 +530,8 @@ func tplDryRunFmt(m methodInfo) string {
 	return strings.Join(parts, " ")
 }
 
-// tplDryRunVars generates variable names for starlark-facing params only.
-func tplDryRunVars(m methodInfo) string {
+// templateFuncDryRunVars generates variable names for starlark-facing params only.
+func templateFuncDryRunVars(m methodInfo) string {
 	var names []string
 	for _, p := range m.Params {
 		if isContentParam(p, m) {
@@ -549,14 +549,14 @@ func tplDryRunVars(m methodInfo) string {
 	return ", " + strings.Join(names, ", ")
 }
 
-// tplDryRunChecksum generates additional dry-run output for consumer content model.
+// templateFuncDryRunChecksum generates additional dry-run output for consumer content model.
 // Previously emitted ctx.TargetChecksum; now a no-op (checksums removed from Context).
-func tplDryRunChecksum(m methodInfo) string {
+func templateFuncDryRunChecksum(m methodInfo) string {
 	return ""
 }
 
-// tplImplArgs generates all param names in order for the delegation call.
-func tplImplArgs(m methodInfo) string {
+// templateFuncImplArgs generates all param names in order for the delegation call.
+func templateFuncImplArgs(m methodInfo) string {
 	names := make([]string, len(m.Params))
 	for i, p := range m.Params {
 		names[i] = p.GoName
@@ -564,18 +564,18 @@ func tplImplArgs(m methodInfo) string {
 	return strings.Join(names, ", ")
 }
 
-// tplGraphReturn generates the delegation call and return handling per content model.
+// templateFuncGraphReturn generates the delegation call and return handling per content model.
 // Returns (Result, UndoState, error) — three values.
-func tplGraphReturn(m methodInfo, implType string) string {
+func templateFuncGraphReturn(m methodInfo, implType string) string {
 	if implType == "" {
 		return "\nreturn nil, nil, nil"
 	}
 
-	argStr := tplImplArgs(m)
+	argStr := templateFuncImplArgs(m)
 	call := fmt.Sprintf("o.Impl.%s(%s)", m.GoName, argStr)
 
 	if m.Compensable {
-		return tplGraphReturnCompensable(m, call)
+		return templateFuncGraphReturnCompensable(m, call)
 	}
 
 	switch m.ContentModel {
@@ -595,9 +595,9 @@ func tplGraphReturn(m methodInfo, implType string) string {
 	}
 }
 
-// tplGraphReturnCompensable generates the delegation call for compensable methods.
+// templateFuncGraphReturnCompensable generates the delegation call for compensable methods.
 // Compensable methods return (U, error) or (T, U, error) where U becomes UndoState.
-func tplGraphReturnCompensable(m methodInfo, call string) string {
+func templateFuncGraphReturnCompensable(m methodInfo, call string) string {
 	switch m.ContentModel {
 	case "consumer":
 		// (string, U, error) — result + state; result flows to downstream nodes
@@ -616,18 +616,18 @@ func tplGraphReturnCompensable(m methodInfo, call string) string {
 }
 
 
-// tplGraphUndo generates the Undo method for an action. Compensable actions
+// templateFuncGraphUndo generates the Undo method for an action. Compensable actions
 // delegate to Impl.Compensate<GoName>(state). Non-compensable actions return nil.
-func tplGraphUndo(m methodInfo) string {
+func templateFuncGraphUndo(m methodInfo) string {
 	if !m.Compensable {
 		return "" // No Undo method — struct implements Action only, not Undoable.
 	}
 	return fmt.Sprintf("func (o *%s) Undo(state execution.UndoState) error {\n\tif state == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(state)\n}", m.GoName, m.GoName)
 }
 
-// tplDocComment renders a multi-line Go doc comment. The first line is prefixed
+// templateFuncDocComment renders a multi-line Go doc comment. The first line is prefixed
 // with "// snakeName ", subsequent lines get "// " (or "//" for blank lines).
-func tplDocComment(snakeName, doc string) string {
+func templateFuncDocComment(snakeName, doc string) string {
 	if doc == "" {
 		return "// " + snakeName
 	}
@@ -645,9 +645,9 @@ func tplDocComment(snakeName, doc string) string {
 	return strings.Join(result, "\n")
 }
 
-// tplDocSummary returns the description portion of a doc string — text before
+// templateFuncDocSummary returns the description portion of a doc string — text before
 // the first blank line or structured section (Slots:, Parameters:, Usage:, Returns:).
-func tplDocSummary(doc string) string {
+func templateFuncDocSummary(doc string) string {
 	if doc == "" {
 		return ""
 	}
@@ -669,8 +669,8 @@ func tplDocSummary(doc string) string {
 	return strings.Join(descLines, " ")
 }
 
-// tplHasSlotDocs returns true if any starlark-facing parameter has documentation.
-func tplHasSlotDocs(m methodInfo) bool {
+// templateFuncHasSlotDocs returns true if any starlark-facing parameter has documentation.
+func templateFuncHasSlotDocs(m methodInfo) bool {
 	for _, p := range m.Params {
 		tm := typeMappings[p.GoType]
 		if tm.starlarkFacing && p.Doc != "" && !isContentParam(p, m) {
@@ -680,9 +680,9 @@ func tplHasSlotDocs(m methodInfo) bool {
 	return false
 }
 
-// tplSlotDocs generates a "// Slots:" comment block from structured parameter docs.
+// templateFuncSlotDocs generates a "// Slots:" comment block from structured parameter docs.
 // Returns empty string if no starlark-facing params have docs.
-func tplSlotDocs(m methodInfo) string {
+func templateFuncSlotDocs(m methodInfo) string {
 	var entries []string
 	for _, p := range m.Params {
 		tm := typeMappings[p.GoType]

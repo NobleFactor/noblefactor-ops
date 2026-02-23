@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright Noble Factor. All rights reserved.
 
-//
-// Copied from devlore-cli/internal/cli/output.go
-// Keep in sync periodically.
-
 // Package cli provides CLI utilities for output formatting and user interaction.
 package cli
 
@@ -21,6 +17,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
 
 // =============================================================================
@@ -353,84 +351,42 @@ func formatFieldValue(v interface{}) string {
 }
 
 // =============================================================================
-// Status Output Functions
+// Status Output — delegates to ui.Provider
 // =============================================================================
 
-const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorGray   = "\033[37m"
-)
-
-const (
-	symbolNote    = "+"
-	symbolWarn    = "△"
-	symbolError   = "✖"
-	symbolSuccess = "✔"
-)
-
-var programName = "star"
-var silent = false
-
-// SetProgramName sets the program name used in output prefixes.
-func SetProgramName(name string) {
-	programName = name
+var uiProvider = &ui.Provider{
+	Writer:      os.Stderr,
+	ProgramName: "star",
+	Color:       true,
 }
 
-// SetSilent enables or disables silent mode.
-func SetSilent(s bool) {
-	silent = s
-}
-
-// AddSilentFlag adds the --silent flag to a root command.
-func AddSilentFlag(cmd *cobra.Command) {
-	cmd.PersistentFlags().BoolVar(&silent, "silent", false,
-		`Suppress all status messages (stderr)`)
+// SetUIProvider sets the backing ui.Provider for all status output functions.
+func SetUIProvider(p *ui.Provider) {
+	uiProvider = p
 }
 
 // Note prints an informational message to stderr.
 func Note(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorGray, symbolNote, colorReset, msg)
+	uiProvider.Note(fmt.Sprintf(format, args...))
 }
 
 // Warn prints a warning message to stderr.
 func Warn(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorYellow, symbolWarn, colorReset, msg)
+	uiProvider.Warn(fmt.Sprintf(format, args...))
 }
 
 // Error prints an error message to stderr.
 func Error(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorRed, symbolError, colorReset, msg)
-}
-
-// Failure prints an error message to stderr and returns an error.
-func Failure(format string, args ...interface{}) error {
-	msg := fmt.Sprintf(format, args...)
-	if !silent {
-		fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorRed, symbolError, colorReset, msg)
-	}
-	return fmt.Errorf("%s", msg)
+	uiProvider.Error(fmt.Sprintf(format, args...))
 }
 
 // Success prints a success message to stderr.
 func Success(format string, args ...interface{}) {
-	if silent {
-		return
-	}
-	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[%s] [%s%s%s] %s\n", programName, colorGreen, symbolSuccess, colorReset, msg)
+	uiProvider.Success(fmt.Sprintf(format, args...))
 }
+
+// Failure prints an error message to stderr and returns an error.
+func Failure(format string, args ...interface{}) error {
+	return uiProvider.Fail(fmt.Sprintf(format, args...))
+}
+

@@ -10,12 +10,12 @@ def run(ctx):
     result = setup.init_config()
 
     if result.star_yaml_created:
-        success("Created " + result.star_yaml_path)
+        ui.success("Created " + result.star_yaml_path)
     else:
-        note(result.star_yaml_path + " already exists")
+        ui.note(result.star_yaml_path + " already exists")
 
     if len(result.configs_synced) > 0:
         for cfg in result.configs_synced:
-            success("Synced " + cfg)
+            ui.success("Synced " + cfg)
     else:
-        note("Tool configs already up to date")
+        ui.note("Tool configs already up to date")

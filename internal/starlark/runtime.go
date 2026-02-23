@@ -14,7 +14,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/NobleFactor/noblefactor-ops/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 	"github.com/NobleFactor/noblefactor-ops/internal/wasm"
@@ -37,14 +37,34 @@ type Runtime struct {
 	// wasmReceivers maps extension name to its loaded WASM receivers.
 	// Key format: "extensionName:receiverName"
 	wasmReceivers map[string]*WasmReceiver
+
+	// UIProvider is the canonical UI output provider.
+	// Wire --silent to UIProvider.Silent in main.
+	UIProvider *ui.Provider
+
+	// Receivers that depend on UIProvider (not singletons).
+	file  *FileReceiver
+	lint  *LintReceiver
+	setup *SetupReceiver
+	ui    *UiReceiver
 }
 
 // NewRuntime creates a new Starlark runtime.
 func NewRuntime() *Runtime {
+	uip := &ui.Provider{
+		Writer:      os.Stderr,
+		ProgramName: "star",
+		Color:       true,
+	}
 	return &Runtime{
 		commands:      make(map[string]*Command),
 		wasmHosts:     make(map[string]*wasm.WasmHost),
 		wasmReceivers: make(map[string]*WasmReceiver),
+		UIProvider:    uip,
+		file:          NewFileReceiver(uip),
+		lint:          NewLintReceiver(uip),
+		setup:         NewSetupReceiver(uip),
+		ui:            NewUiReceiver(uip),
 	}
 }
 
@@ -273,27 +293,23 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.StringDict {
 	predeclared := starlark.StringDict{
 		// Receiver-pattern bindings (all modules use HasAttrs pattern)
-		"file":           File,
+		"file":           r.file,
 		"json":           JSON,
 		"yaml":           YAML,
 		"schema":         Schema,
 		"shellcheck":     Shellcheck,
 		"regexp":         Regexp,
 		"go":             Go,
-		"lint":           Lint,
-		"setup":          Setup,
+		"lint":           r.lint,
+		"setup":          r.setup,
 		"config":         Config,
 		"starlark_parse": StarlarkParse,
 
+		// UI output (note, warn, error, success, fail via ui.* receiver)
+		"ui": r.ui,
+
 		// Command tree navigation (current command set at runtime)
 		"commands": NewCommandsReceiver(r),
-
-		// Output functions in global namespace
-		"note":    starlark.NewBuiltin("note", noteBuiltin),
-		"warn":    starlark.NewBuiltin("warn", warnBuiltin),
-		"error":   starlark.NewBuiltin("error", errorBuiltin),
-		"success": starlark.NewBuiltin("success", successBuiltin),
-		"fail":    starlark.NewBuiltin("fail", failBuiltin),
 	}
 
 	// Add WASM receivers from extension spec
@@ -332,49 +348,3 @@ func (r *Runtime) Close() error {
 	return nil
 }
 
-// =============================================================================
-// Output Builtins
-// =============================================================================
-
-func noteBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	msg := extractMessage(args, kwargs)
-	cli.Note("%s", msg)
-	return starlark.None, nil
-}
-
-func warnBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	msg := extractMessage(args, kwargs)
-	cli.Warn("%s", msg)
-	return starlark.None, nil
-}
-
-func errorBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	msg := extractMessage(args, kwargs)
-	cli.Error("%s", msg)
-	return starlark.None, nil
-}
-
-func successBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	msg := extractMessage(args, kwargs)
-	cli.Success("%s", msg)
-	return starlark.None, nil
-}
-
-func failBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	msg := extractMessage(args, kwargs)
-	cli.Error("%s", msg)
-	return nil, fmt.Errorf("fail: %s", msg)
-}
-
-func extractMessage(args starlark.Tuple, kwargs []starlark.Tuple) string {
-	var msg string
-	if err := starlark.UnpackArgs("", args, kwargs, "msg", &msg); err != nil {
-		// Try positional
-		if len(args) >= 1 {
-			if s, ok := starlark.AsString(args[0]); ok {
-				msg = s
-			}
-		}
-	}
-	return msg
-}

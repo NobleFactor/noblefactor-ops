@@ -13,7 +13,7 @@ import (
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/noblefactor-ops/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	"github.com/NobleFactor/noblefactor-ops/internal/ignore"
 )
 
@@ -21,11 +21,15 @@ import (
 // Implements starlark.Value and starlark.HasAttrs.
 type FileReceiver struct {
 	op.Receiver
+	ui *ui.Provider
 }
 
 // NewFileReceiver creates a new FileReceiver.
-func NewFileReceiver() *FileReceiver {
-	return &FileReceiver{Receiver: op.NewReceiver("file")}
+func NewFileReceiver(p *ui.Provider) *FileReceiver {
+	return &FileReceiver{
+		Receiver: op.NewReceiver("file"),
+		ui:       p,
+	}
 }
 
 // Attr implements starlark.HasAttrs.
@@ -104,7 +108,7 @@ func (r *FileReceiver) write(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would write %d bytes to %s", len(content), path)
+		r.ui.Note(fmt.Sprintf("would write %d bytes to %s", len(content), path))
 		return starlark.None, nil
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -427,7 +431,7 @@ func (r *FileReceiver) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would create directory %s", path)
+		r.ui.Note(fmt.Sprintf("would create directory %s", path))
 		return starlark.None, nil
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -443,7 +447,7 @@ func (r *FileReceiver) remove(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would remove %s", path)
+		r.ui.Note(fmt.Sprintf("would remove %s", path))
 		return starlark.None, nil
 	}
 	if err := os.Remove(path); err != nil {
@@ -459,7 +463,7 @@ func (r *FileReceiver) removeAll(_ *starlark.Thread, _ *starlark.Builtin, args s
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would remove %s (recursively)", path)
+		r.ui.Note(fmt.Sprintf("would remove %s (recursively)", path))
 		return starlark.None, nil
 	}
 	if err := os.RemoveAll(path); err != nil {

@@ -82,14 +82,12 @@ yaml - YAML encoding/decoding:
   yaml.encode(value)         Convert dict/list to YAML string
   yaml.decode(string)        Parse YAML string to dict/list
 
-GLOBAL OUTPUT FUNCTIONS
-
-These functions produce formatted output to stderr:
-  note(msg)                  Informational message (gray +)
-  warn(msg)                  Warning message (yellow △)
-  error(msg)                 Error message (red ✖)
-  success(msg)               Success message (green ✔)
-  fail(msg)                  Error message + abort execution
+ui - User-facing terminal messaging:
+  ui.note(msg)               Informational message (gray +)
+  ui.warn(msg)               Warning message (yellow △)
+  ui.error(msg)              Error message (red ✖)
+  ui.success(msg)            Success message (green ✔)
+  ui.fail(msg)               Error message + abort execution
 
 Use print(msg) for raw stdout output (e.g., YAML content in dry-run mode).
 
@@ -150,8 +148,12 @@ Generate shell completions with:
   star completion fish > ~/.config/fish/completions/star.fish`,
 	}
 
+	// Create runtime early so we can bind flags to it
+	runtime := starruntime.NewRuntime()
+
 	// Global flags
 	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
+	rootCmd.PersistentFlags().BoolVar(&runtime.UIProvider.Silent, "silent", false, "Suppress all status messages")
 
 	// Version command
 	rootCmd.AddCommand(&cobra.Command{
@@ -250,6 +252,9 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 	})
 	rootCmd.AddCommand(docsCmd)
 
+	// Wire CLI status output to runtime's UI provider
+	cli.SetUIProvider(runtime.UIProvider)
+
 	// Self commands (install, upgrade, etc.)
 	rootCmd.AddCommand(cli.NewSelfCmd(rootCmd, cli.SelfInstallInfo{
 		Name: "star",
@@ -262,7 +267,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 	}))
 
 	// Load Starlark commands from extensions
-	if err := loadStarlarkCommands(rootCmd); err != nil {
+	if err := loadStarlarkCommands(rootCmd, runtime); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
 	}
 
@@ -272,8 +277,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 }
 
 // loadStarlarkCommands loads extensions and registers their commands.
-func loadStarlarkCommands(rootCmd *cobra.Command) error {
-	runtime := starruntime.NewRuntime()
+func loadStarlarkCommands(rootCmd *cobra.Command, runtime *starruntime.Runtime) error {
 	if err := runtime.LoadAll(); err != nil {
 		return err
 	}

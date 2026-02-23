@@ -401,7 +401,7 @@ func TestRuntime_buildPredeclared(t *testing.T) {
 	requiredModules := []string{
 		"file", "json", "yaml", "schema", "go", "shellcheck",
 		"lint", "regexp", "config", "setup", "starlark_parse",
-		"commands", "note", "warn", "error", "success", "fail",
+		"commands", "ui",
 	}
 
 	for _, name := range requiredModules {

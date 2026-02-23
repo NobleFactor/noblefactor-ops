@@ -3,11 +3,8 @@
 
 package starlark
 
-// Receiver instances - these are singletons used across all Starlark executions.
+// Receiver singletons — these have no per-runtime dependencies.
 var (
-	// File provides file system operations (renamed from fs).
-	File = NewFileReceiver()
-
 	// JSON provides JSON encoding/decoding operations.
 	JSON = NewJSONReceiver()
 
@@ -25,12 +22,6 @@ var (
 
 	// Go provides Go source parsing operations.
 	Go = NewGoReceiver()
-
-	// Lint provides static analysis operations.
-	Lint = NewLintReceiver()
-
-	// Setup provides repository setup operations.
-	Setup = NewSetupReceiver()
 
 	// Config provides configuration operations.
 	Config = NewConfigReceiver()
