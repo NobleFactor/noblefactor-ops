@@ -23,7 +23,7 @@ import (
 
 // generateDescriptor holds the complete input for code generation.
 type generateDescriptor struct {
-	Template   string       // "plan_receiver", "graph_actions", "realtime_receiver"
+	Template   string       // "planned_receiver", "graph_actions", "immediate_receiver"
 	Package    string       // Go package name for generated file
 	Provider   string       // snake_case provider (e.g., "file")
 	StructName string       // Go struct name (e.g., "File")
@@ -264,8 +264,8 @@ var genTemplateFuncs = template.FuncMap{
 	"hasExtraAttrs":        tplHasExtraAttrs,
 	"planUnpackArgs":       tplPlanUnpackArgs,
 	"planFillSlots":        tplPlanFillSlots,
-	"realtimeUnpackArgs":   tplRealtimeUnpackArgs,
-	"realtimeProviderBody": tplRealtimeProviderBody,
+	"immediateUnpackArgs":   tplImmediateUnpackArgs,
+	"immediateProviderBody": tplImmediateProviderBody,
 	"needsImport":          tplNeedsImport,
 	"graphReaders":         tplGraphReaders,
 	"dryRunFmt":            tplDryRunFmt,
@@ -358,7 +358,7 @@ func tplPlanFillSlots(m methodInfo) string {
 	return strings.Join(lines, "\n")
 }
 
-func tplRealtimeUnpackArgs(m methodInfo) string {
+func tplImmediateUnpackArgs(m methodInfo) string {
 	if len(m.Params) == 0 {
 		return ""
 	}
@@ -383,19 +383,19 @@ func tplRealtimeUnpackArgs(m methodInfo) string {
 	return buf.String()
 }
 
-// tplRealtimeProviderBody generates the Provider delegation call body for a
-// receiver method. It maps parameters from their Starlark-unpacked types to
-// Provider method arguments, calls r.provider.GoName(...), and converts the
-// return value to a Starlark value. Compensation state is ignored — receivers
-// are immediate execution only.
-func tplRealtimeProviderBody(m methodInfo) string {
+// tplImmediateProviderBody generates the Provider delegation call body for an
+// immediate receiver method. It maps parameters from their Starlark-unpacked
+// types to Provider method arguments, calls r.provider.GoName(...), and converts
+// the return value to a Starlark value. Compensation state is ignored —
+// immediate receivers discard undo state.
+func tplImmediateProviderBody(m methodInfo) string {
 	// Build conversion declarations and call args.
 	// Some types require multi-return conversion (e.g., starlarkDictToMap)
 	// which must be pre-computed as variable declarations.
 	var convDecls []string
 	var callArgs []string
 	for _, p := range m.Params {
-		decl, arg := realtimeArgExpr(p)
+		decl, arg := immediateArgExpr(p)
 		if decl != "" {
 			convDecls = append(convDecls, decl)
 		}
@@ -413,7 +413,7 @@ func tplRealtimeProviderBody(m methodInfo) string {
 		if m.ReturnType == "" {
 			buf.WriteString(fmt.Sprintf("\t_, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn starlark.None, nil", call))
 		} else {
-			buf.WriteString(fmt.Sprintf("\tresult, _, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, realtimeResultExpr(m.ReturnType, "result")))
+			buf.WriteString(fmt.Sprintf("\tresult, _, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, immediateResultExpr(m.ReturnType, "result")))
 		}
 		return buf.String()
 	}
@@ -421,16 +421,16 @@ func tplRealtimeProviderBody(m methodInfo) string {
 	if m.ReturnType == "" {
 		buf.WriteString(fmt.Sprintf("\tif err := %s; err != nil {\n\t\treturn nil, err\n\t}\n\treturn starlark.None, nil", call))
 	} else {
-		buf.WriteString(fmt.Sprintf("\tresult, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, realtimeResultExpr(m.ReturnType, "result")))
+		buf.WriteString(fmt.Sprintf("\tresult, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, immediateResultExpr(m.ReturnType, "result")))
 	}
 	return buf.String()
 }
 
-// realtimeArgExpr returns a conversion declaration (if needed) and the Go
-// expression for passing a parameter to a Provider method from a receiver.
-// Multi-return conversions (like starlarkDictToMap) produce a declaration
-// string; single-value conversions return only the inline expression.
-func realtimeArgExpr(p paramInfo) (decl, arg string) {
+// immediateArgExpr returns a conversion declaration (if needed) and the Go
+// expression for passing a parameter to a Provider method from an immediate
+// receiver. Multi-return conversions (like starlarkDictToMap) produce a
+// declaration string; single-value conversions return only the inline expression.
+func immediateArgExpr(p paramInfo) (decl, arg string) {
 	tm := typeMappings[p.GoType]
 	if tm.contextReader != "" {
 		return "", "r.output"
@@ -454,9 +454,9 @@ func realtimeArgExpr(p paramInfo) (decl, arg string) {
 	}
 }
 
-// realtimeResultExpr returns the Go expression for converting a Provider
-// return value to a Starlark value.
-func realtimeResultExpr(goType, varName string) string {
+// immediateResultExpr returns the Go expression for converting an immediate
+// receiver's Provider return value to a Starlark value.
+func immediateResultExpr(goType, varName string) string {
 	switch goType {
 	case "string":
 		return fmt.Sprintf("starlark.String(%s)", varName)
@@ -701,9 +701,9 @@ func tplSlotDocs(m methodInfo) string {
 // TEMPLATES
 // =============================================================================
 
-// RealtimeReceiverTemplate is the builtin template for realtime receivers.
+// ImmediateReceiverTemplate is the builtin template for immediate receivers.
 // It only references noblefactor-ops types (Receiver, MakeAttr, NoSuchAttrError).
-const RealtimeReceiverTemplate = `// Code generated by go.generate; DO NOT EDIT.
+const ImmediateReceiverTemplate = `// Code generated by go.generate; DO NOT EDIT.
 
 package {{.Package}}
 
@@ -735,7 +735,7 @@ func (r *{{.StructName}}Receiver) AttrNames() []string {
 }
 {{range .Methods}}
 func (r *{{$.StructName}}Receiver) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-{{realtimeUnpackArgs .}}
+{{immediateUnpackArgs .}}
 	// TODO: call backing implementation, convert result
 	return starlark.None, nil
 }
@@ -743,7 +743,7 @@ func (r *{{$.StructName}}Receiver) {{.SnakeName}}(_ *starlark.Thread, _ *starlar
 
 // builtinTemplates maps names to content for builtin templates.
 var builtinTemplates = map[string]string{
-	"realtime_receiver": RealtimeReceiverTemplate,
+	"immediate_receiver": ImmediateReceiverTemplate,
 }
 
 // =============================================================================
