@@ -10,6 +10,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 )
 
@@ -17,7 +18,7 @@ import (
 // Each attribute access returns a builtin that invokes the corresponding
 // WASM function via shared memory.
 type WasmReceiver struct {
-	BaseReceiver
+	op.Receiver
 	module    extension.WasmModule
 	functions map[string]bool // Available functions from extension.yaml
 }
@@ -30,7 +31,7 @@ func NewWasmReceiver(name string, module extension.WasmModule, functions []strin
 		funcMap[fn] = true
 	}
 	return &WasmReceiver{
-		BaseReceiver: NewBaseReceiver(name),
+		Receiver: op.NewReceiver(name),
 		module:       module,
 		functions:    funcMap,
 	}
@@ -39,9 +40,9 @@ func NewWasmReceiver(name string, module extension.WasmModule, functions []strin
 // Attr implements starlark.HasAttrs.
 func (r *WasmReceiver) Attr(name string) (starlark.Value, error) {
 	if !r.functions[name] {
-		return nil, NoSuchAttrError(r.name, name)
+		return nil, op.NoSuchAttrError(r.String(), name)
 	}
-	return starlark.NewBuiltin(r.name+"."+name, r.makeCall(name)), nil
+	return starlark.NewBuiltin(r.String()+"."+name, r.makeCall(name)), nil
 }
 
 // AttrNames implements starlark.HasAttrs.
@@ -54,18 +55,18 @@ func (r *WasmReceiver) AttrNames() []string {
 }
 
 // makeCall returns a builtin function that invokes the WASM method.
-func (r *WasmReceiver) makeCall(method string) BuiltinFunc {
+func (r *WasmReceiver) makeCall(method string) op.BuiltinFunc {
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		// Convert Starlark args to JSON
 		params, err := wasmArgsToJSON(args, kwargs)
 		if err != nil {
-			return nil, fmt.Errorf("%s.%s: %w", r.name, method, err)
+			return nil, fmt.Errorf("%s.%s: %w", r.String(), method, err)
 		}
 
 		// Call WASM module
 		resultBytes, err := r.module.Call(method, params)
 		if err != nil {
-			return nil, fmt.Errorf("%s.%s: %w", r.name, method, err)
+			return nil, fmt.Errorf("%s.%s: %w", r.String(), method, err)
 		}
 
 		// Handle nil/empty result

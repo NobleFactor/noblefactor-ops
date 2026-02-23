@@ -497,21 +497,21 @@ func TestGenerateImmediateReceiver(t *testing.T) {
 	}
 
 	// Constructor
-	if !strings.Contains(code, `NewReceiver("file")`) {
-		t.Error("missing NewReceiver call")
+	if !strings.Contains(code, `op.NewReceiver("file")`) {
+		t.Error("missing op.NewReceiver call")
 	}
 
 	// Attr dispatch
-	if !strings.Contains(code, `MakeAttr("file.copy"`) {
-		t.Error("missing MakeAttr for file.copy")
+	if !strings.Contains(code, `op.MakeAttr("file.copy"`) {
+		t.Error("missing op.MakeAttr for file.copy")
 	}
-	if !strings.Contains(code, `MakeAttr("file.remove"`) {
-		t.Error("missing MakeAttr for file.remove")
+	if !strings.Contains(code, `op.MakeAttr("file.remove"`) {
+		t.Error("missing op.MakeAttr for file.remove")
 	}
 
 	// NoSuchAttrError
-	if !strings.Contains(code, `NoSuchAttrError("file"`) {
-		t.Error("missing NoSuchAttrError")
+	if !strings.Contains(code, `op.NoSuchAttrError("file"`) {
+		t.Error("missing op.NoSuchAttrError")
 	}
 }
 
@@ -1675,10 +1675,10 @@ func TestImmediateProviderBodyStringSlice(t *testing.T) {
 		},
 	}
 	body := tplImmediateProviderBody(m)
-	if !strings.Contains(body, "listToStringSlice(packages)") {
-		t.Errorf("[]string should use listToStringSlice, got:\n%s", body)
+	if !strings.Contains(body, "op.ListToStringSlice(packages)") {
+		t.Errorf("[]string should use op.ListToStringSlice, got:\n%s", body)
 	}
-	if !strings.Contains(body, "r.provider.Install(listToStringSlice(packages), manager, cask)") {
+	if !strings.Contains(body, "r.provider.Install(op.ListToStringSlice(packages), manager, cask)") {
 		t.Errorf("should pass all args in order, got:\n%s", body)
 	}
 }
@@ -1712,7 +1712,7 @@ func TestImmediateProviderBodyDictConversion(t *testing.T) {
 	}
 	body := tplImmediateProviderBody(m)
 	// Must pre-compute dict conversion (multi-return)
-	if !strings.Contains(body, "templateDataMap, err := starlarkDictToMap(templateData)") {
+	if !strings.Contains(body, "templateDataMap, err := op.StarlarkDictToMap(templateData)") {
 		t.Errorf("should pre-compute dict conversion, got:\n%s", body)
 	}
 	if !strings.Contains(body, "r.provider.Render(templateDataMap, source)") {

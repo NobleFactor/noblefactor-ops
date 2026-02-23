@@ -9,28 +9,30 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // YAMLReceiver provides YAML encoding/decoding operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type YAMLReceiver struct {
-	BaseReceiver
+	op.Receiver
 }
 
 // NewYAMLReceiver creates a new YAMLReceiver.
 func NewYAMLReceiver() *YAMLReceiver {
-	return &YAMLReceiver{BaseReceiver: NewBaseReceiver("yaml")}
+	return &YAMLReceiver{Receiver: op.NewReceiver("yaml")}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *YAMLReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "encode":
-		return MakeAttr("yaml.encode", r.encode), nil
+		return op.MakeAttr("yaml.encode", r.encode), nil
 	case "decode":
-		return MakeAttr("yaml.decode", r.decode), nil
+		return op.MakeAttr("yaml.decode", r.decode), nil
 	default:
-		return nil, NoSuchAttrError("yaml", name)
+		return nil, op.NoSuchAttrError("yaml", name)
 	}
 }
 

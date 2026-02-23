@@ -11,26 +11,28 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // SchemaReceiver provides JSON Schema validation operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type SchemaReceiver struct {
-	BaseReceiver
+	op.Receiver
 }
 
 // NewSchemaReceiver creates a new SchemaReceiver.
 func NewSchemaReceiver() *SchemaReceiver {
-	return &SchemaReceiver{BaseReceiver: NewBaseReceiver("schema")}
+	return &SchemaReceiver{Receiver: op.NewReceiver("schema")}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *SchemaReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "validate":
-		return MakeAttr("schema.validate", r.validate), nil
+		return op.MakeAttr("schema.validate", r.validate), nil
 	default:
-		return nil, NoSuchAttrError("schema", name)
+		return nil, op.NoSuchAttrError("schema", name)
 	}
 }
 

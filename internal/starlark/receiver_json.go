@@ -8,30 +8,32 @@ import (
 	"fmt"
 
 	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // JSONReceiver provides JSON encoding/decoding operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type JSONReceiver struct {
-	BaseReceiver
+	op.Receiver
 }
 
 // NewJSONReceiver creates a new JSONReceiver.
 func NewJSONReceiver() *JSONReceiver {
-	return &JSONReceiver{BaseReceiver: NewBaseReceiver("json")}
+	return &JSONReceiver{Receiver: op.NewReceiver("json")}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *JSONReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "encode":
-		return MakeAttr("json.encode", r.encode), nil
+		return op.MakeAttr("json.encode", r.encode), nil
 	case "encode_indent":
-		return MakeAttr("json.encode_indent", r.encodeIndent), nil
+		return op.MakeAttr("json.encode_indent", r.encodeIndent), nil
 	case "decode":
-		return MakeAttr("json.decode", r.decode), nil
+		return op.MakeAttr("json.decode", r.decode), nil
 	default:
-		return nil, NoSuchAttrError("json", name)
+		return nil, op.NoSuchAttrError("json", name)
 	}
 }
 
