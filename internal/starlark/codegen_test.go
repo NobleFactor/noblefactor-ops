@@ -255,10 +255,6 @@ func buildTestDescriptor(t *testing.T, methods []map[string]any) *starlark.Dict 
 		must(t, md.SetKey(starlark.String("returns"), starlark.String(m["returns"].(string))))
 		must(t, md.SetKey(starlark.String("doc"), starlark.String("")))
 
-		if compensable, ok := m["compensable"].(bool); ok {
-			must(t, md.SetKey(starlark.String("compensable"), starlark.Bool(compensable)))
-		}
-
 		var paramsList []starlark.Value
 		if params, ok := m["params"].([]map[string]any); ok {
 			for _, p := range params {
@@ -1411,9 +1407,8 @@ func TestGenerateGraphActionsCompensable(t *testing.T) {
 	r := NewGoReceiver()
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
-			"name":        "Install",
-			"returns":     "(any, map[string]any, error)",
-			"compensable": true,
+			"name":    "Install",
+			"returns": "(any, map[string]any, error)",
 			"params": []map[string]any{
 				{"name": "name", "type": "string"},
 				{"name": "version", "type": "string"},
@@ -1422,6 +1417,9 @@ func TestGenerateGraphActionsCompensable(t *testing.T) {
 	})
 	must(t, desc.SetKey(starlark.String("package"), starlark.String("pkg")))
 	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+	must(t, desc.SetKey(starlark.String("all_methods"), starlark.NewList([]starlark.Value{
+		starlark.String("Install"), starlark.String("CompensateInstall"),
+	})))
 
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
@@ -1464,9 +1462,8 @@ func TestGenerateGraphActionsCompensableWithValue(t *testing.T) {
 	r := NewGoReceiver()
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
-			"name":        "Copy",
-			"returns":     "(string, map[string]any, error)",
-			"compensable": true,
+			"name":    "Copy",
+			"returns": "(string, map[string]any, error)",
 			"params": []map[string]any{
 				{"name": "source", "type": "string"},
 				{"name": "path", "type": "string"},
@@ -1476,6 +1473,9 @@ func TestGenerateGraphActionsCompensableWithValue(t *testing.T) {
 	})
 	must(t, desc.SetKey(starlark.String("package"), starlark.String("file")))
 	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+	must(t, desc.SetKey(starlark.String("all_methods"), starlark.NewList([]starlark.Value{
+		starlark.String("Copy"), starlark.String("CompensateCopy"),
+	})))
 
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
@@ -1543,6 +1543,7 @@ func TestImmediateProviderBodyErrorOnly(t *testing.T) {
 		GoName:     "Remove",
 		SnakeName:  "remove",
 		ReturnType: "", // gate-processed: error → ""
+		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 		},
@@ -1561,6 +1562,7 @@ func TestImmediateProviderBodyStringReturn(t *testing.T) {
 		GoName:     "Source",
 		SnakeName:  "source",
 		ReturnType: "string", // gate-processed: (string, error) → "string"
+		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 		},
@@ -1579,6 +1581,7 @@ func TestImmediateProviderBodyBytesReturn(t *testing.T) {
 		GoName:     "Download",
 		SnakeName:  "download",
 		ReturnType: "[]byte", // gate-processed: ([]byte, error) → "[]byte"
+		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "url", SnakeName: "url", GoType: "string"},
 		},
@@ -1597,6 +1600,7 @@ func TestImmediateProviderBodyCompensableStateOnly(t *testing.T) {
 		GoName:      "Install",
 		SnakeName:   "install",
 		ReturnType:  "", // gate-processed: (map[string]any, error) → ""
+		HasError:    true,
 		Compensable: true,
 		Params: []paramInfo{
 			{GoName: "name", SnakeName: "name", GoType: "string"},
@@ -1616,6 +1620,7 @@ func TestImmediateProviderBodyCompensableWithValue(t *testing.T) {
 		GoName:      "Copy",
 		SnakeName:   "copy",
 		ReturnType:  "string", // gate-processed: (string, map[string]any, error) → "string"
+		HasError:    true,
 		Compensable: true,
 		Params: []paramInfo{
 			{GoName: "path", SnakeName: "path", GoType: "string"},
@@ -1635,6 +1640,7 @@ func TestImmediateProviderBodyIOWriter(t *testing.T) {
 		GoName:     "Shell",
 		SnakeName:  "shell",
 		ReturnType: "", // gate-processed: error → ""
+		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "command", SnakeName: "command", GoType: "string"},
 			{GoName: "output", SnakeName: "output", GoType: "io.Writer"},
@@ -1651,6 +1657,7 @@ func TestImmediateProviderBodyFileMode(t *testing.T) {
 		GoName:     "Mkdir",
 		SnakeName:  "mkdir",
 		ReturnType: "", // gate-processed: error → ""
+		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "path", SnakeName: "path", GoType: "string"},
 			{GoName: "mode", SnakeName: "mode", GoType: "os.FileMode"},
@@ -1667,6 +1674,7 @@ func TestImmediateProviderBodyStringSlice(t *testing.T) {
 		GoName:      "Install",
 		SnakeName:   "install",
 		ReturnType:  "", // gate-processed: (map[string]any, error) → ""
+		HasError:    true,
 		Compensable: true,
 		Params: []paramInfo{
 			{GoName: "packages", SnakeName: "packages", GoType: "[]string"},
@@ -1688,6 +1696,7 @@ func TestImmediateProviderBodyCallback(t *testing.T) {
 		GoName:     "Move",
 		SnakeName:  "move",
 		ReturnType: "", // gate-processed: error → ""
+		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "gitMv", SnakeName: "git_mv", GoType: "func(string, string) error"},
 			{GoName: "source", SnakeName: "source", GoType: "string"},
@@ -1705,6 +1714,7 @@ func TestImmediateProviderBodyDictConversion(t *testing.T) {
 		GoName:     "Render",
 		SnakeName:  "render",
 		ReturnType: "[]byte", // gate-processed: ([]byte, error) → "[]byte"
+		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "templateData", SnakeName: "template_data", GoType: "map[string]any"},
 			{GoName: "source", SnakeName: "source", GoType: "string"},
@@ -2004,29 +2014,6 @@ func TestNeedsImport(t *testing.T) {
 	}
 }
 
-func TestGenerateGateRejectsCompensableBadReturn(t *testing.T) {
-	r := NewGoReceiver()
-	desc := buildTestDescriptor(t, []map[string]any{
-		{
-			"name":        "Install",
-			"returns":     "error",
-			"compensable": true,
-			"params":      []map[string]any{},
-		},
-	})
-
-	thread := &starlark.Thread{Name: "test"}
-	attr, _ := r.Attr("generate")
-	fn := attr.(*starlark.Builtin)
-	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
-	if err == nil {
-		t.Fatal("expected error for compensable method with error-only return")
-	}
-	if !strings.Contains(err.Error(), "expected (T, U, error)") {
-		t.Errorf("error should mention expected format: %v", err)
-	}
-}
-
 func TestGenerateSignatureErrors(t *testing.T) {
 	generateErr := func(t *testing.T, methods []map[string]any) error {
 		t.Helper()
@@ -2041,50 +2028,7 @@ func TestGenerateSignatureErrors(t *testing.T) {
 		return err
 	}
 
-	t.Run("compensable with non-compensable signature", func(t *testing.T) {
-		err := generateErr(t, []map[string]any{
-			{
-				"name":        "Link",
-				"returns":     "(string, error)",
-				"compensable": true,
-				"params": []map[string]any{
-					{"name": "source", "type": "string"},
-				},
-			},
-		})
-		if err == nil {
-			t.Fatal("expected error for compensable method with (T, error) return")
-		}
-		if !strings.Contains(err.Error(), "expected (T, U, error)") {
-			t.Errorf("should say expected (T, U, error), got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "missing Result or UndoState") {
-			t.Errorf("should hint missing Result or UndoState, got: %v", err)
-		}
-	})
-
-	t.Run("non-compensable with compensable signature", func(t *testing.T) {
-		err := generateErr(t, []map[string]any{
-			{
-				"name":    "Link",
-				"returns": "(string, map[string]any, error)",
-				"params": []map[string]any{
-					{"name": "source", "type": "string"},
-				},
-			},
-		})
-		if err == nil {
-			t.Fatal("expected error for non-compensable method with (T, U, error) return")
-		}
-		if !strings.Contains(err.Error(), "expected (T, error)") {
-			t.Errorf("should say expected (T, error), got: %v", err)
-		}
-		if !strings.Contains(err.Error(), "CompensateMethod") {
-			t.Errorf("should suggest adding CompensateMethod, got: %v", err)
-		}
-	})
-
-	t.Run("non-compensable with error only", func(t *testing.T) {
+	t.Run("error only", func(t *testing.T) {
 		err := generateErr(t, []map[string]any{
 			{
 				"name":    "Remove",
@@ -2099,23 +2043,6 @@ func TestGenerateSignatureErrors(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "every method must return a Result") {
 			t.Errorf("should say every method must return a Result, got: %v", err)
-		}
-	})
-
-	t.Run("compensable with error only", func(t *testing.T) {
-		err := generateErr(t, []map[string]any{
-			{
-				"name":        "Install",
-				"returns":     "error",
-				"compensable": true,
-				"params":      []map[string]any{},
-			},
-		})
-		if err == nil {
-			t.Fatal("expected error for compensable method with error-only return")
-		}
-		if !strings.Contains(err.Error(), "expected (T, U, error)") {
-			t.Errorf("should say expected (T, U, error), got: %v", err)
 		}
 	})
 
@@ -2138,10 +2065,9 @@ func TestGenerateSignatureErrors(t *testing.T) {
 	t.Run("too many return values", func(t *testing.T) {
 		err := generateErr(t, []map[string]any{
 			{
-				"name":        "Bad",
-				"returns":     "(int, int, int, error)",
-				"compensable": true,
-				"params":      []map[string]any{},
+				"name":    "Bad",
+				"returns": "(int, int, int, error)",
+				"params":  []map[string]any{},
 			},
 		})
 		if err == nil {
@@ -2177,4 +2103,403 @@ func TestMethodLocationInErrors(t *testing.T) {
 			t.Errorf("expected fallback to 'Link' when line is 0, got %q", loc)
 		}
 	})
+}
+
+// =============================================================================
+// PHASE 4: NEW CONVERSION TYPES
+// =============================================================================
+
+func TestValidateImmediateReturn(t *testing.T) {
+	tests := []struct {
+		input          string
+		wantValue      string
+		wantHasErr     bool
+		wantCompensable bool
+		wantErr        bool
+	}{
+		// Void
+		{"", "", false, false, false},
+		// Error-only
+		{"error", "", true, false, false},
+		// Bare type (no error)
+		{"string", "string", false, false, false},
+		{"bool", "bool", false, false, false},
+		{"[]string", "[]string", false, false, false},
+		// Standard (T, error) — non-compensable
+		{"(string, error)", "string", true, false, false},
+		{"([]byte, error)", "[]byte", true, false, false},
+		// Compensable (T, U, error) — inferred
+		{"(string, map[string]any, error)", "string", true, true, false},
+	}
+	for _, tc := range tests {
+		name := tc.input
+		if name == "" {
+			name = "(empty)"
+		}
+		t.Run(name, func(t *testing.T) {
+			valueType, hasError, compensable, err := validateImmediateReturn(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q, got valueType=%q hasError=%v compensable=%v", tc.input, valueType, hasError, compensable)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("unexpected error for %q: %v", tc.input, err)
+				return
+			}
+			if valueType != tc.wantValue {
+				t.Errorf("valueType = %q, want %q", valueType, tc.wantValue)
+			}
+			if hasError != tc.wantHasErr {
+				t.Errorf("hasError = %v, want %v", hasError, tc.wantHasErr)
+			}
+			if compensable != tc.wantCompensable {
+				t.Errorf("compensable = %v, want %v", compensable, tc.wantCompensable)
+			}
+		})
+	}
+}
+
+func TestImmediateProviderBodyNonErrorReturn(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Name",
+		SnakeName:  "name",
+		ReturnType: "string",
+		HasError:   false,
+		Params: []paramInfo{
+			{GoName: "path", SnakeName: "path", GoType: "string"},
+		},
+	}
+	body := templateFuncImmediateProviderBody(m)
+	if !strings.Contains(body, "result := r.provider.Name(path)") {
+		t.Errorf("should assign result without error, got:\n%s", body)
+	}
+	if !strings.Contains(body, "starlark.String(result)") {
+		t.Errorf("should convert string result, got:\n%s", body)
+	}
+	if strings.Contains(body, "err") {
+		t.Errorf("non-error return should not reference err, got:\n%s", body)
+	}
+}
+
+func TestImmediateProviderBodyVoidReturn(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Reset",
+		SnakeName:  "reset",
+		ReturnType: "",
+		HasError:   false,
+	}
+	body := templateFuncImmediateProviderBody(m)
+	if !strings.Contains(body, "r.provider.Reset()") {
+		t.Errorf("should call provider, got:\n%s", body)
+	}
+	if !strings.Contains(body, "return starlark.None, nil") {
+		t.Errorf("void should return None, got:\n%s", body)
+	}
+	if strings.Contains(body, "err") {
+		t.Errorf("void return should not reference err, got:\n%s", body)
+	}
+}
+
+func TestImmediateProviderBodyCallbackBridge(t *testing.T) {
+	m := methodInfo{
+		GoName:     "WalkTree",
+		SnakeName:  "walk_tree",
+		ReturnType: "",
+		HasError:   true,
+		Params: []paramInfo{
+			{GoName: "root", SnakeName: "root", GoType: "string"},
+			{GoName: "fn", SnakeName: "fn", GoType: "func(string, bool) error"},
+			{GoName: "gitignore", SnakeName: "gitignore", GoType: "bool"},
+		},
+	}
+	body := templateFuncImmediateProviderBody(m)
+	// Should have a bridging closure
+	if !strings.Contains(body, "fnGo := func(path string, isDir bool) error {") {
+		t.Errorf("should generate bridge closure, got:\n%s", body)
+	}
+	// Bridge calls starlark.Call with thread
+	if !strings.Contains(body, "starlark.Call(thread, fn") {
+		t.Errorf("bridge should call starlark.Call with thread, got:\n%s", body)
+	}
+	// Delegation uses bridge variable
+	if !strings.Contains(body, "r.provider.WalkTree(root, fnGo, gitignore)") {
+		t.Errorf("should delegate with bridge variable, got:\n%s", body)
+	}
+}
+
+func TestImmediateProviderBodyVariadic(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Join",
+		SnakeName:  "join",
+		ReturnType: "string",
+		HasError:   false,
+		Params: []paramInfo{
+			{GoName: "parts", SnakeName: "parts", GoType: "string", Variadic: true},
+		},
+	}
+	body := templateFuncImmediateProviderBody(m)
+	if !strings.Contains(body, "r.provider.Join(parts...)") {
+		t.Errorf("should use variadic expansion, got:\n%s", body)
+	}
+	if !strings.Contains(body, "starlark.String(result)") {
+		t.Errorf("should convert string result, got:\n%s", body)
+	}
+}
+
+func TestImmediateProviderBodyListReturn(t *testing.T) {
+	m := methodInfo{
+		GoName:     "Glob",
+		SnakeName:  "glob",
+		ReturnType: "[]string",
+		HasError:   true,
+		Params: []paramInfo{
+			{GoName: "pattern", SnakeName: "pattern", GoType: "string"},
+			{GoName: "gitignore", SnakeName: "gitignore", GoType: "bool"},
+		},
+	}
+	body := templateFuncImmediateProviderBody(m)
+	if !strings.Contains(body, "op.StringSliceToList(result)") {
+		t.Errorf("should use op.StringSliceToList, got:\n%s", body)
+	}
+}
+
+func TestImmediateUnpackArgsVariadic(t *testing.T) {
+	m := methodInfo{
+		GoName:    "Join",
+		SnakeName: "join",
+		Params: []paramInfo{
+			{GoName: "parts", SnakeName: "parts", GoType: "string", Variadic: true},
+		},
+	}
+	code := templateFuncImmediateUnpackArgs(m)
+	if !strings.Contains(code, "var parts []string") {
+		t.Errorf("should declare string slice for variadic, got:\n%s", code)
+	}
+	if !strings.Contains(code, "for _, arg := range args") {
+		t.Errorf("should iterate over args, got:\n%s", code)
+	}
+	if !strings.Contains(code, "starlark.AsString(arg)") {
+		t.Errorf("should use AsString for type check, got:\n%s", code)
+	}
+	if strings.Contains(code, "UnpackArgs") {
+		t.Errorf("variadic-only should not use UnpackArgs, got:\n%s", code)
+	}
+}
+
+func TestNeedsThread(t *testing.T) {
+	// Starlark-facing callback needs thread
+	withCallback := methodInfo{
+		Params: []paramInfo{
+			{GoName: "root", GoType: "string"},
+			{GoName: "fn", GoType: "func(string, bool) error"},
+		},
+	}
+	if !templateFuncNeedsThread(withCallback) {
+		t.Error("should need thread when starlark-facing callback param present")
+	}
+
+	// No callback — doesn't need thread
+	noCallback := methodInfo{
+		Params: []paramInfo{
+			{GoName: "path", GoType: "string"},
+		},
+	}
+	if templateFuncNeedsThread(noCallback) {
+		t.Error("should not need thread without callback param")
+	}
+
+	// Engine-injected callback (not starlark-facing) — doesn't need thread
+	engineCallback := methodInfo{
+		Params: []paramInfo{
+			{GoName: "gitMv", GoType: "func(string, string) error"},
+		},
+	}
+	if templateFuncNeedsThread(engineCallback) {
+		t.Error("engine-injected callback should not need thread")
+	}
+}
+
+func TestGenerateImmediateReceiverErrorOnly(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "RemoveAll",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "path", "type": "string"},
+			},
+		},
+	})
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// Valid Go syntax
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Error-only: should check err and return None on success
+	if !strings.Contains(code, "r.provider.RemoveAll(path)") {
+		t.Error("should delegate to r.provider.RemoveAll")
+	}
+	if !strings.Contains(code, "return starlark.None, nil") {
+		t.Error("error-only should return starlark.None on success")
+	}
+}
+
+func TestGenerateImmediateReceiverCallbackBridge(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "WalkTree",
+			"returns": "error",
+			"params": []map[string]any{
+				{"name": "root", "type": "string"},
+				{"name": "fn", "type": "func(string, bool) error"},
+				{"name": "gitignore", "type": "bool"},
+			},
+		},
+	})
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	// Valid Go syntax
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Thread should be named (not _) for the walk_tree method
+	if !strings.Contains(code, "thread *starlark.Thread") {
+		t.Error("callback method should name the thread parameter")
+	}
+
+	// Bridge closure
+	if !strings.Contains(code, "fnGo := func(path string, isDir bool) error") {
+		t.Error("should generate bridge closure for callback")
+	}
+
+	// starlark.Call
+	if !strings.Contains(code, "starlark.Call(thread, fn") {
+		t.Error("bridge should use starlark.Call with thread")
+	}
+}
+
+// =============================================================================
+// GATE 3: COMPENSATE METHOD VALIDATION
+// =============================================================================
+
+func TestGenerateGateRejectsMissingCompensateMethod(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Install",
+			"returns": "(any, map[string]any, error)",
+			"params": []map[string]any{
+				{"name": "name", "type": "string"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("pkg")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+	// Provide all_methods WITHOUT CompensateInstall
+	allMethods := starlark.NewList([]starlark.Value{
+		starlark.String("Install"),
+		starlark.String("Remove"),
+	})
+	must(t, desc.SetKey(starlark.String("all_methods"), allMethods))
+
+	thread := &starlark.Thread{Name: "test"}
+	attr, _ := r.Attr("generate")
+	fn := attr.(*starlark.Builtin)
+	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+	if err == nil {
+		t.Fatal("expected error for compensable method without CompensateInstall")
+	}
+	if !strings.Contains(err.Error(), "CompensateInstall") {
+		t.Errorf("error should mention CompensateInstall, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "compensable return signature requires") {
+		t.Errorf("error should mention compensable return signature, got: %v", err)
+	}
+}
+
+func TestGenerateGatePassesWithCompensateMethod(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Install",
+			"returns": "(any, map[string]any, error)",
+			"params": []map[string]any{
+				{"name": "name", "type": "string"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("pkg")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+	// Provide all_methods WITH CompensateInstall
+	allMethods := starlark.NewList([]starlark.Value{
+		starlark.String("Install"),
+		starlark.String("CompensateInstall"),
+		starlark.String("Remove"),
+	})
+	must(t, desc.SetKey(starlark.String("all_methods"), allMethods))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+
+	code, ok := starlark.AsString(result)
+	if !ok {
+		t.Fatalf("expected string result, got %T", result)
+	}
+
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	// Compensable: Undo should delegate to CompensateInstall
+	if !strings.Contains(code, "return o.Impl.CompensateInstall(state)") {
+		t.Error("compensable Install should delegate to Impl.CompensateInstall")
+	}
+}
+
+func TestGenerateGateRejectsEmptyAllMethods(t *testing.T) {
+	// Compensable methods require all_methods — no exceptions.
+	r := NewGoReceiver()
+	desc := buildTestDescriptor(t, []map[string]any{
+		{
+			"name":    "Install",
+			"returns": "(any, map[string]any, error)",
+			"params": []map[string]any{
+				{"name": "name", "type": "string"},
+			},
+		},
+	})
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("pkg")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
+	// No all_methods set — Gate 3 rejects
+
+	thread := &starlark.Thread{Name: "test"}
+	attr, _ := r.Attr("generate")
+	fn := attr.(*starlark.Builtin)
+	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+	if err == nil {
+		t.Fatal("expected error for compensable method without all_methods")
+	}
+	if !strings.Contains(err.Error(), "all_methods is empty") {
+		t.Errorf("error should mention all_methods is empty, got: %v", err)
+	}
 }

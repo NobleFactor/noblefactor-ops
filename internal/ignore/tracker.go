@@ -2,9 +2,9 @@
 // Copyright Noble Factor. All rights reserved.
 
 // Package ignore provides gitignore-aware file filtering using go-git's
-// gitignore package. It replaces the previous WASM/stub implementation
-// with a native Go stack-based tracker that supports the full Git ignore
-// hierarchy: global ignore, .git/info/exclude, and per-directory .gitignore.
+// gitignore package. It uses a native Go stack-based tracker that supports
+// the full Git ignore hierarchy: global ignore, .git/info/exclude, and
+// per-directory .gitignore.
 package ignore
 
 import (

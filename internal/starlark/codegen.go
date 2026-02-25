@@ -23,14 +23,17 @@ import (
 
 // generateDescriptor holds the complete input for code generation.
 type generateDescriptor struct {
-	Template   string       // "planned_receiver", "graph_actions", "immediate_receiver"
-	Package    string       // Go package name for generated file
-	Provider   string       // snake_case provider (e.g., "file")
-	StructName string       // Go struct name (e.g., "File")
-	Namespace  string       // dotted namespace (e.g., "plan.file")
-	ImplType   string       // implementation struct name for delegation (e.g., "fileOps")
-	Methods    []methodInfo // analyzed methods
-	ExtraAttrs []string     // additional attr names from companion files (e.g., query methods)
+	Template       string       // "planned_receiver", "graph_actions", "immediate_receiver"
+	Package        string       // Go package name for generated file
+	Provider       string       // snake_case provider (e.g., "file")
+	StructName     string       // Go struct name (e.g., "File")
+	Namespace      string       // dotted namespace (e.g., "plan.file")
+	ImplType       string       // implementation struct name for delegation (e.g., "fileOps")
+	Methods        []methodInfo // analyzed methods
+	ExtraAttrs     []string     // additional attr names from companion files (e.g., query methods)
+	AllMethodNames []string     // all method names on the provider (for compensate validation)
+	Access         string       // access level: "immediate", "planned", "both"
+	AccessTitle    string       // title-case access for Go constants: "Immediate", "Planned", "Both"
 }
 
 // methodInfo holds analyzed information about a single method.
@@ -39,8 +42,9 @@ type methodInfo struct {
 	SnakeName    string      // snake_case name (e.g., "copy")
 	Params       []paramInfo
 	ReturnType   string // value type from (T, error), empty for error-only
+	HasError     bool   // true if the method returns an error (standard/compensable)
 	ContentModel string // "none", "consumer", "transformer"
-	Compensable  bool   // has a Compensate<GoName> pair on the provider
+	Compensable  bool   // inferred from return signature: (T, U, error) = true
 	Doc          string
 	File         string // source file basename (e.g., "provider.go")
 	Line         int    // source line number
@@ -79,6 +83,8 @@ var typeMappings = map[string]typeMapping{
 	// Engine-injected: graph actions slot readers only (filled by engine from ctx.Data)
 	"func(string, []byte) ([]byte, error)": {slotReader: `slots["%s"].(func(string, []byte) ([]byte, error))`},
 	"func(string, string) error":           {slotReader: `slots["%s"].(func(string, string) error)`},
+	// Starlark-facing callback: bridged from starlark.Callable to Go func at call site
+	"func(string, bool) error": {unpackType: "starlark.Callable", starlarkFacing: true},
 	// Context-provided: read from context expression, not slots
 	"io.Writer": {contextReader: "ctx.Writer"},
 	// Content: read from slot with optional assertion (may come via promise)
@@ -145,7 +151,7 @@ func validateReturnSignature(returns string) (string, error) {
 		return "", fmt.Errorf("expected (T, error), got %s — missing Result type", returns)
 	}
 	if strings.Contains(valueType, ", ") {
-		return "", fmt.Errorf("expected (T, error), got %s — use CompensateMethod for (T, U, error)", returns)
+		return "", fmt.Errorf("expected (T, error), got %s — too many return values", returns)
 	}
 	return valueType, nil
 }
@@ -197,6 +203,34 @@ func validateCompensableReturn(returns string) (string, error) {
 		return valueType, nil
 	default:
 		return "", fmt.Errorf("expected (T, U, error), got %s — too many return values", returns)
+	}
+}
+
+// validateImmediateReturn is a relaxed return-signature validator for immediate receivers.
+// Unlike planned/graph receivers (which always require error), immediate receivers support:
+//   - ""           → void: valueType="", hasError=false, compensable=false
+//   - "error"      → error-only: valueType="", hasError=true, compensable=false
+//   - "string"     → bare type: valueType="string", hasError=false, compensable=false
+//   - "(T, error)" → standard: hasError=true, compensable=false
+//   - "(T, U, error)" → compensable: hasError=true, compensable=true
+//
+// Compensability is inferred from the return shape — no descriptor flag needed.
+func validateImmediateReturn(returns string) (valueType string, hasError bool, compensable bool, err error) {
+	switch {
+	case returns == "":
+		return "", false, false, nil
+	case returns == "error":
+		return "", true, false, nil
+	case !strings.HasPrefix(returns, "("):
+		return returns, false, false, nil
+	default:
+		// Try compensable (T, U, error) first.
+		if vt, e := validateCompensableReturn(returns); e == nil {
+			return vt, true, true, nil
+		}
+		// Fall back to non-compensable (T, error).
+		vt, e := validateReturnSignature(returns)
+		return vt, true, false, e
 	}
 }
 
@@ -267,6 +301,8 @@ var genTemplateFuncs = template.FuncMap{
 	"immediateUnpackArgs":   templateFuncImmediateUnpackArgs,
 	"immediateProviderBody": templateFuncImmediateProviderBody,
 	"needsImport":          templateFuncNeedsImport,
+	"needsThread":          templateFuncNeedsThread,
+	"needsFmt":             templateFuncNeedsFmt,
 	"graphReaders":         templateFuncGraphReaders,
 	"dryRunFmt":            templateFuncDryRunFmt,
 	"dryRunVars":           templateFuncDryRunVars,
@@ -362,18 +398,42 @@ func templateFuncImmediateUnpackArgs(m methodInfo) string {
 	if len(m.Params) == 0 {
 		return ""
 	}
-	var decls []string
-	var pairs []string
+
+	// Separate starlark-facing params into non-variadic and variadic groups.
+	var nonVariadic, variadic []paramInfo
 	for _, p := range m.Params {
 		tm := typeMappings[p.GoType]
 		if !tm.starlarkFacing {
 			continue
 		}
+		if p.Variadic {
+			variadic = append(variadic, p)
+		} else {
+			nonVariadic = append(nonVariadic, p)
+		}
+	}
+
+	if len(nonVariadic) == 0 && len(variadic) == 0 {
+		return ""
+	}
+
+	// All starlark-facing params are variadic — collect from args directly.
+	if len(nonVariadic) == 0 && len(variadic) > 0 {
+		var buf strings.Builder
+		for _, p := range variadic {
+			buf.WriteString(fmt.Sprintf("var %s []string\nfor _, arg := range args {\ns, ok := starlark.AsString(arg)\nif !ok {\nreturn nil, fmt.Errorf(%q, arg.Type())\n}\n%s = append(%s, s)\n}",
+				p.GoName, m.SnakeName+": expected string argument, got %s", p.GoName, p.GoName))
+		}
+		return buf.String()
+	}
+
+	// Standard UnpackArgs for non-variadic params.
+	var decls []string
+	var pairs []string
+	for _, p := range nonVariadic {
+		tm := typeMappings[p.GoType]
 		decls = append(decls, fmt.Sprintf("var %s %s", p.GoName, tm.unpackType))
 		pairs = append(pairs, fmt.Sprintf(`"%s", &%s`, p.SnakeName, p.GoName))
-	}
-	if len(decls) == 0 {
-		return ""
 	}
 	var buf strings.Builder
 	for _, d := range decls {
@@ -409,6 +469,16 @@ func templateFuncImmediateProviderBody(m methodInfo) string {
 
 	call := fmt.Sprintf("r.provider.%s(%s)", m.GoName, strings.Join(callArgs, ", "))
 
+	// Non-error returns (bare type or void) — immediate receivers only.
+	if !m.HasError {
+		if m.ReturnType == "" {
+			buf.WriteString(fmt.Sprintf("\t%s\n\treturn starlark.None, nil", call))
+		} else {
+			buf.WriteString(fmt.Sprintf("\tresult := %s\n\treturn %s, nil", call, immediateResultExpr(m.ReturnType, "result")))
+		}
+		return buf.String()
+	}
+
 	if m.Compensable {
 		if m.ReturnType == "" {
 			buf.WriteString(fmt.Sprintf("\t_, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn starlark.None, nil", call))
@@ -433,7 +503,10 @@ func templateFuncImmediateProviderBody(m methodInfo) string {
 func immediateArgExpr(p paramInfo) (decl, arg string) {
 	tm := typeMappings[p.GoType]
 	if tm.contextReader != "" {
-		return "", "r.output"
+		return "", "r.provider.Writer"
+	}
+	if p.Variadic {
+		return "", p.GoName + "..."
 	}
 	if !tm.starlarkFacing {
 		// Engine-injected dependency (callbacks) — not available from Starlark.
@@ -449,6 +522,13 @@ func immediateArgExpr(p paramInfo) (decl, arg string) {
 		convVar := p.GoName + "Map"
 		d := fmt.Sprintf("\t%s, err := op.StarlarkDictToMap(%s)\n\tif err != nil {\n\t\treturn nil, err\n\t}", convVar, p.GoName)
 		return d, convVar
+	case "func(string, bool) error":
+		bridgeVar := p.GoName + "Go"
+		d := fmt.Sprintf("\t%s := func(path string, isDir bool) error {\n"+
+			"\t\t_, err := starlark.Call(thread, %s, starlark.Tuple{"+
+			"starlark.String(path), starlark.Bool(isDir)}, nil)\n"+
+			"\t\treturn err\n\t}", bridgeVar, p.GoName)
+		return d, bridgeVar
 	default:
 		return "", p.GoName
 	}
@@ -468,6 +548,8 @@ func immediateResultExpr(goType, varName string) string {
 		return fmt.Sprintf("starlark.MakeInt64(%s)", varName)
 	case "[]byte":
 		return fmt.Sprintf("starlark.Bytes(%s)", varName)
+	case "[]string":
+		return fmt.Sprintf("op.StringSliceToList(%s)", varName)
 	default:
 		return "starlark.None"
 	}
@@ -479,6 +561,31 @@ func templateFuncNeedsImport(methods []methodInfo, goType string) bool {
 	for _, m := range methods {
 		for _, p := range m.Params {
 			if p.GoType == goType {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// templateFuncNeedsThread returns true if any method parameter uses a starlark-facing
+// callback type (func(...) signature), which requires the *starlark.Thread for bridging.
+func templateFuncNeedsThread(m methodInfo) bool {
+	for _, p := range m.Params {
+		tm := typeMappings[p.GoType]
+		if tm.starlarkFacing && strings.HasPrefix(p.GoType, "func(") {
+			return true
+		}
+	}
+	return false
+}
+
+// templateFuncNeedsFmt returns true if any method has variadic starlark-facing params,
+// which require fmt.Errorf for type-mismatch error messages in the generated code.
+func templateFuncNeedsFmt(methods []methodInfo) bool {
+	for _, m := range methods {
+		for _, p := range m.Params {
+			if p.Variadic && typeMappings[p.GoType].starlarkFacing {
 				return true
 			}
 		}
@@ -622,7 +729,7 @@ func templateFuncGraphUndo(m methodInfo) string {
 	if !m.Compensable {
 		return "" // No Undo method — struct implements Action only, not Undoable.
 	}
-	return fmt.Sprintf("func (o *%s) Undo(state execution.UndoState) error {\n\tif state == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(state)\n}", m.GoName, m.GoName)
+	return fmt.Sprintf("func (o *%s) Undo(_ *op.Context, state op.UndoState) error {\n\tif state == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(state)\n}", m.GoName, m.GoName)
 }
 
 // templateFuncDocComment renders a multi-line Go doc comment. The first line is prefixed
@@ -702,34 +809,47 @@ func templateFuncSlotDocs(m methodInfo) string {
 // =============================================================================
 
 // ImmediateReceiverTemplate is the builtin template for immediate receivers.
-// Generated code imports pkg/op for Receiver, MakeAttr, NoSuchAttrError.
+// Generated code lives in the provider package — no cross-package import.
 const ImmediateReceiverTemplate = `// Code generated by go.generate; DO NOT EDIT.
 
 package {{.Package}}
 
 import (
-	"io"
+{{- if needsFmt .Methods}}
+	"fmt"
+{{- end}}
 {{- if needsImport .Methods "os.FileMode"}}
 	"os"
 {{- end}}
 
 	"go.starlark.net/starlark"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/{{.Provider}}"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-type {{.StructName}}Receiver struct {
-	op.Receiver
-	provider *{{.Provider}}.Provider
-	output   io.Writer
+func init() {
+	op.RegisterBinding(&op.ProviderBinding{
+		Name:   "{{.Provider}}",
+		Access: op.Access{{.AccessTitle}},
+		ImmediateFactory: func(cfg op.BindingConfig) starlark.Value {
+			return New{{.StructName}}Receiver(&Provider{
+				Writer:      cfg.Writer,
+				ProgramName: cfg.ProgramName,
+				Color:       cfg.Color,
+			})
+		},
+	})
 }
 
-func New{{.StructName}}Receiver(provider *{{.Provider}}.Provider, output io.Writer) *{{.StructName}}Receiver {
+type {{.StructName}}Receiver struct {
+	op.Receiver
+	provider *Provider
+}
+
+func New{{.StructName}}Receiver(provider *Provider) *{{.StructName}}Receiver {
 	return &{{.StructName}}Receiver{
 		Receiver: op.NewReceiver("{{.Provider}}"),
 		provider: provider,
-		output:   output,
 	}
 }
 
@@ -753,7 +873,7 @@ func (r *{{.StructName}}Receiver) AttrNames() []string {
 }
 {{range .Methods}}
 {{docComment .SnakeName .Doc}}{{slotDocs .}}
-func (r *{{$.StructName}}Receiver) {{.SnakeName}}(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *{{$.StructName}}Receiver) {{.SnakeName}}({{if needsThread .}}thread{{else}}_{{end}} *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 {{immediateUnpackArgs .}}
 {{immediateProviderBody .}}
 }
@@ -793,6 +913,7 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 	}
 
 	// If the template arg is a known builtin name, resolve to content.
+	templateName := templateContent
 	if content, ok := builtinTemplates[templateContent]; ok {
 		templateContent = content
 	}
@@ -804,7 +925,7 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 	}
 
 	// Convert descriptor
-	desc, err := descriptorFromValue("gen", descriptorVal)
+	desc, err := descriptorFromValue(templateName, descriptorVal)
 	if err != nil {
 		return nil, fmt.Errorf("go.generate: %w", err)
 	}
@@ -816,22 +937,62 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 		}
 	}
 
-	// Gate 2: validate return signatures and infer content models
+	// Gate 2: validate return signatures, infer compensability, and infer content models.
+	// Compensability is determined by the return signature shape:
+	//   (T, U, error) → compensable     (T, error) → non-compensable
 	for i, m := range desc.Methods {
 		rawReturn := m.ReturnType
 
 		var valueType string
+		var hasError, compensable bool
 		var err error
-		if m.Compensable {
-			valueType, err = validateCompensableReturn(rawReturn)
+		if desc.Template == "immediate_receiver" {
+			valueType, hasError, compensable, err = validateImmediateReturn(rawReturn)
 		} else {
-			valueType, err = validateReturnSignature(rawReturn)
+			// Planned receivers and graph actions always have error returns.
+			// Try compensable (T, U, error) first; fall back to (T, error).
+			if vt, e := validateCompensableReturn(rawReturn); e == nil {
+				valueType, compensable = vt, true
+			} else {
+				valueType, err = validateReturnSignature(rawReturn)
+			}
+			hasError = true
 		}
 		if err != nil {
 			return nil, fmt.Errorf("go.generate: %s: %w", methodLocation(m), err)
 		}
 		desc.Methods[i].ReturnType = valueType
+		desc.Methods[i].HasError = hasError
+		desc.Methods[i].Compensable = compensable
 		desc.Methods[i].ContentModel = inferContentModel(valueType, m.Params)
+	}
+
+	// Gate 3: verify compensable methods have matching Compensate<GoName> methods.
+	// Requires all_methods on the descriptor — the Starlark layer must provide the
+	// full provider method set from go.methods().
+	hasCompensable := false
+	for _, m := range desc.Methods {
+		if m.Compensable {
+			hasCompensable = true
+			break
+		}
+	}
+	if hasCompensable && len(desc.AllMethodNames) == 0 {
+		return nil, fmt.Errorf("go.generate: descriptor has compensable methods but all_methods is empty — provide the full provider method set")
+	}
+	if hasCompensable {
+		methodSet := make(map[string]bool, len(desc.AllMethodNames))
+		for _, name := range desc.AllMethodNames {
+			methodSet[name] = true
+		}
+		for _, m := range desc.Methods {
+			if m.Compensable {
+				compensateName := "Compensate" + m.GoName
+				if !methodSet[compensateName] {
+					return nil, fmt.Errorf("go.generate: %s: compensable return signature requires %s method on provider", methodLocation(m), compensateName)
+				}
+			}
+		}
 	}
 
 	// Execute template
@@ -1005,6 +1166,25 @@ func descriptorFromValue(templateName string, v starlark.Value) (*generateDescri
 		desc.ExtraAttrs = append(desc.ExtraAttrs, s)
 	}
 
+	// Optional: all method names on the provider (for compensate validation)
+	allMethodsVal, err := valueGetList(v, "all_methods")
+	if err != nil {
+		return nil, fmt.Errorf("descriptor.all_methods: %w", err)
+	}
+	for i := 0; i < allMethodsVal.Len(); i++ {
+		s, ok := starlark.AsString(allMethodsVal.Index(i))
+		if !ok {
+			return nil, fmt.Errorf("descriptor.all_methods[%d]: expected string, got %s", i, allMethodsVal.Index(i).Type())
+		}
+		desc.AllMethodNames = append(desc.AllMethodNames, s)
+	}
+
+	// Optional: access level and title-case variant for RegisterBinding init()
+	access, _ := valueGetString(v, "access")
+	desc.Access = access
+	accessTitle, _ := valueGetString(v, "access_title")
+	desc.AccessTitle = accessTitle
+
 	return desc, nil
 }
 
@@ -1036,19 +1216,17 @@ func methodInfoFromValue(v starlark.Value) (methodInfo, error) {
 		params = append(params, p)
 	}
 
-	compensable, _ := valueGetBool(v, "compensable")
 	file, _ := valueGetString(v, "file")
 	line, _ := valueGetInt(v, "line")
 
 	return methodInfo{
-		GoName:      name,
-		SnakeName:   camelToSnake(name),
-		Params:      params,
-		ReturnType:  returns,
-		Compensable: compensable,
-		Doc:         doc,
-		File:        file,
-		Line:        line,
+		GoName:     name,
+		SnakeName:  camelToSnake(name),
+		Params:     params,
+		ReturnType: returns,
+		Doc:        doc,
+		File:       file,
+		Line:       line,
 	}, nil
 }
 
