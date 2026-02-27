@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 	"gopkg.in/yaml.v3"
 )
 
@@ -270,9 +271,23 @@ func buildTestDescriptor(t *testing.T, methods []map[string]any) *starlark.Dict 
 			}
 		}
 		must(t, md.SetKey(starlark.String("params"), starlark.NewList(paramsList)))
+		if prop, ok := m["property"].(bool); ok && prop {
+			must(t, md.SetKey(starlark.String("property"), starlark.Bool(true)))
+		}
 		methodsList = append(methodsList, md)
 	}
 	must(t, desc.SetKey(starlark.String("methods"), starlark.NewList(methodsList)))
+	return desc
+}
+
+// buildImmediateTestDescriptor builds a descriptor for immediate receiver tests.
+// Immediate receivers differ from planned: namespace = provider name (no "plan." prefix),
+// and impl_type = "Provider" (the type being wrapped).
+func buildImmediateTestDescriptor(t *testing.T, methods []map[string]any) *starlark.Dict {
+	t.Helper()
+	desc := buildTestDescriptor(t, methods)
+	must(t, desc.SetKey(starlark.String("namespace"), starlark.String("file")))
+	must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
 	return desc
 }
 
@@ -281,6 +296,52 @@ func must(t *testing.T, err error) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+// extractGenerateResult extracts the result struct from go.generate.
+func extractGenerateResult(t *testing.T, result starlark.Value) *starlarkstruct.Struct {
+	t.Helper()
+	s, ok := result.(*starlarkstruct.Struct)
+	if !ok {
+		t.Fatalf("expected struct result from go.generate, got %T", result)
+	}
+	return s
+}
+
+// extractGeneratedCode extracts the "code" field from go.generate's result struct.
+func extractGeneratedCode(t *testing.T, result starlark.Value) string {
+	t.Helper()
+	s := extractGenerateResult(t, result)
+	codeVal, err := s.Attr("code")
+	if err != nil {
+		t.Fatalf("result struct missing 'code' attr: %v", err)
+	}
+	code, ok := starlark.AsString(codeVal)
+	if !ok {
+		t.Fatalf("expected string 'code' attr, got %T", codeVal)
+	}
+	return code
+}
+
+// extractFlaggedMethods extracts the "flagged" list from go.generate's result struct.
+func extractFlaggedMethods(t *testing.T, result starlark.Value) []string {
+	t.Helper()
+	s := extractGenerateResult(t, result)
+	flaggedVal, err := s.Attr("flagged")
+	if err != nil {
+		t.Fatalf("result struct missing 'flagged' attr: %v", err)
+	}
+	list, ok := flaggedVal.(*starlark.List)
+	if !ok {
+		t.Fatalf("expected list 'flagged' attr, got %T", flaggedVal)
+	}
+	var flagged []string
+	for i := 0; i < list.Len(); i++ {
+		if s, ok := starlark.AsString(list.Index(i)); ok {
+			flagged = append(flagged, s)
+		}
+	}
+	return flagged
 }
 
 func fileMethodsFixture() []map[string]any {
@@ -310,10 +371,7 @@ func TestGeneratePlanReceiver(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testPlanReceiverTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	// Valid Go syntax
 	if _, err := format.Source([]byte(code)); err != nil {
@@ -420,10 +478,7 @@ func TestGenerateGraphActions(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	// Valid Go syntax
 	if _, err := format.Source([]byte(code)); err != nil {
@@ -472,15 +527,12 @@ func TestGenerateGraphActions(t *testing.T) {
 
 func TestGenerateImmediateReceiver(t *testing.T) {
 	r := NewGoReceiver()
-	desc := buildTestDescriptor(t, fileMethodsFixture())
+	desc := buildImmediateTestDescriptor(t, fileMethodsFixture())
 
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	// Valid Go syntax
 	if _, err := format.Source([]byte(code)); err != nil {
@@ -511,7 +563,7 @@ func TestGenerateImmediateReceiver(t *testing.T) {
 	}
 }
 
-func TestGenerateGateRejectsUnmappedType(t *testing.T) {
+func TestGenerateGateFlagsUnmappedType(t *testing.T) {
 	r := NewGoReceiver()
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
@@ -523,19 +575,26 @@ func TestGenerateGateRejectsUnmappedType(t *testing.T) {
 		},
 	})
 
-	thread := &starlark.Thread{Name: "test"}
-	attr, _ := r.Attr("generate")
-	fn := attr.(*starlark.Builtin)
-	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testPlanReceiverTemplate), desc}, nil)
-	if err == nil {
-		t.Fatal("expected error for unmapped type")
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String(testPlanReceiverTemplate), desc}, nil)
+
+	flagged := extractFlaggedMethods(t, result)
+	if len(flagged) == 0 {
+		t.Fatal("expected flagged methods for unmapped type")
 	}
-	if !strings.Contains(err.Error(), "chan string") {
-		t.Errorf("error should mention unmapped type: %v", err)
+	found := false
+	for _, f := range flagged {
+		if strings.Contains(f, "chan string") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("flagged should mention unmapped type 'chan string': %v", flagged)
 	}
 }
 
-func TestGenerateGateRejectsBadReturn(t *testing.T) {
+func TestGenerateGateFlagsBadReturn(t *testing.T) {
 	r := NewGoReceiver()
 	desc := buildTestDescriptor(t, []map[string]any{
 		{
@@ -545,15 +604,22 @@ func TestGenerateGateRejectsBadReturn(t *testing.T) {
 		},
 	})
 
-	thread := &starlark.Thread{Name: "test"}
-	attr, _ := r.Attr("generate")
-	fn := attr.(*starlark.Builtin)
-	_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testPlanReceiverTemplate), desc}, nil)
-	if err == nil {
-		t.Fatal("expected error for bad return signature")
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String(testPlanReceiverTemplate), desc}, nil)
+
+	flagged := extractFlaggedMethods(t, result)
+	if len(flagged) == 0 {
+		t.Fatal("expected flagged methods for bad return signature")
 	}
-	if !strings.Contains(err.Error(), "expected (T, error)") {
-		t.Errorf("error should mention expected format: %v", err)
+	found := false
+	for _, f := range flagged {
+		if strings.Contains(f, "expected (T, error)") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("flagged should mention expected format: %v", flagged)
 	}
 }
 
@@ -572,10 +638,7 @@ func TestGenerateVariadicParam(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testPlanReceiverTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	// Valid Go syntax
 	if _, err := format.Source([]byte(code)); err != nil {
@@ -656,8 +719,8 @@ func TestGoTemplateReturnsContent(t *testing.T) {
 		t.Fatalf("expected string result, got %T", result)
 	}
 
-	if !strings.Contains(content, "{{.StructName}}Receiver") {
-		t.Error("template content should contain StructName placeholder")
+	if !strings.Contains(content, "{{.StructName}}{{.WrapperSuffix}}") {
+		t.Error("template content should contain StructName+WrapperSuffix placeholder")
 	}
 	if !strings.Contains(content, "Code generated by go.generate") {
 		t.Error("template content should contain generated header")
@@ -711,10 +774,7 @@ func TestGenerateGraphActionsDelegation(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	// Valid Go syntax
 	if _, err := format.Source([]byte(code)); err != nil {
@@ -982,15 +1042,18 @@ func TestGoMappingGateEnforcement(t *testing.T) {
 			},
 		})
 
-		thread := &starlark.Thread{Name: "test"}
-		attr, _ := r.Attr("mapping")
-		fn := attr.(*starlark.Builtin)
-		_, err := fn.CallInternal(thread, starlark.Tuple{desc}, nil)
-		if err == nil {
-			t.Fatal("expected error for unmapped type")
+		// Unmapped types are silently skipped in mapping output.
+		result := callMethod(t, r, "mapping", starlark.Tuple{desc}, nil)
+		yamlStr, ok := starlark.AsString(result)
+		if !ok {
+			t.Fatalf("expected string result, got %T", result)
 		}
-		if !strings.Contains(err.Error(), "chan string") {
-			t.Errorf("error should mention unmapped type: %v", err)
+		var mapping mappingFile
+		if err := yaml.Unmarshal([]byte(yamlStr), &mapping); err != nil {
+			t.Fatalf("failed to parse mapping YAML: %v", err)
+		}
+		if len(mapping.Operations) != 0 {
+			t.Errorf("expected 0 operations (unmapped type skipped), got %d", len(mapping.Operations))
 		}
 	})
 
@@ -1129,10 +1192,7 @@ func TestGenerateGraphActionsConsumer(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1172,10 +1232,7 @@ func TestGenerateGraphActionsTransformer(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1227,10 +1284,7 @@ func TestGenerateGraphActionsFramework(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1269,10 +1323,7 @@ func TestGenerateGraphActionsValueReturn(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1320,10 +1371,7 @@ func TestPlanReceiverSkipsFramework(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testPlanReceiverTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1424,10 +1472,7 @@ func TestGenerateGraphActionsCompensable(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1442,7 +1487,7 @@ func TestGenerateGraphActionsCompensable(t *testing.T) {
 	}
 
 	// Undo delegates to CompensateInstall
-	if !strings.Contains(code, "func (o *Install) Undo(state execution.UndoState) error") {
+	if !strings.Contains(code, "func (o *Install) Undo(_ *op.Context, state op.UndoState) error") {
 		t.Error("compensable Undo should accept state parameter")
 	}
 	if !strings.Contains(code, "if state == nil") {
@@ -1480,10 +1525,7 @@ func TestGenerateGraphActionsCompensableWithValue(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1520,10 +1562,7 @@ func TestGenerateGraphActionsNonCompensableUndo(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -1647,8 +1686,8 @@ func TestImmediateProviderBodyIOWriter(t *testing.T) {
 		},
 	}
 	body := templateFuncImmediateProviderBody(m)
-	if !strings.Contains(body, "r.provider.Shell(command, r.output)") {
-		t.Errorf("io.Writer should map to r.output, got:\n%s", body)
+	if !strings.Contains(body, "r.provider.Shell(command, r.provider.Writer)") {
+		t.Errorf("io.Writer should map to r.provider.Writer, got:\n%s", body)
 	}
 }
 
@@ -2015,21 +2054,19 @@ func TestNeedsImport(t *testing.T) {
 }
 
 func TestGenerateSignatureErrors(t *testing.T) {
-	generateErr := func(t *testing.T, methods []map[string]any) error {
+	generateFlagged := func(t *testing.T, methods []map[string]any) []string {
 		t.Helper()
 		r := NewGoReceiver()
 		desc := buildTestDescriptor(t, methods)
 		must(t, desc.SetKey(starlark.String("package"), starlark.String("file")))
 		must(t, desc.SetKey(starlark.String("impl_type"), starlark.String("Provider")))
-		thread := &starlark.Thread{Name: "test"}
-		attr, _ := r.Attr("generate")
-		fn := attr.(*starlark.Builtin)
-		_, err := fn.CallInternal(thread, starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
-		return err
+		result := callMethod(t, r, "generate",
+			starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
+		return extractFlaggedMethods(t, result)
 	}
 
 	t.Run("error only", func(t *testing.T) {
-		err := generateErr(t, []map[string]any{
+		flagged := generateFlagged(t, []map[string]any{
 			{
 				"name":    "Remove",
 				"returns": "error",
@@ -2038,43 +2075,43 @@ func TestGenerateSignatureErrors(t *testing.T) {
 				},
 			},
 		})
-		if err == nil {
-			t.Fatal("expected error for method with error-only return")
+		if len(flagged) == 0 {
+			t.Fatal("expected flagged method for error-only return")
 		}
-		if !strings.Contains(err.Error(), "every method must return a Result") {
-			t.Errorf("should say every method must return a Result, got: %v", err)
+		if !strings.Contains(flagged[0], "every method must return a Result") {
+			t.Errorf("should say every method must return a Result, got: %v", flagged)
 		}
 	})
 
 	t.Run("no return value", func(t *testing.T) {
-		err := generateErr(t, []map[string]any{
+		flagged := generateFlagged(t, []map[string]any{
 			{
 				"name":    "Noop",
 				"returns": "",
 				"params":  []map[string]any{},
 			},
 		})
-		if err == nil {
-			t.Fatal("expected error for method with no return value")
+		if len(flagged) == 0 {
+			t.Fatal("expected flagged method for no return value")
 		}
-		if !strings.Contains(err.Error(), "got no return value") {
-			t.Errorf("should say got no return value, got: %v", err)
+		if !strings.Contains(flagged[0], "got no return value") {
+			t.Errorf("should say got no return value, got: %v", flagged)
 		}
 	})
 
 	t.Run("too many return values", func(t *testing.T) {
-		err := generateErr(t, []map[string]any{
+		flagged := generateFlagged(t, []map[string]any{
 			{
 				"name":    "Bad",
 				"returns": "(int, int, int, error)",
 				"params":  []map[string]any{},
 			},
 		})
-		if err == nil {
-			t.Fatal("expected error for too many return values")
+		if len(flagged) == 0 {
+			t.Fatal("expected flagged method for too many return values")
 		}
-		if !strings.Contains(err.Error(), "too many return values") {
-			t.Errorf("should say too many return values, got: %v", err)
+		if !strings.Contains(flagged[0], "too many return values") {
+			t.Errorf("should say too many return values, got: %v", flagged)
 		}
 	})
 }
@@ -2210,14 +2247,21 @@ func TestImmediateProviderBodyCallbackBridge(t *testing.T) {
 		HasError:   true,
 		Params: []paramInfo{
 			{GoName: "root", SnakeName: "root", GoType: "string"},
-			{GoName: "fn", SnakeName: "fn", GoType: "func(string, bool) error"},
+			{GoName: "fn", SnakeName: "fn", GoType: "Walker", Callable: &callableInfo{
+				TypeName: "Walker",
+				Returns:  "error",
+				Params: []callableParam{
+					{GoName: "path", GoType: "string", Role: "projected"},
+					{GoName: "isDir", GoType: "bool", Role: "projected"},
+				},
+			}},
 			{GoName: "gitignore", SnakeName: "gitignore", GoType: "bool"},
 		},
 	}
 	body := templateFuncImmediateProviderBody(m)
-	// Should have a bridging closure
-	if !strings.Contains(body, "fnGo := func(path string, isDir bool) error {") {
-		t.Errorf("should generate bridge closure, got:\n%s", body)
+	// Should have a typed bridging closure
+	if !strings.Contains(body, "fnGo := Walker(func(path string, isDir bool) error {") {
+		t.Errorf("should generate typed bridge closure, got:\n%s", body)
 	}
 	// Bridge calls starlark.Call with thread
 	if !strings.Contains(body, "starlark.Call(thread, fn") {
@@ -2226,6 +2270,195 @@ func TestImmediateProviderBodyCallbackBridge(t *testing.T) {
 	// Delegation uses bridge variable
 	if !strings.Contains(body, "r.provider.WalkTree(root, fnGo, gitignore)") {
 		t.Errorf("should delegate with bridge variable, got:\n%s", body)
+	}
+}
+
+func TestCallableBridgeExprVisitor(t *testing.T) {
+	// Full Visitor pattern: pass_through, projected, handle, swallowed.
+	p := paramInfo{
+		GoName: "fn",
+		GoType: "Visitor",
+		Callable: &callableInfo{
+			TypeName: "Visitor",
+			Returns:  "(any, error)",
+			Params: []callableParam{
+				{GoName: "initial", GoType: "any", Role: "pass_through"},
+				{GoName: "path", GoType: "string", Role: "projected"},
+				{GoName: "dirEntry", GoType: "os.DirEntry", Role: "handle"},
+				{GoName: "stack", GoType: "*RecoveryStack", Role: "swallowed"},
+			},
+			HandleTypes: []handleType{
+				{
+					GoType:     "os.DirEntry",
+					HandleName: "DirEntryHandle",
+					Methods: []handleMethod{
+						{GoName: "Name", SnakeName: "name", ReturnType: "string"},
+						{GoName: "IsDir", SnakeName: "is_dir", ReturnType: "bool"},
+					},
+				},
+			},
+		},
+	}
+
+	decl, arg := callableBridgeExpr(p)
+
+	if arg != "fnGo" {
+		t.Errorf("expected bridge arg 'fnGo', got %q", arg)
+	}
+
+	// Type-cast wrapper
+	if !strings.Contains(decl, "fnGo := Visitor(func(") {
+		t.Errorf("should cast to Visitor type, got:\n%s", decl)
+	}
+
+	// Full signature
+	if !strings.Contains(decl, "initial any, path string, dirEntry os.DirEntry, stack *RecoveryStack") {
+		t.Errorf("should include all params in signature, got:\n%s", decl)
+	}
+
+	// Return type
+	if !strings.Contains(decl, "(any, error)") {
+		t.Errorf("should have (any, error) return type, got:\n%s", decl)
+	}
+
+	// Projected param: Go → Starlark
+	if !strings.Contains(decl, "starlark.String(path)") {
+		t.Errorf("should convert projected string param, got:\n%s", decl)
+	}
+
+	// Handle param: Go → handle wrapper
+	if !strings.Contains(decl, "NewDirEntryHandle(dirEntry)") {
+		t.Errorf("should wrap handle param with NewDirEntryHandle, got:\n%s", decl)
+	}
+
+	// Pass-through: keyword arg with nil check
+	if !strings.Contains(decl, "if initial != nil") {
+		t.Errorf("should check pass_through param for nil, got:\n%s", decl)
+	}
+	if !strings.Contains(decl, `starlark.String("initial")`) {
+		t.Errorf("should use param name as keyword key, got:\n%s", decl)
+	}
+
+	// Swallowed: not in args
+	if strings.Contains(decl, "stack") && strings.Contains(decl, "args") {
+		// stack should NOT appear in the args tuple
+		if strings.Contains(decl, "starlark.Tuple{") {
+			argsLine := ""
+			for _, line := range strings.Split(decl, "\n") {
+				if strings.Contains(line, "starlark.Tuple{") && strings.Contains(line, "args :=") {
+					argsLine = line
+					break
+				}
+			}
+			if strings.Contains(argsLine, "stack") {
+				t.Errorf("swallowed param 'stack' should not appear in args tuple, got:\n%s", decl)
+			}
+		}
+	}
+
+	// Return
+	if !strings.Contains(decl, "return ret, nil") {
+		t.Errorf("should return ret from starlark.Call, got:\n%s", decl)
+	}
+}
+
+func TestHandleTypeGeneration(t *testing.T) {
+	methods := []methodInfo{
+		{
+			GoName:    "WalkTree",
+			SnakeName: "walk_tree",
+			Params: []paramInfo{
+				{GoName: "fn", GoType: "Visitor", Callable: &callableInfo{
+					TypeName: "Visitor",
+					Returns:  "(any, error)",
+					Params: []callableParam{
+						{GoName: "path", GoType: "string", Role: "projected"},
+						{GoName: "dirEntry", GoType: "os.DirEntry", Role: "handle"},
+					},
+					HandleTypes: []handleType{
+						{
+							GoType:     "os.DirEntry",
+							HandleName: "DirEntryHandle",
+							Methods: []handleMethod{
+								{GoName: "Name", SnakeName: "name", ReturnType: "string"},
+								{GoName: "IsDir", SnakeName: "is_dir", ReturnType: "bool"},
+							},
+						},
+					},
+				}},
+			},
+		},
+	}
+
+	code := templateFuncHandleTypes(methods)
+
+	// Struct definition
+	if !strings.Contains(code, "type DirEntryHandle struct") {
+		t.Errorf("should generate DirEntryHandle struct, got:\n%s", code)
+	}
+
+	// Constructor
+	if !strings.Contains(code, "func NewDirEntryHandle(v os.DirEntry) *DirEntryHandle") {
+		t.Errorf("should generate NewDirEntryHandle constructor, got:\n%s", code)
+	}
+
+	// Starlark Value interface
+	if !strings.Contains(code, "func (h *DirEntryHandle) String()") {
+		t.Errorf("should implement String(), got:\n%s", code)
+	}
+	if !strings.Contains(code, `Type() string`) {
+		t.Errorf("should implement Type(), got:\n%s", code)
+	}
+	if !strings.Contains(code, "Freeze()") {
+		t.Errorf("should implement Freeze(), got:\n%s", code)
+	}
+	if !strings.Contains(code, "Truth()") {
+		t.Errorf("should implement Truth(), got:\n%s", code)
+	}
+	if !strings.Contains(code, "Hash()") {
+		t.Errorf("should implement Hash(), got:\n%s", code)
+	}
+
+	// Attr method with Name and IsDir
+	if !strings.Contains(code, `case "name"`) {
+		t.Errorf("should have name attr case, got:\n%s", code)
+	}
+	if !strings.Contains(code, `case "is_dir"`) {
+		t.Errorf("should have is_dir attr case, got:\n%s", code)
+	}
+	if !strings.Contains(code, "starlark.String(h.dirEntry.Name())") {
+		t.Errorf("should convert Name() to starlark.String, got:\n%s", code)
+	}
+	if !strings.Contains(code, "starlark.Bool(h.dirEntry.IsDir())") {
+		t.Errorf("should convert IsDir() to starlark.Bool, got:\n%s", code)
+	}
+
+	// AttrNames
+	if !strings.Contains(code, `func (h *DirEntryHandle) AttrNames()`) {
+		t.Errorf("should generate AttrNames(), got:\n%s", code)
+	}
+
+	// No duplicates (call with same methods twice)
+	methods = append(methods, methods[0])
+	code2 := templateFuncHandleTypes(methods)
+	if strings.Count(code2, "type DirEntryHandle struct") != 1 {
+		t.Error("should deduplicate handle types across methods")
+	}
+}
+
+func TestHandleTypesEmpty(t *testing.T) {
+	methods := []methodInfo{
+		{
+			GoName:    "Copy",
+			SnakeName: "copy",
+			Params: []paramInfo{
+				{GoName: "path", GoType: "string"},
+			},
+		},
+	}
+	code := templateFuncHandleTypes(methods)
+	if code != "" {
+		t.Errorf("should return empty string when no handle types, got:\n%s", code)
 	}
 }
 
@@ -2289,15 +2522,21 @@ func TestImmediateUnpackArgsVariadic(t *testing.T) {
 }
 
 func TestNeedsThread(t *testing.T) {
-	// Starlark-facing callback needs thread
+	// Callable param needs thread
 	withCallback := methodInfo{
 		Params: []paramInfo{
 			{GoName: "root", GoType: "string"},
-			{GoName: "fn", GoType: "func(string, bool) error"},
+			{GoName: "fn", GoType: "Walker", Callable: &callableInfo{
+				TypeName: "Walker",
+				Returns:  "error",
+				Params: []callableParam{
+					{GoName: "path", GoType: "string", Role: "projected"},
+				},
+			}},
 		},
 	}
 	if !templateFuncNeedsThread(withCallback) {
-		t.Error("should need thread when starlark-facing callback param present")
+		t.Error("should need thread when callable param present")
 	}
 
 	// No callback — doesn't need thread
@@ -2323,7 +2562,7 @@ func TestNeedsThread(t *testing.T) {
 
 func TestGenerateImmediateReceiverErrorOnly(t *testing.T) {
 	r := NewGoReceiver()
-	desc := buildTestDescriptor(t, []map[string]any{
+	desc := buildImmediateTestDescriptor(t, []map[string]any{
 		{
 			"name":    "RemoveAll",
 			"returns": "error",
@@ -2336,10 +2575,7 @@ func TestGenerateImmediateReceiverErrorOnly(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	// Valid Go syntax
 	if _, err := format.Source([]byte(code)); err != nil {
@@ -2357,25 +2593,41 @@ func TestGenerateImmediateReceiverErrorOnly(t *testing.T) {
 
 func TestGenerateImmediateReceiverCallbackBridge(t *testing.T) {
 	r := NewGoReceiver()
-	desc := buildTestDescriptor(t, []map[string]any{
-		{
-			"name":    "WalkTree",
-			"returns": "error",
-			"params": []map[string]any{
-				{"name": "root", "type": "string"},
-				{"name": "fn", "type": "func(string, bool) error"},
-				{"name": "gitignore", "type": "bool"},
-			},
-		},
-	})
+
+	// Build a callable descriptor for the fn parameter.
+	callableDict := starlark.NewDict(4)
+	must(t, callableDict.SetKey(starlark.String("type_name"), starlark.String("Walker")))
+	must(t, callableDict.SetKey(starlark.String("returns"), starlark.String("error")))
+	must(t, callableDict.SetKey(starlark.String("params"), starlark.NewList([]starlark.Value{
+		buildCallableParam(t, "path", "string", "projected"),
+		buildCallableParam(t, "isDir", "bool", "projected"),
+	})))
+	must(t, callableDict.SetKey(starlark.String("handle_types"), starlark.NewList(nil)))
+
+	// Build method descriptor with the callable param.
+	desc := buildImmediateTestDescriptor(t, nil)
+	md := starlark.NewDict(4)
+	must(t, md.SetKey(starlark.String("name"), starlark.String("WalkTree")))
+	must(t, md.SetKey(starlark.String("returns"), starlark.String("error")))
+	must(t, md.SetKey(starlark.String("doc"), starlark.String("")))
+
+	fnParam := starlark.NewDict(4)
+	must(t, fnParam.SetKey(starlark.String("name"), starlark.String("fn")))
+	must(t, fnParam.SetKey(starlark.String("type"), starlark.String("Walker")))
+	must(t, fnParam.SetKey(starlark.String("variadic"), starlark.Bool(false)))
+	must(t, fnParam.SetKey(starlark.String("callable"), callableDict))
+
+	must(t, md.SetKey(starlark.String("params"), starlark.NewList([]starlark.Value{
+		buildParamDict(t, "root", "string"),
+		fnParam,
+		buildParamDict(t, "gitignore", "bool"),
+	})))
+	must(t, desc.SetKey(starlark.String("methods"), starlark.NewList([]starlark.Value{md})))
 
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	// Valid Go syntax
 	if _, err := format.Source([]byte(code)); err != nil {
@@ -2387,15 +2639,43 @@ func TestGenerateImmediateReceiverCallbackBridge(t *testing.T) {
 		t.Error("callback method should name the thread parameter")
 	}
 
-	// Bridge closure
-	if !strings.Contains(code, "fnGo := func(path string, isDir bool) error") {
-		t.Error("should generate bridge closure for callback")
+	// Bridge closure wrapping starlark.Callable → Go func
+	if !strings.Contains(code, "fnGo := Walker(func(path string, isDir bool) error") {
+		t.Error("should generate typed bridge closure for callable")
 	}
 
 	// starlark.Call
 	if !strings.Contains(code, "starlark.Call(thread, fn") {
 		t.Error("bridge should use starlark.Call with thread")
 	}
+
+	// Projected args: Go → Starlark conversion
+	if !strings.Contains(code, "starlark.String(path)") {
+		t.Error("bridge should convert string param to starlark.String")
+	}
+	if !strings.Contains(code, "starlark.Bool(isDir)") {
+		t.Error("bridge should convert bool param to starlark.Bool")
+	}
+}
+
+// buildCallableParam creates a callable param dict for testing.
+func buildCallableParam(t *testing.T, name, goType, role string) starlark.Value {
+	t.Helper()
+	d := starlark.NewDict(3)
+	must(t, d.SetKey(starlark.String("go_name"), starlark.String(name)))
+	must(t, d.SetKey(starlark.String("go_type"), starlark.String(goType)))
+	must(t, d.SetKey(starlark.String("role"), starlark.String(role)))
+	return d
+}
+
+// buildParamDict creates a simple param dict for testing.
+func buildParamDict(t *testing.T, name, goType string) starlark.Value {
+	t.Helper()
+	d := starlark.NewDict(3)
+	must(t, d.SetKey(starlark.String("name"), starlark.String(name)))
+	must(t, d.SetKey(starlark.String("type"), starlark.String(goType)))
+	must(t, d.SetKey(starlark.String("variadic"), starlark.Bool(false)))
+	return d
 }
 
 // =============================================================================
@@ -2461,10 +2741,7 @@ func TestGenerateGatePassesWithCompensateMethod(t *testing.T) {
 	result := callMethod(t, r, "generate",
 		starlark.Tuple{starlark.String(testGraphActionsTemplate), desc}, nil)
 
-	code, ok := starlark.AsString(result)
-	if !ok {
-		t.Fatalf("expected string result, got %T", result)
-	}
+	code := extractGeneratedCode(t, result)
 
 	if _, err := format.Source([]byte(code)); err != nil {
 		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
@@ -2501,5 +2778,634 @@ func TestGenerateGateRejectsEmptyAllMethods(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "all_methods is empty") {
 		t.Errorf("error should mention all_methods is empty, got: %v", err)
+	}
+}
+
+// =============================================================================
+// TESTS FOR NEW CODEGEN FEATURES (optional params, custom returns, struct params)
+// =============================================================================
+
+func TestImmediateResultExprCustomPointerType(t *testing.T) {
+	tests := []struct {
+		goType string
+		want   string
+	}{
+		{"*Sources", "NewSourcesValue(result)"},
+		{"*Index", "NewIndexValue(result)"},
+		{"*Stats", "NewStatsValue(result)"},
+		{"string", "starlark.String(result)"},
+		{"int", "starlark.MakeInt(result)"},
+		{"bool", "starlark.Bool(result)"},
+		{"SomeNonPointerType", "starlark.None"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.goType, func(t *testing.T) {
+			got := immediateResultExpr(tc.goType, "result")
+			if got != tc.want {
+				t.Errorf("immediateResultExpr(%q, %q) = %q, want %q", tc.goType, "result", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestImmediateUnpackArgsOptionalParams(t *testing.T) {
+	m := methodInfo{
+		GoName:    "Capture",
+		SnakeName: "capture",
+		Params: []paramInfo{
+			{GoName: "pattern", SnakeName: "pattern", GoType: "string"},
+			{GoName: "gitignore", SnakeName: "gitignore", GoType: "bool", Optional: true, Default: "true"},
+			{GoName: "includeBzl", SnakeName: "include_bzl", GoType: "bool", Optional: true, Default: "true"},
+		},
+	}
+	result := templateFuncImmediateUnpackArgs(m)
+
+	// Required param uses var declaration
+	if !strings.Contains(result, "var pattern string") {
+		t.Error("required param should use var declaration")
+	}
+
+	// Optional params with defaults use := declaration
+	if !strings.Contains(result, "gitignore := true") {
+		t.Errorf("optional param with default should use := true, got:\n%s", result)
+	}
+	if !strings.Contains(result, "includeBzl := true") {
+		t.Errorf("optional param with default should use := true, got:\n%s", result)
+	}
+
+	// Optional params use ? suffix in UnpackArgs
+	if !strings.Contains(result, `"gitignore?", &gitignore`) {
+		t.Errorf("optional param should have ? suffix in UnpackArgs, got:\n%s", result)
+	}
+	if !strings.Contains(result, `"include_bzl?", &includeBzl`) {
+		t.Errorf("optional param should have ? suffix in UnpackArgs, got:\n%s", result)
+	}
+
+	// Required param should NOT have ? suffix
+	if strings.Contains(result, `"pattern?"`) {
+		t.Error("required param should not have ? suffix")
+	}
+}
+
+func TestImmediateUnpackArgsStructParam(t *testing.T) {
+	m := methodInfo{
+		GoName:    "Analyze",
+		SnakeName: "analyze",
+		Params: []paramInfo{
+			{GoName: "hotspots", SnakeName: "hotspots", GoType: "bool", Optional: true, Default: "true", StructType: "AnalysisConfig"},
+			{GoName: "cyclomaticThreshold", SnakeName: "cyclomatic_threshold", GoType: "int", Optional: true, Default: "10", StructType: "AnalysisConfig"},
+		},
+	}
+	result := templateFuncImmediateUnpackArgs(m)
+
+	// Struct-expanded params with defaults
+	if !strings.Contains(result, "hotspots := true") {
+		t.Errorf("struct param with default should use := true, got:\n%s", result)
+	}
+	if !strings.Contains(result, "cyclomaticThreshold := 10") {
+		t.Errorf("struct param with default should use := 10, got:\n%s", result)
+	}
+
+	// Optional ? suffix
+	if !strings.Contains(result, `"hotspots?", &hotspots`) {
+		t.Errorf("struct param should have ? suffix, got:\n%s", result)
+	}
+}
+
+func TestStructReconstruct(t *testing.T) {
+	m := methodInfo{
+		GoName:    "Analyze",
+		SnakeName: "analyze",
+		Params: []paramInfo{
+			{GoName: "hotspots", SnakeName: "hotspots", GoType: "bool", StructType: "AnalysisConfig"},
+			{GoName: "cyclomaticThreshold", SnakeName: "cyclomatic_threshold", GoType: "int", StructType: "AnalysisConfig"},
+			{GoName: "withIndex", SnakeName: "with_index", GoType: "bool", StructType: "AnalysisConfig"},
+		},
+	}
+	result := templateFuncStructReconstruct(m)
+
+	if !strings.Contains(result, "analysisConfig := AnalysisConfig{") {
+		t.Errorf("should reconstruct AnalysisConfig struct, got:\n%s", result)
+	}
+	if !strings.Contains(result, "Hotspots: hotspots,") {
+		t.Errorf("should assign Hotspots field, got:\n%s", result)
+	}
+	if !strings.Contains(result, "CyclomaticThreshold: cyclomaticThreshold,") {
+		t.Errorf("should assign CyclomaticThreshold field, got:\n%s", result)
+	}
+	if !strings.Contains(result, "WithIndex: withIndex,") {
+		t.Errorf("should assign WithIndex field, got:\n%s", result)
+	}
+}
+
+func TestValidateParamTypesSkipsStructExpanded(t *testing.T) {
+	params := []paramInfo{
+		{GoName: "pattern", GoType: "string"},
+		{GoName: "hotspots", GoType: "bool", StructType: "AnalysisConfig"},
+		// Even an "unknown" type is fine if it's struct-expanded
+		{GoName: "threshold", GoType: "SomeUnknownType", StructType: "AnalysisConfig"},
+	}
+	if err := validateParamTypes(params); err != nil {
+		t.Errorf("validateParamTypes should skip struct-expanded params, got: %v", err)
+	}
+}
+
+func TestProviderFieldFromValue(t *testing.T) {
+	d := starlark.NewDict(4)
+	must(t, d.SetKey(starlark.String("go_name"), starlark.String("Root")))
+	must(t, d.SetKey(starlark.String("cfg_field"), starlark.String("WorkDir")))
+	must(t, d.SetKey(starlark.String("default"), starlark.String(`"."`)))
+	must(t, d.SetKey(starlark.String("zero_value"), starlark.String(`""`)))
+
+	pf, err := providerFieldFromValue(d)
+	if err != nil {
+		t.Fatalf("providerFieldFromValue: %v", err)
+	}
+	if pf.GoName != "Root" {
+		t.Errorf("GoName = %q, want %q", pf.GoName, "Root")
+	}
+	if pf.CfgField != "WorkDir" {
+		t.Errorf("CfgField = %q, want %q", pf.CfgField, "WorkDir")
+	}
+	if pf.Default != `"."` {
+		t.Errorf("Default = %q, want %q", pf.Default, `"."`)
+	}
+	if pf.ZeroValue != `""` {
+		t.Errorf("ZeroValue = %q, want %q", pf.ZeroValue, `""`)
+	}
+}
+
+func TestParamInfoFromValueOptional(t *testing.T) {
+	d := starlark.NewDict(6)
+	must(t, d.SetKey(starlark.String("name"), starlark.String("gitignore")))
+	must(t, d.SetKey(starlark.String("type"), starlark.String("bool")))
+	must(t, d.SetKey(starlark.String("variadic"), starlark.Bool(false)))
+	must(t, d.SetKey(starlark.String("optional"), starlark.Bool(true)))
+	must(t, d.SetKey(starlark.String("default"), starlark.String("true")))
+	must(t, d.SetKey(starlark.String("struct_type"), starlark.String("SomeStruct")))
+
+	p, err := paramInfoFromValue(d)
+	if err != nil {
+		t.Fatalf("paramInfoFromValue: %v", err)
+	}
+	if !p.Optional {
+		t.Error("Optional should be true")
+	}
+	if p.Default != "true" {
+		t.Errorf("Default = %q, want %q", p.Default, "true")
+	}
+	if p.StructType != "SomeStruct" {
+		t.Errorf("StructType = %q, want %q", p.StructType, "SomeStruct")
+	}
+}
+
+func TestDescriptorFromValueRegistered(t *testing.T) {
+	desc := buildTestDescriptor(t, fileMethodsFixture())
+	must(t, desc.SetKey(starlark.String("registered"), starlark.Bool(true)))
+	must(t, desc.SetKey(starlark.String("provider_import"), starlark.String("github.com/example/pkg")))
+
+	// Build provider fields list
+	pf := starlark.NewDict(4)
+	must(t, pf.SetKey(starlark.String("go_name"), starlark.String("Root")))
+	must(t, pf.SetKey(starlark.String("cfg_field"), starlark.String("WorkDir")))
+	must(t, pf.SetKey(starlark.String("default"), starlark.String(`"."`)))
+	must(t, pf.SetKey(starlark.String("zero_value"), starlark.String(`""`)))
+	pfList := starlark.NewList([]starlark.Value{pf})
+	must(t, desc.SetKey(starlark.String("provider_fields"), pfList))
+
+	result, err := descriptorFromValue("immediate_receiver", desc)
+	if err != nil {
+		t.Fatalf("descriptorFromValue: %v", err)
+	}
+	if !result.Registered {
+		t.Error("Registered should be true")
+	}
+	if result.ProviderImport != "github.com/example/pkg" {
+		t.Errorf("ProviderImport = %q, want %q", result.ProviderImport, "github.com/example/pkg")
+	}
+	if len(result.ProviderFields) != 1 {
+		t.Fatalf("ProviderFields length = %d, want 1", len(result.ProviderFields))
+	}
+	if result.ProviderFields[0].GoName != "Root" {
+		t.Errorf("ProviderFields[0].GoName = %q, want %q", result.ProviderFields[0].GoName, "Root")
+	}
+}
+
+func TestHasStructParam(t *testing.T) {
+	m := methodInfo{
+		Params: []paramInfo{
+			{GoName: "hotspots", StructType: "AnalysisConfig"},
+		},
+	}
+	if !templateFuncHasStructParam(m) {
+		t.Error("hasStructParam should return true when a param has StructType")
+	}
+
+	m2 := methodInfo{
+		Params: []paramInfo{
+			{GoName: "pattern"},
+		},
+	}
+	if templateFuncHasStructParam(m2) {
+		t.Error("hasStructParam should return false when no param has StructType")
+	}
+}
+
+// =============================================================================
+// STRUCT CONVERTER TESTS
+// =============================================================================
+
+func TestConverterFuncSimpleStruct(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "statsToStarlark",
+		GoType:       "Stats",
+		IsPointer:    true,
+		StarlarkName: "stats",
+		Fields: []converterFieldInfo{
+			{GoName: "Path", SnakeName: "path", Kind: "string"},
+			{GoName: "LOC", SnakeName: "loc", Kind: "int"},
+			{GoName: "Bytes", SnakeName: "bytes", Kind: "int64"},
+			{GoName: "Active", SnakeName: "active", Kind: "bool"},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "provider.")
+	if !strings.Contains(code, "func statsToStarlark(v *provider.Stats)") {
+		t.Error("missing function signature")
+	}
+	if !strings.Contains(code, `starlark.String(v.Path)`) {
+		t.Error("missing string conversion")
+	}
+	if !strings.Contains(code, `starlark.MakeInt(v.LOC)`) {
+		t.Error("missing int conversion")
+	}
+	if !strings.Contains(code, `starlark.MakeInt64(v.Bytes)`) {
+		t.Error("missing int64 conversion")
+	}
+	if !strings.Contains(code, `starlark.Bool(v.Active)`) {
+		t.Error("missing bool conversion")
+	}
+}
+
+func TestConverterFuncStructSlice(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "indexToStarlark",
+		GoType:       "Index",
+		IsPointer:    true,
+		StarlarkName: "index",
+		Fields: []converterFieldInfo{
+			{GoName: "Files", SnakeName: "files", Kind: "struct_slice", Converter: "indexedFileToStarlark"},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "provider.")
+	if !strings.Contains(code, "filesList := make([]starlark.Value, len(v.Files))") {
+		t.Error("missing pre-loop slice allocation")
+	}
+	if !strings.Contains(code, "filesList[i] = indexedFileToStarlark(filesItem)") {
+		t.Error("missing converter call in loop")
+	}
+	if !strings.Contains(code, `starlark.NewList(filesList)`) {
+		t.Error("missing NewList for slice field")
+	}
+}
+
+func TestConverterFuncInlineStruct(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "statsToStarlark",
+		GoType:       "Stats",
+		IsPointer:    true,
+		StarlarkName: "stats",
+		Fields: []converterFieldInfo{
+			{
+				GoName: "Totals", SnakeName: "totals", Kind: "inline_struct",
+				InlineName: "totals",
+				InlineFields: []converterFieldInfo{
+					{GoName: "FileCount", SnakeName: "file_count", Kind: "int"},
+					{GoName: "TotalBytes", SnakeName: "total_bytes", Kind: "int64"},
+				},
+			},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "")
+	if !strings.Contains(code, `starlarkstruct.FromStringDict(starlark.String("totals")`) {
+		t.Error("missing inline struct construction")
+	}
+	if !strings.Contains(code, `starlark.MakeInt(v.Totals.FileCount)`) {
+		t.Error("missing inline field access")
+	}
+}
+
+func TestConverterFuncNullablePtr(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "reportToStarlark",
+		GoType:       "Report",
+		IsPointer:    true,
+		StarlarkName: "report",
+		Fields: []converterFieldInfo{
+			{GoName: "Stats", SnakeName: "stats", Kind: "struct_ptr", Converter: "statsToStarlark"},
+			{GoName: "Index", SnakeName: "index", Kind: "struct_ptr", Converter: "indexToStarlark", Nullable: true},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "")
+	// Non-nullable struct_ptr should be a static field
+	if !strings.Contains(code, `statsToStarlark(v.Stats)`) {
+		t.Error("missing non-nullable struct_ptr converter call")
+	}
+	// Nullable should use if/else pattern
+	if !strings.Contains(code, "if v.Index != nil") {
+		t.Error("missing nil check for nullable field")
+	}
+	if !strings.Contains(code, `indexToStarlark(v.Index)`) {
+		t.Error("missing converter call in nil check")
+	}
+	if !strings.Contains(code, "starlark.None") {
+		t.Error("missing None for nil case")
+	}
+}
+
+func TestConverterFuncConditionalField(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "funcToStarlark",
+		GoType:       "IndexedFunction",
+		IsPointer:    false,
+		StarlarkName: "function",
+		Fields: []converterFieldInfo{
+			{GoName: "Name", SnakeName: "name", Kind: "string"},
+			{GoName: "Docstring", SnakeName: "docstring", Kind: "conditional", Guard: "HasDocstring", GuardField: "Docstring", GuardKind: "string"},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "")
+	if !strings.Contains(code, "if v.HasDocstring") {
+		t.Error("missing conditional guard check")
+	}
+	if !strings.Contains(code, `starlark.String(v.Docstring)`) {
+		t.Error("missing true-case expression")
+	}
+}
+
+func TestConverterFuncInlineSliceWithConditional(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "fileToStarlark",
+		GoType:       "IndexedFile",
+		IsPointer:    false,
+		StarlarkName: "file",
+		Fields: []converterFieldInfo{
+			{GoName: "Path", SnakeName: "path", Kind: "string"},
+			{
+				GoName: "Functions", SnakeName: "functions", Kind: "struct_slice",
+				InlineName: "function",
+				InlineFields: []converterFieldInfo{
+					{GoName: "Name", SnakeName: "name", Kind: "string"},
+					{GoName: "Line", SnakeName: "line", Kind: "int"},
+					{GoName: "Docstring", SnakeName: "docstring", Kind: "conditional", Guard: "HasDocstring", GuardField: "Docstring", GuardKind: "string"},
+				},
+			},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "")
+	// Pre-loop for inline struct_slice
+	if !strings.Contains(code, "functionsList := make([]starlark.Value") {
+		t.Error("missing pre-loop for inline slice")
+	}
+	// Inline loop should use dynamic dict due to conditional
+	if !strings.Contains(code, "if functionsItem.HasDocstring") {
+		t.Error("missing conditional in inline loop body")
+	}
+}
+
+func TestConverterFuncNullableSlice(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "reportToStarlark",
+		GoType:       "Report",
+		IsPointer:    true,
+		StarlarkName: "report",
+		Fields: []converterFieldInfo{
+			{
+				GoName: "Hotspots", SnakeName: "hotspots", Kind: "struct_slice",
+				Nullable: true, NilExpr: "starlark.NewList(nil)",
+				InlineName: "hotspot",
+				InlineFields: []converterFieldInfo{
+					{GoName: "File", SnakeName: "file", Kind: "string"},
+					{GoName: "Line", SnakeName: "line", Kind: "int"},
+				},
+			},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "")
+	if !strings.Contains(code, "if v.Hotspots != nil") {
+		t.Error("missing nil check for nullable slice")
+	}
+	if !strings.Contains(code, "starlark.NewList(nil)") {
+		t.Error("missing nil expr for null case")
+	}
+}
+
+func TestConverterFuncStringSlice(t *testing.T) {
+	c := converterInfo{
+		FuncName:     "loadToStarlark",
+		GoType:       "Load",
+		IsPointer:    false,
+		StarlarkName: "load",
+		Fields: []converterFieldInfo{
+			{GoName: "Module", SnakeName: "module", Kind: "string"},
+			{GoName: "Names", SnakeName: "names", Kind: "string_slice"},
+		},
+	}
+
+	code := templateFuncConverterFunc(c, "")
+	if !strings.Contains(code, "op.StringSliceToList(v.Names)") {
+		t.Error("missing string_slice conversion")
+	}
+}
+
+func TestNeedsOpImport(t *testing.T) {
+	withOp := []converterInfo{
+		{Fields: []converterFieldInfo{{Kind: "string_slice"}}},
+	}
+	if !templateFuncNeedsOpImport(withOp) {
+		t.Error("should need op import for string_slice")
+	}
+
+	// Nested string_slice
+	nested := []converterInfo{
+		{Fields: []converterFieldInfo{
+			{Kind: "struct_slice", InlineFields: []converterFieldInfo{{Kind: "string_slice"}}},
+		}},
+	}
+	if !templateFuncNeedsOpImport(nested) {
+		t.Error("should need op import for nested string_slice")
+	}
+
+	withoutOp := []converterInfo{
+		{Fields: []converterFieldInfo{{Kind: "string"}, {Kind: "int"}}},
+	}
+	if templateFuncNeedsOpImport(withoutOp) {
+		t.Error("should not need op import without string_slice")
+	}
+}
+
+func TestGenerateStructConverter(t *testing.T) {
+	r := NewGoReceiver()
+
+	// Build a converter descriptor
+	desc := starlark.NewDict(5)
+	must(t, desc.SetKey(starlark.String("package"), starlark.String("starlarkcode")))
+	must(t, desc.SetKey(starlark.String("provider"), starlark.String("starlarkcode")))
+	must(t, desc.SetKey(starlark.String("struct_name"), starlark.String("Starlarkcode")))
+	must(t, desc.SetKey(starlark.String("namespace"), starlark.String("starlarkcode")))
+	must(t, desc.SetKey(starlark.String("provider_import"), starlark.String("github.com/NobleFactor/devlore-cli/pkg/op/provider/starlarkcode")))
+
+	// Build a simple converter
+	field1 := starlark.NewDict(3)
+	must(t, field1.SetKey(starlark.String("go_name"), starlark.String("Path")))
+	must(t, field1.SetKey(starlark.String("snake_name"), starlark.String("path")))
+	must(t, field1.SetKey(starlark.String("kind"), starlark.String("string")))
+
+	field2 := starlark.NewDict(3)
+	must(t, field2.SetKey(starlark.String("go_name"), starlark.String("LOC")))
+	must(t, field2.SetKey(starlark.String("snake_name"), starlark.String("loc")))
+	must(t, field2.SetKey(starlark.String("kind"), starlark.String("int")))
+
+	conv := starlark.NewDict(5)
+	must(t, conv.SetKey(starlark.String("func_name"), starlark.String("fileStatsToStarlark")))
+	must(t, conv.SetKey(starlark.String("go_type"), starlark.String("FileStats")))
+	must(t, conv.SetKey(starlark.String("is_pointer"), starlark.Bool(false)))
+	must(t, conv.SetKey(starlark.String("starlark_name"), starlark.String("file_stats")))
+	must(t, conv.SetKey(starlark.String("fields"), starlark.NewList([]starlark.Value{field1, field2})))
+
+	must(t, desc.SetKey(starlark.String("converters"), starlark.NewList([]starlark.Value{conv})))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("struct_converter"), desc}, nil)
+
+	code := extractGeneratedCode(t, result)
+
+	// Valid Go syntax
+	if _, err := format.Source([]byte(code)); err != nil {
+		t.Fatalf("generated code is not valid Go:\n%s\nerror: %v", code, err)
+	}
+
+	if !strings.Contains(code, "func fileStatsToStarlark(v provider.FileStats)") {
+		t.Error("missing converter function signature with provider prefix")
+	}
+	if !strings.Contains(code, `starlark.String(v.Path)`) {
+		t.Error("missing string conversion")
+	}
+	if !strings.Contains(code, `starlark.MakeInt(v.LOC)`) {
+		t.Error("missing int conversion")
+	}
+}
+
+func TestPropertyAttrExpr(t *testing.T) {
+	tests := []struct {
+		name     string
+		ret      string
+		want     string
+	}{
+		{"string", "string", `starlark.String(r.provider.Name())`},
+		{"int", "int", `starlark.MakeInt(r.provider.Count())`},
+		{"bool", "bool", `starlark.Bool(r.provider.Active())`},
+		{"string_slice", "[]string", `op.StringSliceToList(r.provider.Paths())`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := methodInfo{
+				GoName:     tt.name[0:1] + tt.name[1:], // capitalize
+				ReturnType: tt.ret,
+				Property:   true,
+			}
+			// Fix GoName to match expected function name
+			switch tt.name {
+			case "string":
+				m.GoName = "Name"
+			case "int":
+				m.GoName = "Count"
+			case "bool":
+				m.GoName = "Active"
+			case "string_slice":
+				m.GoName = "Paths"
+			}
+			got := templateFuncPropertyAttrExpr(m)
+			if got != tt.want {
+				t.Errorf("propertyAttrExpr(%s) = %q, want %q", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWrapperSuffixDefault(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildImmediateTestDescriptor(t, []map[string]any{
+		{"name": "Run", "returns": "(string, error)", "params": []map[string]any{
+			{"name": "cmd", "type": "string"},
+		}},
+	})
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
+	code := extractGeneratedCode(t, result)
+
+	if !strings.Contains(code, "type FileReceiver struct") {
+		t.Error("expected FileReceiver (default suffix)")
+	}
+	if !strings.Contains(code, "func NewFileReceiver(") {
+		t.Error("expected NewFileReceiver constructor")
+	}
+}
+
+func TestWrapperSuffixValue(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildImmediateTestDescriptor(t, []map[string]any{
+		{"name": "Count", "returns": "int", "params": []map[string]any{}, "property": true},
+	})
+	must(t, desc.SetKey(starlark.String("wrapper_suffix"), starlark.String("Value")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
+	code := extractGeneratedCode(t, result)
+
+	if !strings.Contains(code, "type FileValue struct") {
+		t.Error("expected FileValue with custom suffix")
+	}
+	if !strings.Contains(code, "func NewFileValue(") {
+		t.Error("expected NewFileValue constructor")
+	}
+}
+
+func TestPropertyInAttrSwitch(t *testing.T) {
+	r := NewGoReceiver()
+	desc := buildImmediateTestDescriptor(t, []map[string]any{
+		{"name": "Count", "returns": "int", "params": []map[string]any{}, "property": true},
+		{"name": "Index", "returns": "(*Index, error)", "params": []map[string]any{
+			{"name": "deep", "type": "bool"},
+		}},
+	})
+	must(t, desc.SetKey(starlark.String("wrapper_suffix"), starlark.String("Value")))
+
+	result := callMethod(t, r, "generate",
+		starlark.Tuple{starlark.String("immediate_receiver"), desc}, nil)
+	code := extractGeneratedCode(t, result)
+
+	// Property: direct value access
+	if !strings.Contains(code, "starlark.MakeInt(r.provider.Count())") {
+		t.Error("expected property expression for Count")
+	}
+	// Method: MakeAttr wrapper
+	if !strings.Contains(code, `op.MakeAttr("file.index", r.index)`) {
+		t.Error("expected MakeAttr for Index method")
+	}
+	// No callable function body for property
+	if strings.Contains(code, "func (r *FileValue) count(") {
+		t.Error("property should not generate a callable method body")
+	}
+	// Callable function body for method
+	if !strings.Contains(code, "func (r *FileValue) index(") {
+		t.Error("expected callable method body for Index")
 	}
 }

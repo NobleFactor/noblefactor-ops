@@ -140,6 +140,8 @@ func optionalString(v starlark.Value) string {
 // Attr implements starlark.HasAttrs.
 func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
+	case "callable":
+		return op.MakeAttr("go.callable", r.goCallable), nil
 	case "calls":
 		return op.MakeAttr("go.calls", r.goCalls), nil
 	case "composites":
@@ -177,7 +179,7 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 
 // AttrNames implements starlark.HasAttrs.
 func (r *GoReceiver) AttrNames() []string {
-	return []string{"calls", "composites", "const_groups", "deps", "funcs", "generate", "mapping", "methods", "metrics", "raw_string", "return_string", "return_strings", "structs", "template", "type_doc"}
+	return []string{"callable", "calls", "composites", "const_groups", "deps", "funcs", "generate", "mapping", "methods", "metrics", "raw_string", "return_string", "return_strings", "structs", "template", "type_doc"}
 }
 
 // =============================================================================
@@ -583,6 +585,87 @@ func mapKeysToStarlarkList(m map[string]bool) starlark.Value {
 // AST QUERY PRIMITIVES
 // =============================================================================
 
+// goCallable introspects a named function type declaration and returns its
+// parameter list, return type, and doc comment (including directives).
+//
+// Usage: go.callable(path, name) → struct{name, doc, params: [{name, type}], returns}
+func (r *GoReceiver) goCallable(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var path, name string
+	if err := starlark.UnpackArgs("go.callable", args, kwargs, "path", &path, "name", &name); err != nil {
+		return nil, err
+	}
+
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, fmt.Errorf("go.callable: %w", err)
+	}
+
+	for _, file := range files {
+		_, node, err := r.parseFile(file)
+		if err != nil {
+			continue
+		}
+		for _, decl := range node.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.TYPE {
+				continue
+			}
+			for _, spec := range genDecl.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Name.Name != name {
+					continue
+				}
+				ft, ok := ts.Type.(*ast.FuncType)
+				if !ok {
+					continue
+				}
+
+				// Build params list.
+				var params []starlark.Value
+				if ft.Params != nil {
+					for _, field := range ft.Params.List {
+						typeStr := typeToString(field.Type)
+						if len(field.Names) == 0 {
+							params = append(params, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+								"name": starlark.String(""),
+								"type": starlark.String(typeStr),
+							}))
+						} else {
+							for _, ident := range field.Names {
+								params = append(params, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+									"name": starlark.String(ident.Name),
+									"type": starlark.String(typeStr),
+								}))
+							}
+						}
+					}
+				}
+
+				returns := returnTypeString(ft.Results)
+
+				// Doc comment: prefer TypeSpec.Doc, fall back to GenDecl.Doc.
+				// Use commentGroupRaw to preserve directive lines.
+				var cg *ast.CommentGroup
+				if ts.Doc != nil {
+					cg = ts.Doc
+				} else if genDecl.Doc != nil {
+					cg = genDecl.Doc
+				}
+				doc := commentGroupRaw(cg)
+
+				return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+					"name":    starlark.String(name),
+					"doc":     starlark.String(doc),
+					"params":  starlark.NewList(params),
+					"returns": starlark.String(returns),
+				}), nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("go.callable: function type %q not found in %s", name, path)
+}
+
 // goStructs returns struct definitions from Go source files.
 func (r *GoReceiver) goStructs(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
@@ -635,13 +718,16 @@ func (r *GoReceiver) goStructs(_ *starlark.Thread, _ *starlark.Builtin, args sta
 					} else if field.Doc != nil {
 						desc = strings.TrimSpace(field.Doc.Text())
 					}
-					fields = append(fields, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-						"name":        starlark.String(field.Names[0].Name),
-						"json_name":   starlark.String(jsonName),
-						"type":        starlark.String(typeToString(field.Type)),
-						"required":    starlark.Bool(required),
-						"description": starlark.String(desc),
-					}))
+					fieldType := typeToString(field.Type)
+					for _, ident := range field.Names {
+						fields = append(fields, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+							"name":        starlark.String(ident.Name),
+							"json_name":   starlark.String(jsonName),
+							"type":        starlark.String(fieldType),
+							"required":    starlark.Bool(required),
+							"description": starlark.String(desc),
+						}))
+					}
 				}
 				result = append(result, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 					"name":   starlark.String(ts.Name.Name),
