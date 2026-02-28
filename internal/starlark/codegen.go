@@ -151,6 +151,8 @@ type typeMapping struct {
 	slotReader     string // fmt pattern for reading from node slot
 	starlarkFacing bool   // include in plan receiver UnpackArgs/FillSlot
 	contextReader  string // if set, read from this expr instead of a slot
+	needsConstruct bool   // emit op.Construct[provider.GoType] in action Do()
+	constructType  string // Go type name for Construct (e.g., "Blob")
 }
 
 var typeMappings = map[string]typeMapping{
@@ -161,6 +163,7 @@ var typeMappings = map[string]typeMapping{
 	"int64":          {unpackType: "int64", slotReader: `slots["%s"].(int64)`, starlarkFacing: true},
 	"[]string":       {unpackType: "*starlark.List", slotReader: `slots["%s"].([]string)`, starlarkFacing: true},
 	"os.FileMode":    {unpackType: "int", slotReader: `slots["%s"].(os.FileMode)`, starlarkFacing: true},
+	"Blob":           {unpackType: "string", slotReader: `slots["%s"].(string)`, starlarkFacing: true, needsConstruct: true, constructType: "Blob"},
 	"map[string]any": {unpackType: "*starlark.Dict", slotReader: `slots["%s"].(map[string]any)`, starlarkFacing: true},
 	// Engine-injected: graph actions slot readers only (filled by engine from ctx.Data)
 	"func(string, []byte) ([]byte, error)": {slotReader: `slots["%s"].(func(string, []byte) ([]byte, error))`},
@@ -414,6 +417,13 @@ var genTemplateFuncs = template.FuncMap{
 	"needsOpImport":           templateFuncNeedsOpImport,
 	"propertyAttrExpr":        templateFuncPropertyAttrExpr,
 	"handleTypes":             templateFuncHandleTypes,
+	// Marshaler-based template functions
+	"paramNamesList":  templateFuncParamNamesList,
+	"needsOverride":   templateFuncNeedsOverride,
+	"overrideClosure":  templateFuncOverrideClosure,
+	"providerInit":     templateFuncProviderInit,
+	"hasOverrides":     templateFuncHasOverrides,
+	"needsReflect":     templateFuncNeedsReflect,
 }
 
 func templateFuncAttrNamesList(methods []methodInfo) string {
@@ -623,7 +633,7 @@ func templateFuncImmediateProviderBody(m methodInfo) string {
 		buf.WriteString(templateFuncStructReconstruct(m))
 	}
 
-	call := fmt.Sprintf("r.provider.%s(%s)", m.GoName, strings.Join(callArgs, ", "))
+	call := fmt.Sprintf("p.%s(%s)", m.GoName, strings.Join(callArgs, ", "))
 
 	// Determine the result conversion expression.
 	resultConv := func(varName string) string {
@@ -679,7 +689,7 @@ func immediateArgExpr(p paramInfo) (decl, arg string) {
 	}
 	tm := typeMappings[p.GoType]
 	if tm.contextReader != "" {
-		return "", "r.provider.Writer"
+		return "", "p.Writer"
 	}
 	if p.Variadic {
 		return "", p.GoName + "..."
@@ -876,6 +886,8 @@ func templateFuncNeedsFmt(methods []methodInfo) bool {
 // templateFuncGraphReaders generates variable declarations for Do: slot reads,
 // context reads, and engine-injected reads. Content params use optional
 // assertion (_, ok pattern) since they may arrive via promise slots.
+// Params with needsConstruct are read as their raw slot type here (e.g., string);
+// the actual construction (op.Construct) happens in graphReturn, after dry-run.
 func templateFuncGraphReaders(m methodInfo) string {
 	var slotLines, contextLines, engineLines []string
 
@@ -943,12 +955,36 @@ func templateFuncDryRunChecksum(m methodInfo) string {
 }
 
 // templateFuncImplArgs generates all param names in order for the delegation call.
+// For params with needsConstruct, uses the constructed variable name (GoName + "Val").
 func templateFuncImplArgs(m methodInfo) string {
 	names := make([]string, len(m.Params))
 	for i, p := range m.Params {
-		names[i] = p.GoName
+		tm := typeMappings[p.GoType]
+		if tm.needsConstruct {
+			names[i] = p.GoName + "Val"
+		} else {
+			names[i] = p.GoName
+		}
 	}
 	return strings.Join(names, ", ")
+}
+
+// graphConstructPrefix generates op.Construct calls for params with needsConstruct.
+// These are emitted between the dry-run check and the delegation call, so dry-run
+// prints the raw slot values while the real path constructs the Go types.
+func graphConstructPrefix(m methodInfo) string {
+	var lines []string
+	for _, p := range m.Params {
+		tm := typeMappings[p.GoType]
+		if tm.needsConstruct {
+			lines = append(lines, fmt.Sprintf("%sVal, err := op.Construct[provider.%s](%s)", p.GoName, tm.constructType, p.GoName))
+			lines = append(lines, "if err != nil {\nreturn nil, nil, err\n}")
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n" + strings.Join(lines, "\n")
 }
 
 // templateFuncGraphReturn generates the delegation call and return handling per content model.
@@ -958,27 +994,28 @@ func templateFuncGraphReturn(m methodInfo, implType string) string {
 		return "\nreturn nil, nil, nil"
 	}
 
+	prefix := graphConstructPrefix(m)
 	argStr := templateFuncImplArgs(m)
 	call := fmt.Sprintf("o.Impl.%s(%s)", m.GoName, argStr)
 
 	if m.Compensable {
-		return templateFuncGraphReturnCompensable(m, call)
+		return prefix + templateFuncGraphReturnCompensable(m, call)
 	}
 
 	switch m.ContentModel {
 	case "consumer":
 		// Consumer returns result (e.g., checksum), no undo state
-		return fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
+		return prefix + fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
 	case "transformer":
 		// Transformer returns transformed content as Result
-		return fmt.Sprintf("\nresult, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, nil, nil", call)
+		return prefix + fmt.Sprintf("\nresult, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, nil, nil", call)
 	default: // "none"
 		if m.ReturnType == "" {
 			// Error-only return
-			return fmt.Sprintf("\nreturn nil, nil, %s", call)
+			return prefix + fmt.Sprintf("\nreturn nil, nil, %s", call)
 		}
 		// Has value return — pass through as Result
-		return fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
+		return prefix + fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
 	}
 }
 
@@ -1173,12 +1210,12 @@ func templateFuncProviderTypePrefix(d *generateDescriptor) string {
 // Property methods are exposed as direct values (not callable functions):
 //
 //	case "paths":
-//	    return op.StringSliceToList(r.provider.Paths()), nil
+//	    return op.StringSliceToList(p.Paths()), nil
 //
 // The expression converts the Go return type to a Starlark value using the same
 // type mappings as immediateResultExpr.
 func templateFuncPropertyAttrExpr(m methodInfo) string {
-	call := fmt.Sprintf("r.provider.%s()", m.GoName)
+	call := fmt.Sprintf("p.%s()", m.GoName)
 	if m.ResultExpr != "" {
 		return strings.ReplaceAll(m.ResultExpr, "%s", call)
 	}
@@ -1315,6 +1352,151 @@ func handleMethodReturnExpr(callExpr, returnType string) string {
 	default:
 		return callExpr
 	}
+}
+
+// =============================================================================
+// MARSHALER-BASED TEMPLATE FUNCTIONS
+// =============================================================================
+
+// templateFuncParamNamesList generates the quoted, comma-separated parameter
+// name list for a single method's MethodParams entry. Only starlark-facing
+// params are included; engine-injected and callable params are excluded.
+// Optional params (with Default or marked Optional) get a "?" suffix.
+func templateFuncParamNamesList(m methodInfo) string {
+	var names []string
+	for _, p := range m.Params {
+		if p.Callable != nil {
+			continue
+		}
+		tm := typeMappings[p.GoType]
+		if tm.contextReader != "" {
+			continue
+		}
+		if !tm.starlarkFacing && p.GoType != "[]byte" {
+			continue
+		}
+		name := `"` + p.SnakeName
+		if p.Optional || p.Default != "" {
+			name += "?"
+		}
+		name += `"`
+		names = append(names, name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// templateFuncNeedsOverride returns true if a method needs an Override()
+// call instead of WrapReceiver's auto-bridging. Override is required when
+// the method has callable params, variadic params, engine-injected params,
+// struct_param expansion, non-zero defaults, or a custom ResultExpr.
+func templateFuncNeedsOverride(m methodInfo) bool {
+	for _, p := range m.Params {
+		if p.Callable != nil {
+			return true
+		}
+		if p.Variadic {
+			return true
+		}
+		tm := typeMappings[p.GoType]
+		if tm.contextReader != "" {
+			return true
+		}
+		if !tm.starlarkFacing && p.GoType != "[]byte" {
+			return true
+		}
+		if p.StructType != "" {
+			return true
+		}
+		if p.Default != "" {
+			return true
+		}
+	}
+	if m.ResultExpr != "" {
+		return true
+	}
+	if m.Property {
+		return true
+	}
+	return false
+}
+
+// templateFuncOverrideClosure generates the Override closure body for a method
+// that needs custom bridging. Reuses immediateUnpackArgs and immediateProviderBody.
+func templateFuncOverrideClosure(m methodInfo) string {
+	var buf strings.Builder
+	// Use named "thread" parameter when the method has callable params that need starlark.Call().
+	threadParam := "_ *starlark.Thread"
+	if templateFuncNeedsThread(m) {
+		threadParam = "thread *starlark.Thread"
+	}
+	buf.WriteString(fmt.Sprintf("\tr.Override(%q, func(%s, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {\n", m.SnakeName, threadParam))
+
+	unpack := templateFuncImmediateUnpackArgs(m)
+	if unpack != "" {
+		// Indent the unpack block for nesting inside the closure.
+		for _, line := range strings.Split(unpack, "\n") {
+			buf.WriteString("\t" + line + "\n")
+		}
+	}
+
+	body := templateFuncImmediateProviderBody(m)
+	if body != "" {
+		for _, line := range strings.Split(body, "\n") {
+			buf.WriteString("\t" + line + "\n")
+		}
+	}
+
+	buf.WriteString("\t})")
+	return buf.String()
+}
+
+// templateFuncProviderInit generates the ImmediateFactory body that constructs
+// the provider and delegates to New<StructName>Receiver. For providers with
+// ProviderFields (bind directives), fields are read from BindingConfig first.
+func templateFuncProviderInit(d *generateDescriptor) string {
+	prefix := templateFuncProviderTypePrefix(d)
+	var buf strings.Builder
+
+	if len(d.ProviderFields) > 0 {
+		for _, pf := range d.ProviderFields {
+			localVar := strings.ToLower(pf.GoName[:1]) + pf.GoName[1:]
+			buf.WriteString(fmt.Sprintf("\t\t\t%s := cfg.%s\n", localVar, pf.CfgField))
+			if pf.Default != "" {
+				buf.WriteString(fmt.Sprintf("\t\t\tif %s == %s {\n\t\t\t\t%s = %s\n\t\t\t}\n",
+					localVar, pf.ZeroValue, localVar, pf.Default))
+			}
+		}
+		buf.WriteString(fmt.Sprintf("\t\t\treturn New%s%s(&%sProvider{", d.StructName, d.WrapperSuffix, prefix))
+		for i, pf := range d.ProviderFields {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			localVar := strings.ToLower(pf.GoName[:1]) + pf.GoName[1:]
+			buf.WriteString(fmt.Sprintf("%s: %s", pf.GoName, localVar))
+		}
+		buf.WriteString("})")
+	} else {
+		buf.WriteString(fmt.Sprintf("\t\t\treturn New%s%s(&%sProvider{})", d.StructName, d.WrapperSuffix, prefix))
+	}
+
+	return buf.String()
+}
+
+// templateFuncHasOverrides returns true if any method in the descriptor needs Override.
+func templateFuncHasOverrides(d *generateDescriptor) bool {
+	for _, m := range d.Methods {
+		if templateFuncNeedsOverride(m) {
+			return true
+		}
+	}
+	return false
+}
+
+// templateFuncNeedsReflect returns true if the descriptor uses WrapPlanned
+// (which requires reflect.TypeOf).
+func templateFuncNeedsReflect(_ *generateDescriptor) bool {
+	// Planned templates always need reflect for reflect.TypeOf.
+	return true
 }
 
 // =============================================================================
@@ -1796,7 +1978,7 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 		var valueType string
 		var hasError, compensable bool
 		var err error
-		if desc.Template == "immediate_receiver" {
+		if desc.Template == "immediate_receiver" || desc.Template == "params" {
 			valueType, hasError, compensable, err = validateImmediateReturn(rawReturn)
 		} else {
 			// Planned receivers and graph actions always have error returns.

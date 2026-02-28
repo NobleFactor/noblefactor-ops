@@ -1434,7 +1434,7 @@ func TestValidateCompensableReturn(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
-			got, err := validateCompensableReturn(tc.input)
+			got, _, err := validateCompensableReturn(tc.input)
 			if tc.wantErr {
 				if err == nil {
 					t.Errorf("expected error for %q, got value %q", tc.input, got)
@@ -1493,7 +1493,7 @@ func TestGenerateGraphActionsCompensable(t *testing.T) {
 	if !strings.Contains(code, "if state == nil") {
 		t.Error("compensable Undo should nil-guard state")
 	}
-	if !strings.Contains(code, "return o.Impl.CompensateInstall(state)") {
+	if !strings.Contains(code, "o.Impl.CompensateInstall(") {
 		t.Error("compensable Undo should delegate to Impl.CompensateInstall")
 	}
 
@@ -1540,7 +1540,7 @@ func TestGenerateGraphActionsCompensableWithValue(t *testing.T) {
 	}
 
 	// Undo delegates to CompensateCopy
-	if !strings.Contains(code, "return o.Impl.CompensateCopy(state)") {
+	if !strings.Contains(code, "o.Impl.CompensateCopy(") {
 		t.Error("compensable Undo should delegate to Impl.CompensateCopy")
 	}
 }
@@ -2748,7 +2748,7 @@ func TestGenerateGatePassesWithCompensateMethod(t *testing.T) {
 	}
 
 	// Compensable: Undo should delegate to CompensateInstall
-	if !strings.Contains(code, "return o.Impl.CompensateInstall(state)") {
+	if !strings.Contains(code, "o.Impl.CompensateInstall(") {
 		t.Error("compensable Install should delegate to Impl.CompensateInstall")
 	}
 }
