@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"fmt"
 	"go/format"
-	"sort"
 	"strings"
 	"text/template"
 	"unicode"
@@ -23,23 +22,23 @@ import (
 
 // generateDescriptor holds the complete input for code generation.
 type generateDescriptor struct {
-	Template       string       // "planned_receiver", "graph_actions", "immediate_receiver"
-	Package        string       // Go package name for generated file
-	Provider       string       // snake_case provider (e.g., "file")
-	StructName     string       // Go struct name (e.g., "File")
-	WrapperSuffix  string       // suffix for the wrapper type: "Receiver" (default) or "Value"
-	Namespace      string       // dotted namespace (e.g., "plan.file")
-	ImplType       string       // implementation struct name for delegation (e.g., "fileOps")
-	Methods        []methodInfo // analyzed methods
-	ExtraAttrs     []string     // additional attr names from companion files (e.g., query methods)
-	AllMethodNames []string     // all method names on the provider (for compensate validation)
-	Access         string       // access level: "immediate", "planned", "both"
-	AccessTitle    string       // title-case access for Go constants: "Immediate", "Planned", "Both"
-	Lifetime       string       // lifetime level: "stateless", "phase", "session"
-	LifetimeTitle  string       // title-case lifetime for Go constants: "Stateless", "Phase", "Session"
-	Registered     bool             // if true, emit init()/RegisterBinding; false for dependent types
-	ProviderFields []providerField  // dynamic field init for ImmediateFactory (replaces hardcoded Writer/ProgramName/Color)
-	ProviderImport string           // if non-empty, import path for parent package (gen/ subpackage mode)
+	Template            string               // "planned_receiver", "graph_actions", "immediate_receiver"
+	Package             string               // Go package name for generated file
+	Provider            string               // snake_case provider (e.g., "file")
+	StructName          string               // Go struct name (e.g., "File")
+	WrapperSuffix       string               // suffix for the wrapper type: "Receiver" (default) or "Value"
+	Namespace           string               // dotted namespace (e.g., "plan.file")
+	ImplType            string               // implementation struct name for delegation (e.g., "fileOps")
+	Methods             []methodInfo         // analyzed methods
+	ExtraAttrs          []string             // additional attr names from companion files (e.g., query methods)
+	AllMethodNames      []string             // all method names on the provider (for compensate validation)
+	Access              string               // access level: "immediate", "planned", "both"
+	AccessTitle         string               // title-case access for Go constants: "Immediate", "Planned", "Both"
+	Lifetime            string               // lifetime level: "stateless", "phase", "session"
+	LifetimeTitle       string               // title-case lifetime for Go constants: "Stateless", "Phase", "Session"
+	Registered          bool                 // if true, emit init()/RegisterBinding; false for dependent types
+	ProviderFields      []providerField      // dynamic field init for ImmediateFactory (replaces hardcoded Writer/ProgramName/Color)
+	ProviderImport      string               // if non-empty, import path for parent package (gen/ subpackage mode)
 	Converters          []converterInfo      // struct-to-Starlark converter functions (for struct_converter template)
 	CrossPackageImports []crossPackageImport // cross-package gen imports (e.g., starstatsgen → .../starstats/gen)
 }
@@ -84,19 +83,19 @@ type converterFieldInfo struct {
 
 // methodInfo holds analyzed information about a single method.
 type methodInfo struct {
-	GoName       string      // original Go name (e.g., "Copy")
-	SnakeName    string      // snake_case name (e.g., "copy")
-	Params       []paramInfo
-	ReturnType   string // value type from (T, error), empty for error-only
-	ResultExpr   string // override for result expression (e.g., "indexToStarlark(result)")
-	HasError     bool   // true if the method returns an error (standard/compensable)
-	ContentModel string // "none", "consumer", "transformer"
-	Compensable    bool   // inferred from return signature: (T, U, error) = true
-	CompStateType  string // Go type U from (T, U, error) — used for typed assertion in Undo
-	Property     bool   // if true, exposed as read-only property (direct Attr value, no callable)
-	Doc          string
-	File         string // source file basename (e.g., "provider.go")
-	Line         int    // source line number
+	GoName        string // original Go name (e.g., "Copy")
+	SnakeName     string // snake_case name (e.g., "copy")
+	Params        []paramInfo
+	ReturnType    string // value type from (T, error), empty for error-only
+	ResultExpr    string // override for result expression (e.g., "indexToStarlark(result)")
+	HasError      bool   // true if the method returns an error (standard/compensable)
+	ContentModel  string // "none", "consumer", "transformer"
+	Compensable   bool   // inferred from return signature: (T, U, error) = true
+	CompStateType string // Go type U from (T, U, error) — used for typed assertion in Undo
+	Property      bool   // if true, exposed as read-only property (direct Attr value, no callable)
+	Doc           string
+	File          string // source file basename (e.g., "provider.go")
+	Line          int    // source line number
 }
 
 // paramInfo holds information about a single parameter.
@@ -105,73 +104,25 @@ type paramInfo struct {
 	SnakeName  string // snake_case name
 	GoType     string // Go type string
 	Variadic   bool
-	Doc        string // parameter description from Parameters: section
-	Optional   bool   // if true, param is keyword-optional (? suffix in UnpackArgs)
-	Default    string // Go default expression (e.g., "true", "10"); empty = zero value
-	StructType string // if set, param was expanded from this struct type (fields already validated)
+	Doc        string        // parameter description from Parameters: section
+	Optional   bool          // if true, param is keyword-optional (? suffix in UnpackArgs)
+	Default    string        // Go default expression (e.g., "true", "10"); empty = zero value
+	StructType string        // if set, param was expanded from this struct type (fields already validated)
 	Callable   *callableInfo // if set, this param is a callable (function type) with classified params
 }
 
 // callableInfo describes a function-type parameter with classified params.
 type callableInfo struct {
-	TypeName    string          // Go type name (e.g., "Visitor")
-	Params      []callableParam // classified parameters
-	Returns     string          // return type string (e.g., "(any, error)")
-	HandleTypes []handleType    // handle specs from the directive
+	TypeName string          // Go type name (e.g., "Visitor")
+	Params   []callableParam // classified parameters
+	Returns  string          // return type string (e.g., "(any, error)")
 }
 
 // callableParam describes a single classified parameter of a callable.
 type callableParam struct {
 	GoName string // Go parameter name (e.g., "path")
 	GoType string // Go type string (e.g., "string")
-	Role   string // "projected", "pass_through", "swallowed", "handle"
-}
-
-// handleType describes a Go type to be wrapped as a Starlark HasAttrs handle.
-type handleType struct {
-	GoType     string         // Go type (e.g., "os.DirEntry")
-	HandleName string         // generated handle name (e.g., "DirEntryHandle")
-	Methods    []handleMethod // methods to expose as attributes
-}
-
-// handleMethod describes a single method exposed on a handle type.
-type handleMethod struct {
-	GoName     string // Go method name (e.g., "Name")
-	SnakeName  string // snake_case attr name (e.g., "name")
-	ReturnType string // Go return type (e.g., "string")
-}
-
-// =============================================================================
-// TYPE MAPPING
-// =============================================================================
-
-// typeMapping maps a Go type to its Starlark representations.
-type typeMapping struct {
-	unpackType     string // Go type for starlark.UnpackArgs (e.g., "string")
-	slotReader     string // fmt pattern for reading from node slot
-	starlarkFacing bool   // include in plan receiver UnpackArgs/FillSlot
-	contextReader  string // if set, read from this expr instead of a slot
-	needsConstruct bool   // emit op.Construct[provider.GoType] in action Do()
-	constructType  string // Go type name for Construct (e.g., "Blob")
-}
-
-var typeMappings = map[string]typeMapping{
-	// Starlark-facing: in plan UnpackArgs + graph actions slot readers
-	"string":         {unpackType: "string", slotReader: `slots["%s"].(string)`, starlarkFacing: true},
-	"bool":           {unpackType: "bool", slotReader: `slots["%s"].(bool)`, starlarkFacing: true},
-	"int":            {unpackType: "int", slotReader: `slots["%s"].(int)`, starlarkFacing: true},
-	"int64":          {unpackType: "int64", slotReader: `slots["%s"].(int64)`, starlarkFacing: true},
-	"[]string":       {unpackType: "*starlark.List", slotReader: `slots["%s"].([]string)`, starlarkFacing: true},
-	"os.FileMode":    {unpackType: "int", slotReader: `slots["%s"].(os.FileMode)`, starlarkFacing: true},
-	"Blob":           {unpackType: "string", slotReader: `slots["%s"].(string)`, starlarkFacing: true, needsConstruct: true, constructType: "Blob"},
-	"map[string]any": {unpackType: "*starlark.Dict", slotReader: `slots["%s"].(map[string]any)`, starlarkFacing: true},
-	// Engine-injected: graph actions slot readers only (filled by engine from ctx.Data)
-	"func(string, []byte) ([]byte, error)": {slotReader: `slots["%s"].(func(string, []byte) ([]byte, error))`},
-	"func(string, string) error":           {slotReader: `slots["%s"].(func(string, string) error)`},
-	// Context-provided: read from context expression, not slots
-	"io.Writer": {contextReader: "ctx.Writer"},
-	// Content: read from slot with optional assertion (may come via promise)
-	"[]byte": {slotReader: `slots["%s"].([]byte)`},
+	Role   string // "projected", "pass_through", "swallowed"
 }
 
 // =============================================================================
@@ -319,29 +270,6 @@ func validateImmediateReturn(returns string) (valueType string, hasError bool, c
 	}
 }
 
-// validateParamTypes checks that all parameter types have Starlark mappings.
-// Parameters with StructType set are skipped — they were expanded from a struct
-// and their individual fields have already been validated.
-// Parameters with Callable set are skipped — they use a generated bridge.
-func validateParamTypes(params []paramInfo) error {
-	var unmapped []string
-	for _, p := range params {
-		if p.StructType != "" {
-			continue
-		}
-		if p.Callable != nil {
-			continue
-		}
-		if _, ok := typeMappings[p.GoType]; !ok {
-			unmapped = append(unmapped, fmt.Sprintf("%s (%s)", p.GoName, p.GoType))
-		}
-	}
-	if len(unmapped) > 0 {
-		return fmt.Errorf("unmapped parameter types: %s", strings.Join(unmapped, ", "))
-	}
-	return nil
-}
-
 // =============================================================================
 // CONTENT MODEL INFERENCE
 // =============================================================================
@@ -368,804 +296,17 @@ func inferContentModel(valueType string, params []paramInfo) string {
 	}
 }
 
-// isContentParam returns true if p is the content pipeline parameter for m.
-func isContentParam(p paramInfo, m methodInfo) bool {
-	if m.ContentModel == "none" {
-		return false
-	}
-	// The content param is the last []byte param.
-	for i := len(m.Params) - 1; i >= 0; i-- {
-		if m.Params[i].GoType == "[]byte" {
-			return m.Params[i].GoName == p.GoName
-		}
-	}
-	return false
-}
-
 // =============================================================================
 // TEMPLATE FUNCTIONS
 // =============================================================================
 
 var genTemplateFuncs = template.FuncMap{
-	"attrNamesList":           templateFuncAttrNamesList,
-	"allAttrNames":            templateFuncAllAttrNames,
-	"hasExtraAttrs":           templateFuncHasExtraAttrs,
-	"planUnpackArgs":          templateFuncPlanUnpackArgs,
-	"planFillSlots":           templateFuncPlanFillSlots,
-	"immediateUnpackArgs":     templateFuncImmediateUnpackArgs,
-	"immediateProviderBody":   templateFuncImmediateProviderBody,
-	"needsImport":             templateFuncNeedsImport,
-	"needsThread":             templateFuncNeedsThread,
-	"needsFmt":                templateFuncNeedsFmt,
-	"graphReaders":            templateFuncGraphReaders,
-	"dryRunFmt":               templateFuncDryRunFmt,
-	"dryRunVars":              templateFuncDryRunVars,
-	"dryRunChecksum":          templateFuncDryRunChecksum,
-	"implArgs":                templateFuncImplArgs,
-	"graphReturn":             templateFuncGraphReturn,
-	"graphUndo":               templateFuncGraphUndo,
-	"docComment":              templateFuncDocComment,
-	"docSummary":              templateFuncDocSummary,
-	"hasSlotDocs":             templateFuncHasSlotDocs,
-	"slotDocs":                templateFuncSlotDocs,
-	"structReconstruct":       templateFuncStructReconstruct,
-	"providerFieldInit":       templateFuncProviderFieldInit,
-	"providerTypePrefix":      templateFuncProviderTypePrefix,
-	"hasStructParam":          templateFuncHasStructParam,
-	"immediateStructCallArgs": templateFuncImmediateStructCallArgs,
-	"converterFunc":           templateFuncConverterFunc,
-	"needsOpImport":           templateFuncNeedsOpImport,
-	"propertyAttrExpr":        templateFuncPropertyAttrExpr,
-	"handleTypes":             templateFuncHandleTypes,
-	// Marshaler-based template functions
-	"paramNamesList":  templateFuncParamNamesList,
-	"needsOverride":   templateFuncNeedsOverride,
-	"overrideClosure":  templateFuncOverrideClosure,
-	"providerInit":     templateFuncProviderInit,
-	"hasOverrides":     templateFuncHasOverrides,
-	"needsReflect":     templateFuncNeedsReflect,
-}
-
-func templateFuncAttrNamesList(methods []methodInfo) string {
-	names := make([]string, len(methods))
-	for i, m := range methods {
-		names[i] = m.SnakeName
-	}
-	sort.Strings(names)
-	quoted := make([]string, len(names))
-	for i, n := range names {
-		quoted[i] = `"` + n + `"`
-	}
-	return strings.Join(quoted, ", ")
-}
-
-// templateFuncAllAttrNames returns all attribute names (generated methods + extra attrs)
-// as a sorted, quoted, comma-separated string. Used by receivers with companion
-// query files that contribute additional attributes.
-func templateFuncAllAttrNames(d *generateDescriptor) string {
-	names := make([]string, 0, len(d.Methods)+len(d.ExtraAttrs))
-	for _, m := range d.Methods {
-		names = append(names, m.SnakeName)
-	}
-	names = append(names, d.ExtraAttrs...)
-	sort.Strings(names)
-	quoted := make([]string, len(names))
-	for i, n := range names {
-		quoted[i] = `"` + n + `"`
-	}
-	return strings.Join(quoted, ", ")
-}
-
-// templateFuncHasExtraAttrs returns true if the descriptor has extra attribute names.
-func templateFuncHasExtraAttrs(d *generateDescriptor) bool {
-	return len(d.ExtraAttrs) > 0
-}
-
-func templateFuncPlanUnpackArgs(m methodInfo) string {
-	var starlarkParams []paramInfo
-	for _, p := range m.Params {
-		tm := typeMappings[p.GoType]
-		if !tm.starlarkFacing {
-			continue
-		}
-		if isContentParam(p, m) {
-			continue
-		}
-		starlarkParams = append(starlarkParams, p)
-	}
-	if len(starlarkParams) == 0 {
-		return ""
-	}
-	var names []string
-	var pairs []string
-	for _, p := range starlarkParams {
-		names = append(names, p.GoName)
-		pairs = append(pairs, fmt.Sprintf(`"%s", &%s`, p.SnakeName, p.GoName))
-	}
-	var buf strings.Builder
-	buf.WriteString("var " + strings.Join(names, ", ") + " starlark.Value\n")
-	buf.WriteString(fmt.Sprintf("if err := starlark.UnpackArgs(%q, args, kwargs, %s); err != nil {\nreturn nil, err\n}", m.SnakeName, strings.Join(pairs, ", ")))
-	return buf.String()
-}
-
-// templateFuncPlanFillSlots generates FillSlot calls for starlark-facing params only.
-func templateFuncPlanFillSlots(m methodInfo) string {
-	var lines []string
-	for _, p := range m.Params {
-		tm := typeMappings[p.GoType]
-		if !tm.starlarkFacing {
-			continue
-		}
-		if isContentParam(p, m) {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("if err := op.FillSlot(node, p.graph, %q, %s); err != nil {\nreturn nil, fmt.Errorf(%q, err)\n}", p.SnakeName, p.GoName, p.SnakeName+": %w"))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func templateFuncImmediateUnpackArgs(m methodInfo) string {
-	if len(m.Params) == 0 {
-		return ""
-	}
-
-	// Separate starlark-facing params into non-variadic and variadic groups.
-	var nonVariadic, variadic []paramInfo
-	for _, p := range m.Params {
-		if p.StructType != "" {
-			// Struct-expanded params are treated as individual non-variadic params.
-			nonVariadic = append(nonVariadic, p)
-			continue
-		}
-		if p.Callable != nil {
-			// Callable params are starlark-facing (unpacked as starlark.Callable).
-			nonVariadic = append(nonVariadic, p)
-			continue
-		}
-		tm := typeMappings[p.GoType]
-		if !tm.starlarkFacing {
-			continue
-		}
-		if p.Variadic {
-			variadic = append(variadic, p)
-		} else {
-			nonVariadic = append(nonVariadic, p)
-		}
-	}
-
-	if len(nonVariadic) == 0 && len(variadic) == 0 {
-		return ""
-	}
-
-	// All starlark-facing params are variadic — collect from args directly.
-	if len(nonVariadic) == 0 && len(variadic) > 0 {
-		var buf strings.Builder
-		for _, p := range variadic {
-			buf.WriteString(fmt.Sprintf("var %s []string\nfor _, arg := range args {\ns, ok := starlark.AsString(arg)\nif !ok {\nreturn nil, fmt.Errorf(%q, arg.Type())\n}\n%s = append(%s, s)\n}",
-				p.GoName, m.SnakeName+": expected string argument, got %s", p.GoName, p.GoName))
-		}
-		return buf.String()
-	}
-
-	// Standard UnpackArgs for non-variadic params.
-	// Optional params get default-value declarations and "?" suffix in UnpackArgs.
-	var decls []string
-	var pairs []string
-	for _, p := range nonVariadic {
-		unpackType := ""
-		if p.Callable != nil {
-			unpackType = "starlark.Callable"
-		} else if p.StructType != "" {
-			// Struct-expanded params: infer type from GoType directly.
-			if ut, ok := typeMappings[p.GoType]; ok {
-				unpackType = ut.unpackType
-			} else {
-				unpackType = p.GoType
-			}
-		} else {
-			unpackType = typeMappings[p.GoType].unpackType
-		}
-
-		if p.Optional && p.Default != "" {
-			decls = append(decls, fmt.Sprintf("%s := %s", p.GoName, p.Default))
-		} else if p.Optional {
-			decls = append(decls, fmt.Sprintf("var %s %s", p.GoName, unpackType))
-		} else {
-			decls = append(decls, fmt.Sprintf("var %s %s", p.GoName, unpackType))
-		}
-
-		name := p.SnakeName
-		if p.Optional {
-			name += "?"
-		}
-		pairs = append(pairs, fmt.Sprintf(`"%s", &%s`, name, p.GoName))
-	}
-	var buf strings.Builder
-	for _, d := range decls {
-		buf.WriteString(d + "\n")
-	}
-	buf.WriteString(fmt.Sprintf("if err := starlark.UnpackArgs(%q, args, kwargs, %s); err != nil {\nreturn nil, err\n}", m.SnakeName, strings.Join(pairs, ", ")))
-	return buf.String()
-}
-
-// templateFuncImmediateProviderBody generates the Provider delegation call body for an
-// immediate receiver method. It maps parameters from their Starlark-unpacked
-// types to Provider method arguments, calls r.provider.GoName(...), and converts
-// the return value to a Starlark value. Compensation state is ignored —
-// immediate receivers discard undo state.
-func templateFuncImmediateProviderBody(m methodInfo) string {
-	// Build conversion declarations and call args.
-	// Some types require multi-return conversion (e.g., op.StarlarkDictToMap)
-	// which must be pre-computed as variable declarations.
-	hasStruct := templateFuncHasStructParam(m)
-
-	var convDecls []string
-	var callArgs []string
-	seenStructs := map[string]bool{}
-	for _, p := range m.Params {
-		if hasStruct && p.StructType != "" {
-			// Struct-expanded param: emit the struct variable once as the call arg.
-			if !seenStructs[p.StructType] {
-				seenStructs[p.StructType] = true
-				baseName := p.StructType
-				if idx := strings.LastIndex(baseName, "."); idx >= 0 {
-					baseName = baseName[idx+1:]
-				}
-				varName := strings.ToLower(baseName[:1]) + baseName[1:]
-				callArgs = append(callArgs, varName)
-			}
-			continue
-		}
-		decl, arg := immediateArgExpr(p)
-		if decl != "" {
-			convDecls = append(convDecls, decl)
-		}
-		callArgs = append(callArgs, arg)
-	}
-
-	var buf strings.Builder
-	for _, d := range convDecls {
-		buf.WriteString(d + "\n")
-	}
-
-	// Emit struct reconstruction for struct-expanded params.
-	if hasStruct {
-		buf.WriteString(templateFuncStructReconstruct(m))
-	}
-
-	call := fmt.Sprintf("p.%s(%s)", m.GoName, strings.Join(callArgs, ", "))
-
-	// Determine the result conversion expression.
-	resultConv := func(varName string) string {
-		if m.ResultExpr != "" {
-			return strings.ReplaceAll(m.ResultExpr, "%s", varName)
-		}
-		return immediateResultExpr(m.ReturnType, varName)
-	}
-
-	// Check whether the result conversion actually references the variable.
-	// If not (e.g., starlark.None for unmapped types), use _ to avoid unused-variable errors.
-	convExpr := resultConv("result")
-	usesResult := strings.Contains(convExpr, "result")
-
-	// Non-error returns (bare type or void) — immediate receivers only.
-	if !m.HasError {
-		if m.ReturnType == "" {
-			buf.WriteString(fmt.Sprintf("\t%s\n\treturn starlark.None, nil", call))
-		} else if usesResult {
-			buf.WriteString(fmt.Sprintf("\tresult := %s\n\treturn %s, nil", call, convExpr))
-		} else {
-			buf.WriteString(fmt.Sprintf("\t_ = %s\n\treturn %s, nil", call, convExpr))
-		}
-		return buf.String()
-	}
-
-	if m.Compensable {
-		if m.ReturnType == "" || !usesResult {
-			buf.WriteString(fmt.Sprintf("\t_, _, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, convExpr))
-		} else {
-			buf.WriteString(fmt.Sprintf("\tresult, _, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, convExpr))
-		}
-		return buf.String()
-	}
-
-	if m.ReturnType == "" {
-		buf.WriteString(fmt.Sprintf("\tif err := %s; err != nil {\n\t\treturn nil, err\n\t}\n\treturn starlark.None, nil", call))
-	} else if usesResult {
-		buf.WriteString(fmt.Sprintf("\tresult, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, convExpr))
-	} else {
-		buf.WriteString(fmt.Sprintf("\t_, err := %s\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn %s, nil", call, convExpr))
-	}
-	return buf.String()
-}
-
-// immediateArgExpr returns a conversion declaration (if needed) and the Go
-// expression for passing a parameter to a Provider method from an immediate
-// receiver. Multi-return conversions (like op.StarlarkDictToMap) produce a
-// declaration string; single-value conversions return only the inline expression.
-func immediateArgExpr(p paramInfo) (decl, arg string) {
-	if p.Callable != nil {
-		return callableBridgeExpr(p)
-	}
-	tm := typeMappings[p.GoType]
-	if tm.contextReader != "" {
-		return "", "p.Writer"
-	}
-	if p.Variadic {
-		return "", p.GoName + "..."
-	}
-	if !tm.starlarkFacing {
-		// Engine-injected dependency (callbacks) — not available from Starlark.
-		// Pass nil; wired via Provider struct fields when needed.
-		return "", "nil"
-	}
-	switch p.GoType {
-	case "os.FileMode":
-		return "", fmt.Sprintf("os.FileMode(%s)", p.GoName)
-	case "[]string":
-		return "", fmt.Sprintf("op.ListToStringSlice(%s)", p.GoName)
-	case "map[string]any":
-		convVar := p.GoName + "Map"
-		d := fmt.Sprintf("\t%s, err := op.StarlarkDictToMap(%s)\n\tif err != nil {\n\t\treturn nil, err\n\t}", convVar, p.GoName)
-		return d, convVar
-	default:
-		return "", p.GoName
-	}
-}
-
-// callableBridgeExpr generates a Go closure that bridges a starlark.Callable to the
-// callable's Go function type. Each parameter is converted based on its role:
-//   - projected: Go → Starlark (positional arg)
-//   - handle: Go → generated handle wrapper (positional arg)
-//   - pass_through: Go any → starlark.Value keyword arg (only when non-nil)
-//   - swallowed: not passed to Starlark (captured from outer scope)
-func callableBridgeExpr(p paramInfo) (decl, arg string) {
-	c := p.Callable
-	bridgeVar := p.GoName + "Go"
-
-	// Build Go function signature params.
-	var sigParams []string
-	for _, cp := range c.Params {
-		sigParams = append(sigParams, fmt.Sprintf("%s %s", cp.GoName, cp.GoType))
-	}
-
-	// Build positional and keyword arg conversions.
-	var positionalArgs []string
-	var kwargLines []string
-	for _, cp := range c.Params {
-		switch cp.Role {
-		case "projected":
-			positionalArgs = append(positionalArgs, goToStarlarkExpr(cp.GoName, cp.GoType))
-		case "handle":
-			for _, ht := range c.HandleTypes {
-				if cp.GoType == ht.GoType {
-					positionalArgs = append(positionalArgs, fmt.Sprintf("New%s(%s)", ht.HandleName, cp.GoName))
-					break
-				}
-			}
-		case "pass_through":
-			kwargLines = append(kwargLines, fmt.Sprintf(
-				"\t\tif %s != nil {\n\t\t\tkwargs = append(kwargs, starlark.Tuple{starlark.String(%q), %s.(starlark.Value)})\n\t\t}",
-				cp.GoName, cp.GoName, cp.GoName))
-		case "swallowed":
-			// Not passed to Starlark.
-		}
-	}
-
-	// Build the bridge function body.
-	var body strings.Builder
-
-	// Positional args.
-	body.WriteString(fmt.Sprintf("\t\targs := starlark.Tuple{%s}\n", strings.Join(positionalArgs, ", ")))
-
-	// Keyword args.
-	kwargsArg := "nil"
-	if len(kwargLines) > 0 {
-		kwargsArg = "kwargs"
-		body.WriteString("\t\tvar kwargs []starlark.Tuple\n")
-		for _, kl := range kwargLines {
-			body.WriteString(kl + "\n")
-		}
-	}
-
-	// Call and return.
-	if c.Returns == "error" {
-		body.WriteString(fmt.Sprintf("\t\t_, err := starlark.Call(thread, %s, args, %s)\n\t\treturn err\n", p.GoName, kwargsArg))
-	} else {
-		body.WriteString(fmt.Sprintf("\t\tret, err := starlark.Call(thread, %s, args, %s)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\treturn ret, nil\n", p.GoName, kwargsArg))
-	}
-
-	d := fmt.Sprintf("\t%s := %s(func(%s) %s {\n%s\t})",
-		bridgeVar, c.TypeName, strings.Join(sigParams, ", "), c.Returns, body.String())
-
-	return d, bridgeVar
-}
-
-// goToStarlarkExpr returns the Go expression for converting a Go value to a Starlark value.
-func goToStarlarkExpr(varName, goType string) string {
-	switch goType {
-	case "string":
-		return fmt.Sprintf("starlark.String(%s)", varName)
-	case "bool":
-		return fmt.Sprintf("starlark.Bool(%s)", varName)
-	case "int":
-		return fmt.Sprintf("starlark.MakeInt(%s)", varName)
-	case "int64":
-		return fmt.Sprintf("starlark.MakeInt64(%s)", varName)
-	default:
-		return varName
-	}
-}
-
-// immediateResultExpr returns the Go expression for converting an immediate
-// receiver's Provider return value to a Starlark value.
-//
-// For pointer types (*T) not in the primitive mapping, returns New<T>Value(result),
-// following the convention that custom return types have a corresponding HasAttrs
-// wrapper constructor.
-func immediateResultExpr(goType, varName string) string {
-	switch goType {
-	case "string":
-		return fmt.Sprintf("starlark.String(%s)", varName)
-	case "bool":
-		return fmt.Sprintf("starlark.Bool(%s)", varName)
-	case "int":
-		return fmt.Sprintf("starlark.MakeInt(%s)", varName)
-	case "int64":
-		return fmt.Sprintf("starlark.MakeInt64(%s)", varName)
-	case "[]byte":
-		return fmt.Sprintf("starlark.Bytes(%s)", varName)
-	case "[]string":
-		return fmt.Sprintf("op.StringSliceToList(%s)", varName)
-	case "any":
-		// The any carries a starlark.Value through (e.g., accumulator pattern).
-		// If nil, return None; otherwise assert to starlark.Value.
-		return fmt.Sprintf("op.AnyToStarlarkValue(%s)", varName)
-	default:
-		// Custom pointer types: *Sources → NewSourcesValue(result)
-		if strings.HasPrefix(goType, "*") {
-			typeName := goType[1:]
-			return fmt.Sprintf("New%sValue(%s)", typeName, varName)
-		}
-		return "starlark.None"
-	}
-}
-
-// templateFuncNeedsImport checks whether any method parameter or callable handle
-// type uses the given Go type. Used in templates for conditional imports.
-func templateFuncNeedsImport(methods []methodInfo, goType string) bool {
-	pkg := goType
-	if idx := strings.Index(pkg, "."); idx >= 0 {
-		pkg = pkg[:idx]
-	}
-	for _, m := range methods {
-		for _, p := range m.Params {
-			if p.GoType == goType {
-				return true
-			}
-			// Check callable handle types for the same package.
-			if p.Callable != nil {
-				for _, ht := range p.Callable.HandleTypes {
-					if strings.HasPrefix(ht.GoType, pkg+".") {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// templateFuncNeedsThread returns true if any method parameter uses a callable bridge,
-// which requires the *starlark.Thread for starlark.Call().
-func templateFuncNeedsThread(m methodInfo) bool {
-	for _, p := range m.Params {
-		if p.Callable != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// templateFuncNeedsFmt returns true if any method has variadic starlark-facing params
-// or callable params with handle types (which generate fmt.Errorf in Hash()).
-func templateFuncNeedsFmt(methods []methodInfo) bool {
-	for _, m := range methods {
-		for _, p := range m.Params {
-			if p.Variadic && typeMappings[p.GoType].starlarkFacing {
-				return true
-			}
-			if p.Callable != nil && len(p.Callable.HandleTypes) > 0 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// templateFuncGraphReaders generates variable declarations for Do: slot reads,
-// context reads, and engine-injected reads. Content params use optional
-// assertion (_, ok pattern) since they may arrive via promise slots.
-// Params with needsConstruct are read as their raw slot type here (e.g., string);
-// the actual construction (op.Construct) happens in graphReturn, after dry-run.
-func templateFuncGraphReaders(m methodInfo) string {
-	var slotLines, contextLines, engineLines []string
-
-	for _, p := range m.Params {
-		tm := typeMappings[p.GoType]
-		if tm.contextReader != "" {
-			contextLines = append(contextLines, fmt.Sprintf("%s := %s", p.GoName, tm.contextReader))
-		} else if isContentParam(p, m) {
-			// Content params use optional assertion (may come via promise slot)
-			slotLines = append(slotLines, fmt.Sprintf("%s, _ := slots[\"%s\"].([]byte)", p.GoName, p.SnakeName))
-		} else if tm.starlarkFacing && tm.slotReader != "" {
-			slotLines = append(slotLines, fmt.Sprintf("%s := "+tm.slotReader, p.GoName, p.SnakeName))
-		} else if tm.slotReader != "" {
-			engineLines = append(engineLines, fmt.Sprintf("%s := "+tm.slotReader, p.GoName, p.SnakeName))
-		}
-	}
-
-	var lines []string
-	lines = append(lines, slotLines...)
-	lines = append(lines, contextLines...)
-	lines = append(lines, engineLines...)
-
-	return strings.Join(lines, "\n")
-}
-
-// templateFuncDryRunFmt generates format verbs for starlark-facing params only.
-func templateFuncDryRunFmt(m methodInfo) string {
-	var parts []string
-	for _, p := range m.Params {
-		if isContentParam(p, m) {
-			continue
-		}
-		tm := typeMappings[p.GoType]
-		if !tm.starlarkFacing {
-			continue
-		}
-		parts = append(parts, "%v")
-	}
-	return strings.Join(parts, " ")
-}
-
-// templateFuncDryRunVars generates variable names for starlark-facing params only.
-func templateFuncDryRunVars(m methodInfo) string {
-	var names []string
-	for _, p := range m.Params {
-		if isContentParam(p, m) {
-			continue
-		}
-		tm := typeMappings[p.GoType]
-		if !tm.starlarkFacing {
-			continue
-		}
-		names = append(names, p.GoName)
-	}
-	if len(names) == 0 {
-		return ""
-	}
-	return ", " + strings.Join(names, ", ")
-}
-
-// templateFuncDryRunChecksum generates additional dry-run output for consumer content model.
-// Previously emitted ctx.TargetChecksum; now a no-op (checksums removed from Context).
-func templateFuncDryRunChecksum(m methodInfo) string {
-	return ""
-}
-
-// templateFuncImplArgs generates all param names in order for the delegation call.
-// For params with needsConstruct, uses the constructed variable name (GoName + "Val").
-func templateFuncImplArgs(m methodInfo) string {
-	names := make([]string, len(m.Params))
-	for i, p := range m.Params {
-		tm := typeMappings[p.GoType]
-		if tm.needsConstruct {
-			names[i] = p.GoName + "Val"
-		} else {
-			names[i] = p.GoName
-		}
-	}
-	return strings.Join(names, ", ")
-}
-
-// graphConstructPrefix generates op.Construct calls for params with needsConstruct.
-// These are emitted between the dry-run check and the delegation call, so dry-run
-// prints the raw slot values while the real path constructs the Go types.
-func graphConstructPrefix(m methodInfo) string {
-	var lines []string
-	for _, p := range m.Params {
-		tm := typeMappings[p.GoType]
-		if tm.needsConstruct {
-			lines = append(lines, fmt.Sprintf("%sVal, err := op.Construct[provider.%s](%s)", p.GoName, tm.constructType, p.GoName))
-			lines = append(lines, "if err != nil {\nreturn nil, nil, err\n}")
-		}
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-	return "\n" + strings.Join(lines, "\n")
-}
-
-// templateFuncGraphReturn generates the delegation call and return handling per content model.
-// Returns (Result, UndoState, error) — three values.
-func templateFuncGraphReturn(m methodInfo, implType string) string {
-	if implType == "" {
-		return "\nreturn nil, nil, nil"
-	}
-
-	prefix := graphConstructPrefix(m)
-	argStr := templateFuncImplArgs(m)
-	call := fmt.Sprintf("o.Impl.%s(%s)", m.GoName, argStr)
-
-	if m.Compensable {
-		return prefix + templateFuncGraphReturnCompensable(m, call)
-	}
-
-	switch m.ContentModel {
-	case "consumer":
-		// Consumer returns result (e.g., checksum), no undo state
-		return prefix + fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
-	case "transformer":
-		// Transformer returns transformed content as Result
-		return prefix + fmt.Sprintf("\nresult, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, nil, nil", call)
-	default: // "none"
-		if m.ReturnType == "" {
-			// Error-only return
-			return prefix + fmt.Sprintf("\nreturn nil, nil, %s", call)
-		}
-		// Has value return — pass through as Result
-		return prefix + fmt.Sprintf("\nresult, err := %s\nreturn result, nil, err", call)
-	}
-}
-
-// templateFuncGraphReturnCompensable generates the delegation call for compensable methods.
-// Compensable methods return (U, error) or (T, U, error) where U becomes UndoState.
-func templateFuncGraphReturnCompensable(m methodInfo, call string) string {
-	switch m.ContentModel {
-	case "consumer":
-		// (string, U, error) — result + state; result flows to downstream nodes
-		return fmt.Sprintf("\nresult, state, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, state, nil", call)
-	case "transformer":
-		// ([]byte, U, error) — result + state
-		return fmt.Sprintf("\nresult, state, err := %s\nif err != nil {\nreturn nil, nil, err\n}\nreturn result, state, nil", call)
-	default: // "none"
-		if m.ReturnType == "" {
-			// (U, error) — state only
-			return fmt.Sprintf("\nstate, err := %s\nreturn nil, state, err", call)
-		}
-		// (T, U, error) — value + state, return value as Result
-		return fmt.Sprintf("\nresult, state, err := %s\nreturn result, state, err", call)
-	}
-}
-
-
-// templateFuncGraphUndo generates the Undo method for an action. Compensable actions
-// delegate to Impl.Compensate<GoName>(state). The state argument is typed according
-// to U from the method's (T, U, error) return signature — if U is not "any", the
-// generated code includes a type assertion.
-func templateFuncGraphUndo(m methodInfo) string {
-	if !m.Compensable {
-		return "" // No Undo method — struct implements Action only, not Undoable.
-	}
-	stateExpr := "state"
-	if m.CompStateType != "" && m.CompStateType != "any" {
-		stateExpr = fmt.Sprintf("state.(%s)", m.CompStateType)
-	}
-	return fmt.Sprintf("func (o *%s) Undo(_ *op.Context, state op.UndoState) error {\n\tif state == nil {\n\t\treturn nil\n\t}\n\treturn o.Impl.Compensate%s(%s)\n}", m.GoName, m.GoName, stateExpr)
-}
-
-// templateFuncDocComment renders a multi-line Go doc comment. The first line is prefixed
-// with "// snakeName ", subsequent lines get "// " (or "//" for blank lines).
-func templateFuncDocComment(snakeName, doc string) string {
-	if doc == "" {
-		return "// " + snakeName
-	}
-	lines := strings.Split(strings.TrimRight(doc, "\n"), "\n")
-	var result []string
-	for i, line := range lines {
-		if i == 0 {
-			result = append(result, "// "+snakeName+" "+line)
-		} else if line == "" {
-			result = append(result, "//")
-		} else {
-			result = append(result, "// "+line)
-		}
-	}
-	return strings.Join(result, "\n")
-}
-
-// templateFuncDocSummary returns the description portion of a doc string — text before
-// the first blank line or structured section (Slots:, Parameters:, Usage:, Returns:).
-func templateFuncDocSummary(doc string) string {
-	if doc == "" {
-		return ""
-	}
-	lines := strings.Split(doc, "\n")
-	var descLines []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			break
-		}
-		if strings.HasPrefix(trimmed, "Slots:") ||
-			strings.HasPrefix(trimmed, "Parameters:") ||
-			strings.HasPrefix(trimmed, "Usage:") ||
-			strings.HasPrefix(trimmed, "Returns:") {
-			break
-		}
-		descLines = append(descLines, trimmed)
-	}
-	return strings.Join(descLines, " ")
-}
-
-// templateFuncHasSlotDocs returns true if any starlark-facing parameter has documentation.
-func templateFuncHasSlotDocs(m methodInfo) bool {
-	for _, p := range m.Params {
-		tm := typeMappings[p.GoType]
-		if tm.starlarkFacing && p.Doc != "" && !isContentParam(p, m) {
-			return true
-		}
-	}
-	return false
-}
-
-// templateFuncSlotDocs generates a "// Slots:" comment block from structured parameter docs.
-// Returns empty string if no starlark-facing params have docs.
-func templateFuncSlotDocs(m methodInfo) string {
-	var entries []string
-	for _, p := range m.Params {
-		tm := typeMappings[p.GoType]
-		if !tm.starlarkFacing || p.Doc == "" || isContentParam(p, m) {
-			continue
-		}
-		entries = append(entries, fmt.Sprintf("//   - %s: %s", p.SnakeName, p.Doc))
-	}
-	if len(entries) == 0 {
-		return ""
-	}
-	return "\n//\n// Slots:\n" + strings.Join(entries, "\n")
-}
-
-// templateFuncStructReconstruct generates a Go struct literal construction from
-// individually-expanded kwargs parameters. When a method's original Go signature
-// takes a struct param, the Starlark interface expands its fields to individual
-// kwargs. This function reassembles the struct for the provider call.
-func templateFuncStructReconstruct(m methodInfo) string {
-	// Group params by StructType
-	structGroups := map[string][]paramInfo{}
-	var structOrder []string
-	for _, p := range m.Params {
-		if p.StructType == "" {
-			continue
-		}
-		if _, seen := structGroups[p.StructType]; !seen {
-			structOrder = append(structOrder, p.StructType)
-		}
-		structGroups[p.StructType] = append(structGroups[p.StructType], p)
-	}
-	if len(structGroups) == 0 {
-		return ""
-	}
-
-	var buf strings.Builder
-	for _, st := range structOrder {
-		params := structGroups[st]
-		// Strip package prefix (e.g., "provider.AnalysisConfig" → "AnalysisConfig") for variable name.
-		baseName := st
-		if idx := strings.LastIndex(st, "."); idx >= 0 {
-			baseName = st[idx+1:]
-		}
-		varName := strings.ToLower(baseName[:1]) + baseName[1:]
-		buf.WriteString(fmt.Sprintf("\t%s := %s{\n", varName, st))
-		for _, p := range params {
-			// Use the original Go field name (title case) for the struct literal.
-			fieldName := strings.ToUpper(p.GoName[:1]) + p.GoName[1:]
-			buf.WriteString(fmt.Sprintf("\t\t%s: %s,\n", fieldName, p.GoName))
-		}
-		buf.WriteString("\t}\n")
-	}
-	return buf.String()
+	"converterFunc":      templateFuncConverterFunc,
+	"needsOpImport":      templateFuncNeedsOpImport,
+	"paramNamesList":     templateFuncParamNamesList,
+	"providerFieldInit":  templateFuncProviderFieldInit,
+	"providerInit":       templateFuncProviderInit,
+	"providerTypePrefix": templateFuncProviderTypePrefix,
 }
 
 // templateFuncProviderFieldInit generates the Provider struct construction for
@@ -1206,173 +347,18 @@ func templateFuncProviderTypePrefix(d *generateDescriptor) string {
 	return ""
 }
 
-// templateFuncPropertyAttrExpr generates the Attr() case body for a property method.
-// Property methods are exposed as direct values (not callable functions):
-//
-//	case "paths":
-//	    return op.StringSliceToList(p.Paths()), nil
-//
-// The expression converts the Go return type to a Starlark value using the same
-// type mappings as immediateResultExpr.
-func templateFuncPropertyAttrExpr(m methodInfo) string {
-	call := fmt.Sprintf("p.%s()", m.GoName)
-	if m.ResultExpr != "" {
-		return strings.ReplaceAll(m.ResultExpr, "%s", call)
-	}
-	return immediateResultExpr(m.ReturnType, call)
-}
-
-// templateFuncHasStructParam returns true if the method has any struct-expanded params.
-func templateFuncHasStructParam(m methodInfo) bool {
-	for _, p := range m.Params {
-		if p.StructType != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// templateFuncImmediateStructCallArgs generates the call arguments for a provider method
-// that includes struct-expanded params. Non-struct params use their variable names directly;
-// struct params use the reconstructed struct variable.
-func templateFuncImmediateStructCallArgs(m methodInfo) string {
-	// Find the original params (before expansion) — each unique StructType
-	// becomes one call arg using the reconstructed local variable.
-	var args []string
-	seenStructs := map[string]bool{}
-	for _, p := range m.Params {
-		if p.StructType != "" {
-			if !seenStructs[p.StructType] {
-				seenStructs[p.StructType] = true
-				baseName := p.StructType
-				if idx := strings.LastIndex(p.StructType, "."); idx >= 0 {
-					baseName = p.StructType[idx+1:]
-				}
-				varName := strings.ToLower(baseName[:1]) + baseName[1:]
-				args = append(args, varName)
-			}
-		} else {
-			decl, arg := immediateArgExpr(p)
-			_ = decl // any needed decl is handled by immediateProviderBody
-			args = append(args, arg)
-		}
-	}
-	return strings.Join(args, ", ")
-}
-
-// =============================================================================
-// HANDLE TYPE GENERATION
-// =============================================================================
-
-// templateFuncHandleTypes collects unique handle types across all methods and generates
-// Starlark HasAttrs wrapper code for each. Handle types appear in callable parameters
-// and expose a subset of the Go interface's methods as Starlark attributes.
-func templateFuncHandleTypes(methods []methodInfo) string {
-	// Collect unique handle types across all methods.
-	seen := map[string]bool{}
-	var handles []handleType
-	for _, m := range methods {
-		for _, p := range m.Params {
-			if p.Callable == nil {
-				continue
-			}
-			for _, ht := range p.Callable.HandleTypes {
-				if seen[ht.HandleName] {
-					continue
-				}
-				seen[ht.HandleName] = true
-				handles = append(handles, ht)
-			}
-		}
-	}
-	if len(handles) == 0 {
-		return ""
-	}
-
-	var buf strings.Builder
-	for _, ht := range handles {
-		fieldName := strings.ToLower(ht.HandleName[:1]) + ht.HandleName[1:]
-		// Remove "Handle" suffix for the field name if present.
-		if strings.HasSuffix(fieldName, "Handle") {
-			fieldName = fieldName[:len(fieldName)-6]
-		}
-		snakeName := camelToSnake(strings.TrimSuffix(ht.HandleName, "Handle"))
-
-		// Struct definition
-		buf.WriteString(fmt.Sprintf("\n// %s wraps a %s for Starlark consumption.\ntype %s struct {\n\t%s %s\n}\n\n",
-			ht.HandleName, ht.GoType, ht.HandleName, fieldName, ht.GoType))
-
-		// Constructor
-		buf.WriteString(fmt.Sprintf("// New%s creates a new handle wrapper.\nfunc New%s(v %s) *%s { return &%s{%s: v} }\n\n",
-			ht.HandleName, ht.HandleName, ht.GoType, ht.HandleName, ht.HandleName, fieldName))
-
-		// Starlark Value interface
-		buf.WriteString(fmt.Sprintf("func (h *%s) String() string        { return h.%s.Name() }\n",
-			ht.HandleName, fieldName))
-		buf.WriteString(fmt.Sprintf("func (h *%s) Type() string          { return %q }\n",
-			ht.HandleName, snakeName))
-		buf.WriteString(fmt.Sprintf("func (h *%s) Freeze()               {}\n", ht.HandleName))
-		buf.WriteString(fmt.Sprintf("func (h *%s) Truth() starlark.Bool  { return true }\n",
-			ht.HandleName))
-		buf.WriteString(fmt.Sprintf("func (h *%s) Hash() (uint32, error) { return 0, fmt.Errorf(\"unhashable: %s\") }\n\n",
-			ht.HandleName, snakeName))
-
-		// Attr method
-		buf.WriteString(fmt.Sprintf("func (h *%s) Attr(name string) (starlark.Value, error) {\n\tswitch name {\n",
-			ht.HandleName))
-		for _, hm := range ht.Methods {
-			conv := handleMethodReturnExpr(fmt.Sprintf("h.%s.%s()", fieldName, hm.GoName), hm.ReturnType)
-			buf.WriteString(fmt.Sprintf("\tcase %q:\n\t\treturn %s, nil\n", hm.SnakeName, conv))
-		}
-		buf.WriteString(fmt.Sprintf("\tdefault:\n\t\treturn nil, op.NoSuchAttrError(%q, name)\n\t}\n}\n\n", snakeName))
-
-		// AttrNames method
-		var attrNames []string
-		for _, hm := range ht.Methods {
-			attrNames = append(attrNames, fmt.Sprintf("%q", hm.SnakeName))
-		}
-		sort.Strings(attrNames)
-		buf.WriteString(fmt.Sprintf("func (h *%s) AttrNames() []string {\n\treturn []string{%s}\n}\n",
-			ht.HandleName, strings.Join(attrNames, ", ")))
-	}
-	return buf.String()
-}
-
-// handleMethodReturnExpr converts a Go method call expression to its Starlark value.
-func handleMethodReturnExpr(callExpr, returnType string) string {
-	switch returnType {
-	case "string":
-		return fmt.Sprintf("starlark.String(%s)", callExpr)
-	case "bool":
-		return fmt.Sprintf("starlark.Bool(%s)", callExpr)
-	case "int":
-		return fmt.Sprintf("starlark.MakeInt(%s)", callExpr)
-	case "int64":
-		return fmt.Sprintf("starlark.MakeInt64(%s)", callExpr)
-	default:
-		return callExpr
-	}
-}
-
 // =============================================================================
 // MARSHALER-BASED TEMPLATE FUNCTIONS
 // =============================================================================
 
 // templateFuncParamNamesList generates the quoted, comma-separated parameter
-// name list for a single method's MethodParams entry. Only starlark-facing
-// params are included; engine-injected and callable params are excluded.
+// name list for a single method's MethodParams entry. All params are included
+// except callables (which the bridge handles separately).
 // Optional params (with Default or marked Optional) get a "?" suffix.
 func templateFuncParamNamesList(m methodInfo) string {
 	var names []string
 	for _, p := range m.Params {
 		if p.Callable != nil {
-			continue
-		}
-		tm := typeMappings[p.GoType]
-		if tm.contextReader != "" {
-			continue
-		}
-		if !tm.starlarkFacing && p.GoType != "[]byte" {
 			continue
 		}
 		name := `"` + p.SnakeName
@@ -1383,71 +369,6 @@ func templateFuncParamNamesList(m methodInfo) string {
 		names = append(names, name)
 	}
 	return strings.Join(names, ", ")
-}
-
-// templateFuncNeedsOverride returns true if a method needs an Override()
-// call instead of WrapReceiver's auto-bridging. Override is required when
-// the method has callable params, variadic params, engine-injected params,
-// struct_param expansion, non-zero defaults, or a custom ResultExpr.
-func templateFuncNeedsOverride(m methodInfo) bool {
-	for _, p := range m.Params {
-		if p.Callable != nil {
-			return true
-		}
-		if p.Variadic {
-			return true
-		}
-		tm := typeMappings[p.GoType]
-		if tm.contextReader != "" {
-			return true
-		}
-		if !tm.starlarkFacing && p.GoType != "[]byte" {
-			return true
-		}
-		if p.StructType != "" {
-			return true
-		}
-		if p.Default != "" {
-			return true
-		}
-	}
-	if m.ResultExpr != "" {
-		return true
-	}
-	if m.Property {
-		return true
-	}
-	return false
-}
-
-// templateFuncOverrideClosure generates the Override closure body for a method
-// that needs custom bridging. Reuses immediateUnpackArgs and immediateProviderBody.
-func templateFuncOverrideClosure(m methodInfo) string {
-	var buf strings.Builder
-	// Use named "thread" parameter when the method has callable params that need starlark.Call().
-	threadParam := "_ *starlark.Thread"
-	if templateFuncNeedsThread(m) {
-		threadParam = "thread *starlark.Thread"
-	}
-	buf.WriteString(fmt.Sprintf("\tr.Override(%q, func(%s, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {\n", m.SnakeName, threadParam))
-
-	unpack := templateFuncImmediateUnpackArgs(m)
-	if unpack != "" {
-		// Indent the unpack block for nesting inside the closure.
-		for _, line := range strings.Split(unpack, "\n") {
-			buf.WriteString("\t" + line + "\n")
-		}
-	}
-
-	body := templateFuncImmediateProviderBody(m)
-	if body != "" {
-		for _, line := range strings.Split(body, "\n") {
-			buf.WriteString("\t" + line + "\n")
-		}
-	}
-
-	buf.WriteString("\t})")
-	return buf.String()
 }
 
 // templateFuncProviderInit generates the ImmediateFactory body that constructs
@@ -1480,23 +401,6 @@ func templateFuncProviderInit(d *generateDescriptor) string {
 	}
 
 	return buf.String()
-}
-
-// templateFuncHasOverrides returns true if any method in the descriptor needs Override.
-func templateFuncHasOverrides(d *generateDescriptor) bool {
-	for _, m := range d.Methods {
-		if templateFuncNeedsOverride(m) {
-			return true
-		}
-	}
-	return false
-}
-
-// templateFuncNeedsReflect returns true if the descriptor uses WrapPlanned
-// (which requires reflect.TypeOf).
-func templateFuncNeedsReflect(_ *generateDescriptor) bool {
-	// Planned templates always need reflect for reflect.TypeOf.
-	return true
 }
 
 // =============================================================================
@@ -1780,13 +684,6 @@ const ImmediateReceiverTemplate = `// Code generated by go.generate; DO NOT EDIT
 package {{.Package}}
 
 import (
-{{- if needsFmt .Methods}}
-	"fmt"
-{{- end}}
-{{- if needsImport .Methods "os.FileMode"}}
-	"os"
-{{- end}}
-
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -1814,47 +711,10 @@ func init() {
 	})
 }
 {{end}}
-type {{.StructName}}{{.WrapperSuffix}} struct {
-	op.Receiver
-	provider *{{providerTypePrefix .}}{{.ImplType}}
+func New{{.StructName}}{{.WrapperSuffix}}(p *{{providerTypePrefix .}}{{.ImplType}}) *op.ReflectedReceiver {
+	return op.WrapReceiver("{{.Namespace}}", p, Params)
 }
-
-func New{{.StructName}}{{.WrapperSuffix}}(p *{{providerTypePrefix .}}{{.ImplType}}) *{{.StructName}}{{.WrapperSuffix}} {
-	return &{{.StructName}}{{.WrapperSuffix}}{
-		Receiver: op.NewReceiver("{{.Namespace}}"),
-		provider: p,
-	}
-}
-
-func (r *{{.StructName}}{{.WrapperSuffix}}) Attr(name string) (starlark.Value, error) {
-	switch name {
-{{- range .Methods}}
-{{- if .Property}}
-	case "{{.SnakeName}}":
-		return {{propertyAttrExpr .}}, nil
-{{- else}}
-	case "{{.SnakeName}}":
-		return op.MakeAttr("{{$.Namespace}}.{{.SnakeName}}", r.{{.SnakeName}}), nil
-{{- end}}
-{{- end}}
-	default:
-{{- if hasExtraAttrs .}}
-		return r.queryAttr(name)
-{{- else}}
-		return nil, op.NoSuchAttrError("{{.Namespace}}", name)
-{{- end}}
-	}
-}
-
-func (r *{{.StructName}}{{.WrapperSuffix}}) AttrNames() []string {
-	return []string{{"{"}}{{allAttrNames .}}{{"}"}}
-}
-{{range .Methods}}{{if not .Property}}
-func (r *{{$.StructName}}{{$.WrapperSuffix}}) {{.SnakeName}}({{if needsThread .}}thread{{else}}_{{end}} *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-{{immediateUnpackArgs .}}
-{{immediateProviderBody .}}
-}
-{{end}}{{end}}`
+`
 
 // builtinTemplates maps names to content for builtin templates.
 // StructConverterTemplate is the builtin template for struct-to-Starlark converters.
@@ -1933,19 +793,11 @@ func (r *GoReceiver) goGenerate(_ *starlark.Thread, _ *starlark.Builtin, args st
 		return nil, fmt.Errorf("go.generate: %w", err)
 	}
 
-	// Gate 1: validate param types — flag unprojectable methods instead of failing.
-	var projectable []methodInfo
+	// Gate 1: callable params are only supported in immediate receivers.
+	projectable := desc.Methods
 	var flaggedMethods []starlark.Value
-	for _, m := range desc.Methods {
-		if err := validateParamTypes(m.Params); err != nil {
-			reason := fmt.Sprintf("%s: %s", methodLocation(m), err)
-			flaggedMethods = append(flaggedMethods, starlark.String(reason))
-		} else {
-			projectable = append(projectable, m)
-		}
-	}
 
-	// Gate 1b: callable params are only supported in immediate receivers.
+	//
 	// For planned/graph templates, callable params can't be serialized to slots.
 	if desc.Template != "immediate_receiver" {
 		var callableValid []methodInfo
@@ -2089,17 +941,6 @@ func (r *GoReceiver) goMapping(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	if err != nil {
 		return nil, fmt.Errorf("go.mapping: %w", err)
 	}
-
-	// Gate 1: validate param types — flag unprojectable methods.
-	var mappingProjectable []methodInfo
-	for _, m := range desc.Methods {
-		if err := validateParamTypes(m.Params); err != nil {
-			// Skip unprojectable methods in mapping output.
-			continue
-		}
-		mappingProjectable = append(mappingProjectable, m)
-	}
-	desc.Methods = mappingProjectable
 
 	// Gate 2: validate return signatures
 	for _, m := range desc.Methods {
@@ -2432,7 +1273,7 @@ func methodInfoFromValue(v starlark.Value) (methodInfo, error) {
 
 	file, _ := valueGetString(v, "file")
 	line, _ := valueGetInt(v, "line")
-	property, _ := valueGetBool(v, "property")      // optional
+	property, _ := valueGetBool(v, "property")        // optional
 	resultExpr, _ := valueGetString(v, "result_expr") // optional
 
 	return methodInfo{
@@ -2466,9 +1307,9 @@ func paramInfoFromValue(v starlark.Value) (paramInfo, error) {
 	}
 
 	doc, _ := valueGetString(v, "doc")                // optional
-	optional, _ := valueGetBool(v, "optional")         // optional
-	dflt, _ := valueGetString(v, "default")            // optional
-	structType, _ := valueGetString(v, "struct_type")  // optional
+	optional, _ := valueGetBool(v, "optional")        // optional
+	dflt, _ := valueGetString(v, "default")           // optional
+	structType, _ := valueGetString(v, "struct_type") // optional
 
 	pi := paramInfo{
 		GoName:     name,
@@ -2541,43 +1382,10 @@ func callableInfoFromValue(v starlark.Value) (*callableInfo, error) {
 		})
 	}
 
-	// Parse handle types
-	handlesVal, err := valueGetList(callableVal, "handle_types")
-	if err != nil {
-		return nil, fmt.Errorf("handle_types: %w", err)
-	}
-	var handleTypes []handleType
-	for i := 0; i < handlesVal.Len(); i++ {
-		hv := handlesVal.Index(i)
-		goType, _ := valueGetString(hv, "go_type")
-		handleName, _ := valueGetString(hv, "handle_name")
-
-		methodsVal, _ := valueGetList(hv, "methods")
-		var methods []handleMethod
-		for j := 0; j < methodsVal.Len(); j++ {
-			mv := methodsVal.Index(j)
-			mGoName, _ := valueGetString(mv, "go_name")
-			mSnakeName, _ := valueGetString(mv, "snake_name")
-			mRetType, _ := valueGetString(mv, "return_type")
-			methods = append(methods, handleMethod{
-				GoName:     mGoName,
-				SnakeName:  mSnakeName,
-				ReturnType: mRetType,
-			})
-		}
-
-		handleTypes = append(handleTypes, handleType{
-			GoType:     goType,
-			HandleName: handleName,
-			Methods:    methods,
-		})
-	}
-
 	return &callableInfo{
-		TypeName:    typeName,
-		Params:      params,
-		Returns:     returns,
-		HandleTypes: handleTypes,
+		TypeName: typeName,
+		Params:   params,
+		Returns:  returns,
 	}, nil
 }
 
