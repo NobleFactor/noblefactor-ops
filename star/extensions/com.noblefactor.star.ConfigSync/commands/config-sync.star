@@ -10,12 +10,12 @@ def run(ctx):
     result = config.sync()
 
     if result.files_generated == 0:
-        note("No tool configs to sync (no config sections in star.yaml)")
+        ui.note("No tool configs to sync (no config sections in star.yaml)")
         return
 
     if result.golangci_lint:
-        success("Generated " + result.golangci_lint)
+        ui.success("Generated " + result.golangci_lint)
     if result.markdown_lint:
-        success("Generated " + result.markdown_lint)
+        ui.success("Generated " + result.markdown_lint)
 
-    success("Synced " + str(result.files_generated) + " config file(s)")
+    ui.success("Synced " + str(result.files_generated) + " config file(s)")

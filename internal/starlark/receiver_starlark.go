@@ -12,31 +12,33 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 	"go.starlark.net/syntax"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // StarlarkParseReceiver provides Starlark source parsing operations.
 // Implements starlark.Value and starlark.HasAttrs.
 // Note: Named starlark_parse to avoid conflict with the starlark package name.
 type StarlarkParseReceiver struct {
-	BaseReceiver
+	op.Receiver
 }
 
 // NewStarlarkParseReceiver creates a new StarlarkParseReceiver.
 func NewStarlarkParseReceiver() *StarlarkParseReceiver {
-	return &StarlarkParseReceiver{BaseReceiver: NewBaseReceiver("starlark_parse")}
+	return &StarlarkParseReceiver{Receiver: op.NewReceiver("starlark_parse")}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *StarlarkParseReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "parse":
-		return MakeAttr("starlark_parse.parse", r.parse), nil
+		return op.MakeAttr("starlark_parse.parse", r.parse), nil
 	case "complexity":
-		return MakeAttr("starlark_parse.complexity", r.complexity), nil
+		return op.MakeAttr("starlark_parse.complexity", r.complexity), nil
 	case "metrics":
-		return MakeAttr("starlark_parse.metrics", r.metrics), nil
+		return op.MakeAttr("starlark_parse.metrics", r.metrics), nil
 	default:
-		return nil, NoSuchAttrError("starlark_parse", name)
+		return nil, op.NoSuchAttrError("starlark_parse", name)
 	}
 }
 

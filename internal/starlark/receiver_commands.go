@@ -10,12 +10,14 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // CommandsReceiver provides command tree query and execution operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type CommandsReceiver struct {
-	BaseReceiver
+	op.Receiver
 	runtime        *Runtime
 	currentCommand string // dot-separated name of currently executing command
 }
@@ -23,7 +25,7 @@ type CommandsReceiver struct {
 // NewCommandsReceiver creates a new CommandsReceiver.
 func NewCommandsReceiver(runtime *Runtime) *CommandsReceiver {
 	return &CommandsReceiver{
-		BaseReceiver: NewBaseReceiver("commands"),
+		Receiver: op.NewReceiver("commands"),
 		runtime:      runtime,
 	}
 }
@@ -37,21 +39,21 @@ func (r *CommandsReceiver) SetCurrentCommand(name string) {
 func (r *CommandsReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "parent":
-		return MakeAttr("commands.parent", r.parent), nil
+		return op.MakeAttr("commands.parent", r.parent), nil
 	case "siblings":
-		return MakeAttr("commands.siblings", r.siblings), nil
+		return op.MakeAttr("commands.siblings", r.siblings), nil
 	case "children":
-		return MakeAttr("commands.children", r.children), nil
+		return op.MakeAttr("commands.children", r.children), nil
 	case "query":
-		return MakeAttr("commands.query", r.query), nil
+		return op.MakeAttr("commands.query", r.query), nil
 	case "get":
-		return MakeAttr("commands.get", r.get), nil
+		return op.MakeAttr("commands.get", r.get), nil
 	case "run":
-		return MakeAttr("commands.run", r.run), nil
+		return op.MakeAttr("commands.run", r.run), nil
 	case "current":
-		return MakeAttr("commands.current", r.current), nil
+		return op.MakeAttr("commands.current", r.current), nil
 	default:
-		return nil, NoSuchAttrError("commands", name)
+		return nil, op.NoSuchAttrError("commands", name)
 	}
 }
 

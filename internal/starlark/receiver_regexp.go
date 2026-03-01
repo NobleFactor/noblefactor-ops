@@ -8,18 +8,20 @@ import (
 	"sync"
 
 	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // RegexpReceiver provides regular expression operations with pattern caching.
 // Implements starlark.Value and starlark.HasAttrs.
 type RegexpReceiver struct {
-	BaseReceiver
+	op.Receiver
 	cache sync.Map // pattern string → *regexp.Regexp
 }
 
 // NewRegexpReceiver creates a new RegexpReceiver.
 func NewRegexpReceiver() *RegexpReceiver {
-	return &RegexpReceiver{BaseReceiver: NewBaseReceiver("regexp")}
+	return &RegexpReceiver{Receiver: op.NewReceiver("regexp")}
 }
 
 // compile returns a compiled regexp, using the cache if available.
@@ -42,23 +44,23 @@ func (r *RegexpReceiver) compile(pattern string) (*regexp.Regexp, error) {
 func (r *RegexpReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "match":
-		return MakeAttr("regexp.match", r.match), nil
+		return op.MakeAttr("regexp.match", r.match), nil
 	case "find":
-		return MakeAttr("regexp.find", r.find), nil
+		return op.MakeAttr("regexp.find", r.find), nil
 	case "find_all":
-		return MakeAttr("regexp.find_all", r.findAll), nil
+		return op.MakeAttr("regexp.find_all", r.findAll), nil
 	case "find_submatch":
-		return MakeAttr("regexp.find_submatch", r.findSubmatch), nil
+		return op.MakeAttr("regexp.find_submatch", r.findSubmatch), nil
 	case "find_all_submatch":
-		return MakeAttr("regexp.find_all_submatch", r.findAllSubmatch), nil
+		return op.MakeAttr("regexp.find_all_submatch", r.findAllSubmatch), nil
 	case "replace":
-		return MakeAttr("regexp.replace", r.replace), nil
+		return op.MakeAttr("regexp.replace", r.replace), nil
 	case "replace_literal":
-		return MakeAttr("regexp.replace_literal", r.replaceLiteral), nil
+		return op.MakeAttr("regexp.replace_literal", r.replaceLiteral), nil
 	case "split":
-		return MakeAttr("regexp.split", r.split), nil
+		return op.MakeAttr("regexp.split", r.split), nil
 	default:
-		return nil, NoSuchAttrError("regexp", name)
+		return nil, op.NoSuchAttrError("regexp", name)
 	}
 }
 

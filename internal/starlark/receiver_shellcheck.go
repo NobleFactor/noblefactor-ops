@@ -14,38 +14,40 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// ShellReceiver provides shell script analysis operations.
+// ShellcheckReceiver provides shell script analysis operations.
 // Implements starlark.Value and starlark.HasAttrs.
-type ShellReceiver struct {
-	BaseReceiver
+type ShellcheckReceiver struct {
+	op.Receiver
 }
 
-// NewShellReceiver creates a new ShellReceiver.
-func NewShellReceiver() *ShellReceiver {
-	return &ShellReceiver{BaseReceiver: NewBaseReceiver("shell")}
+// NewShellcheckReceiver creates a new ShellcheckReceiver.
+func NewShellcheckReceiver() *ShellcheckReceiver {
+	return &ShellcheckReceiver{Receiver: op.NewReceiver("shellcheck")}
 }
 
 // Attr implements starlark.HasAttrs.
-func (r *ShellReceiver) Attr(name string) (starlark.Value, error) {
+func (r *ShellcheckReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "lint":
-		return MakeAttr("shell.lint", r.lint), nil
-	case "format_check":
-		return MakeAttr("shell.format_check", r.formatCheck), nil
+		return op.MakeAttr("shellcheck.lint", r.lint), nil
+	case "format":
+		return op.MakeAttr("shellcheck.format", r.format), nil
 	case "parse":
-		return MakeAttr("shell.parse", r.parse), nil
+		return op.MakeAttr("shellcheck.parse", r.parse), nil
 	case "complexity":
-		return MakeAttr("shell.complexity", r.complexity), nil
+		return op.MakeAttr("shellcheck.complexity", r.complexity), nil
 	default:
-		return nil, NoSuchAttrError("shell", name)
+		return nil, op.NoSuchAttrError("shellcheck", name)
 	}
 }
 
 // AttrNames implements starlark.HasAttrs.
-func (r *ShellReceiver) AttrNames() []string {
-	return []string{"complexity", "format_check", "lint", "parse"}
+func (r *ShellcheckReceiver) AttrNames() []string {
+	return []string{"complexity", "format", "lint", "parse"}
 }
 
 // =============================================================================
@@ -65,9 +67,9 @@ type ShellcheckIssue struct {
 }
 
 // lint runs shellcheck on shell scripts and returns structured issues.
-func (r *ShellReceiver) lint(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *ShellcheckReceiver) lint(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path, severity string
-	if err := starlark.UnpackArgs("shell.lint", args, kwargs, "path", &path, "severity?", &severity); err != nil {
+	if err := starlark.UnpackArgs("shellcheck.lint", args, kwargs, "path", &path, "severity?", &severity); err != nil {
 		return nil, err
 	}
 
@@ -76,12 +78,12 @@ func (r *ShellReceiver) lint(_ *starlark.Thread, _ *starlark.Builtin, args starl
 	}
 
 	if _, err := exec.LookPath("shellcheck"); err != nil {
-		return nil, fmt.Errorf("shell.lint: shellcheck not installed (install with your package manager)")
+		return nil, fmt.Errorf("shellcheck.lint: shellcheck not installed (install with your package manager)")
 	}
 
 	files, err := collectShellFiles(path)
 	if err != nil {
-		return nil, fmt.Errorf("shell.lint: %w", err)
+		return nil, fmt.Errorf("shellcheck.lint: %w", err)
 	}
 
 	var allIssues []ShellcheckIssue
@@ -155,14 +157,20 @@ func runShellcheck(path, severity string) ([]ShellcheckIssue, error) {
 }
 
 // =============================================================================
-// SHELL FORMAT CHECK (shfmt)
+// SHELL FORMAT (shfmt)
 // =============================================================================
 
-// formatCheck checks if shell scripts conform to shfmt formatting.
-func (r *ShellReceiver) formatCheck(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+// format checks or fixes shell script formatting using shfmt.
+//
+// Parameters:
+//   - path: file or directory to check/format
+//   - indent: indentation width (default 4)
+//   - fix: if true, rewrite files in place (shfmt -w); if false, check only (shfmt -d)
+func (r *ShellcheckReceiver) format(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
 	var indent int
-	if err := starlark.UnpackArgs("shell.format_check", args, kwargs, "path", &path, "indent?", &indent); err != nil {
+	var fix bool
+	if err := starlark.UnpackArgs("shellcheck.format", args, kwargs, "path", &path, "indent?", &indent, "fix?", &fix); err != nil {
 		return nil, err
 	}
 
@@ -171,14 +179,22 @@ func (r *ShellReceiver) formatCheck(_ *starlark.Thread, _ *starlark.Builtin, arg
 	}
 
 	if _, err := exec.LookPath("shfmt"); err != nil {
-		return nil, fmt.Errorf("shell.format_check: shfmt not installed (install with your package manager)")
+		return nil, fmt.Errorf("shellcheck.format: shfmt not installed (install with your package manager)")
 	}
 
 	files, err := collectShellFiles(path)
 	if err != nil {
-		return nil, fmt.Errorf("shell.format_check: %w", err)
+		return nil, fmt.Errorf("shellcheck.format: %w", err)
 	}
 
+	if fix {
+		return r.formatFix(files, indent)
+	}
+	return r.formatCheck(files, indent)
+}
+
+// formatCheck runs shfmt -d (diff mode) and returns failures.
+func (r *ShellcheckReceiver) formatCheck(files []string, indent int) (starlark.Value, error) {
 	var failedFiles []starlark.Value
 	for _, file := range files {
 		cmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
@@ -195,6 +211,28 @@ func (r *ShellReceiver) formatCheck(_ *starlark.Thread, _ *starlark.Builtin, arg
 		"passed":        starlark.Bool(len(failedFiles) == 0),
 		"files_checked": starlark.MakeInt(len(files)),
 		"files_failed":  starlark.NewList(failedFiles),
+	}), nil
+}
+
+// formatFix runs shfmt -w (write mode) and returns formatted file count.
+func (r *ShellcheckReceiver) formatFix(files []string, indent int) (starlark.Value, error) {
+	var filesFormatted int
+	for _, file := range files {
+		// Check if the file needs formatting first.
+		checkCmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
+		if output, err := checkCmd.CombinedOutput(); err != nil && len(output) > 0 {
+			// File needs formatting — rewrite it.
+			writeCmd := exec.CommandContext(context.Background(), "shfmt", "-w", "-i", fmt.Sprintf("%d", indent), "-ci", file)
+			if err := writeCmd.Run(); err != nil {
+				return nil, fmt.Errorf("shellcheck.format: failed to format %s: %w", file, err)
+			}
+			filesFormatted++
+		}
+	}
+
+	return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"files_checked":   starlark.MakeInt(len(files)),
+		"files_formatted": starlark.MakeInt(filesFormatted),
 	}), nil
 }
 
@@ -231,15 +269,15 @@ type ShellParseResult struct {
 }
 
 // parse parses shell scripts and extracts structural information.
-func (r *ShellReceiver) parse(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *ShellcheckReceiver) parse(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
-	if err := starlark.UnpackArgs("shell.parse", args, kwargs, "path", &path); err != nil {
+	if err := starlark.UnpackArgs("shellcheck.parse", args, kwargs, "path", &path); err != nil {
 		return nil, err
 	}
 
 	files, err := collectShellFiles(path)
 	if err != nil {
-		return nil, fmt.Errorf("shell.parse: %w", err)
+		return nil, fmt.Errorf("shellcheck.parse: %w", err)
 	}
 
 	var allFiles []starlark.Value
@@ -520,15 +558,15 @@ type ShellFunctionComplexity struct {
 }
 
 // complexity calculates complexity metrics for shell scripts.
-func (r *ShellReceiver) complexity(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (r *ShellcheckReceiver) complexity(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var path string
-	if err := starlark.UnpackArgs("shell.complexity", args, kwargs, "path", &path); err != nil {
+	if err := starlark.UnpackArgs("shellcheck.complexity", args, kwargs, "path", &path); err != nil {
 		return nil, err
 	}
 
 	files, err := collectShellFiles(path)
 	if err != nil {
-		return nil, fmt.Errorf("shell.complexity: %w", err)
+		return nil, fmt.Errorf("shellcheck.complexity: %w", err)
 	}
 
 	var allFiles []starlark.Value

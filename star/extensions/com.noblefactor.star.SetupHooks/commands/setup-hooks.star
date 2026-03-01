@@ -12,8 +12,8 @@ def run(ctx):
 
     if result.success:
         if result.already_installed:
-            success("Git hooks already installed")
+            ui.success("Git hooks already installed")
         else:
-            success("Installed pre-commit hook")
+            ui.success("Installed pre-commit hook")
     else:
-        fail(result.message)
+        ui.fail(result.message)

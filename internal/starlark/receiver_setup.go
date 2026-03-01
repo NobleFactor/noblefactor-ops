@@ -13,40 +13,45 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/noblefactor-ops/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 )
 
 // SetupReceiver provides repository setup operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type SetupReceiver struct {
-	BaseReceiver
+	op.Receiver
+	ui *ui.Provider
 }
 
 // NewSetupReceiver creates a new SetupReceiver.
-func NewSetupReceiver() *SetupReceiver {
-	return &SetupReceiver{BaseReceiver: NewBaseReceiver("setup")}
+func NewSetupReceiver(p *ui.Provider) *SetupReceiver {
+	return &SetupReceiver{
+		Receiver: op.NewReceiver("setup"),
+		ui:       p,
+	}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *SetupReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "tools":
-		return MakeAttr("setup.tools", r.tools), nil
+		return op.MakeAttr("setup.tools", r.tools), nil
 	case "precommit_install":
-		return MakeAttr("setup.precommit_install", r.precommitInstall), nil
+		return op.MakeAttr("setup.precommit_install", r.precommitInstall), nil
 	case "precommit_check":
-		return MakeAttr("setup.precommit_check", r.precommitCheck), nil
+		return op.MakeAttr("setup.precommit_check", r.precommitCheck), nil
 	case "init_config":
-		return MakeAttr("setup.init_config", r.initConfig), nil
+		return op.MakeAttr("setup.init_config", r.initConfig), nil
 	case "install_hook":
-		return MakeAttr("setup.install_hook", r.installHook), nil
+		return op.MakeAttr("setup.install_hook", r.installHook), nil
 	case "uninstall_hook":
-		return MakeAttr("setup.uninstall_hook", r.uninstallHook), nil
+		return op.MakeAttr("setup.uninstall_hook", r.uninstallHook), nil
 	case "check_hook":
-		return MakeAttr("setup.check_hook", r.checkHook), nil
+		return op.MakeAttr("setup.check_hook", r.checkHook), nil
 	default:
-		return nil, NoSuchAttrError("setup", name)
+		return nil, op.NoSuchAttrError("setup", name)
 	}
 }
 
@@ -236,7 +241,7 @@ func (r *SetupReceiver) precommitInstall(_ *starlark.Thread, _ *starlark.Builtin
 	}
 
 	if DryRun {
-		cli.Note("[dry-run] would run: pre-commit install")
+		r.ui.Note("[dry-run] would run: pre-commit install")
 		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 			"success":           starlark.Bool(true),
 			"message":           starlark.String("[dry-run] would install pre-commit hooks"),
@@ -282,7 +287,7 @@ func (r *SetupReceiver) initConfig(_ *starlark.Thread, _ *starlark.Builtin, args
 
 	if _, err := os.Stat(starConfigPath); os.IsNotExist(err) {
 		if DryRun {
-			cli.Note("[dry-run] would create %s", starConfigPath)
+			r.ui.Note(fmt.Sprintf("[dry-run] would create %s", starConfigPath))
 			starConfigCreated = true
 		} else {
 			// Ensure star/ directory exists
@@ -312,7 +317,7 @@ lint:
 				return nil, fmt.Errorf("creating star/config.yaml: %w", err)
 			}
 			starConfigCreated = true
-			cli.Success("Created %s", starConfigPath)
+			r.ui.Success(fmt.Sprintf("Created %s", starConfigPath))
 		}
 	}
 
@@ -322,7 +327,7 @@ lint:
 	}
 
 	if DryRun {
-		cli.Note("[dry-run] would sync tool configs")
+		r.ui.Note("[dry-run] would sync tool configs")
 		configsSynced = append(configsSynced, starlark.String(".golangci.yaml"))
 		configsSynced = append(configsSynced, starlark.String(".markdownlint-cli2.yaml"))
 	} else {
@@ -332,11 +337,11 @@ lint:
 		}
 		if synced.GolangciLint != "" {
 			configsSynced = append(configsSynced, starlark.String(synced.GolangciLint))
-			cli.Success("Synced %s", synced.GolangciLint)
+			r.ui.Success(fmt.Sprintf("Synced %s", synced.GolangciLint))
 		}
 		if synced.MarkdownLint != "" {
 			configsSynced = append(configsSynced, starlark.String(synced.MarkdownLint))
-			cli.Success("Synced %s", synced.MarkdownLint)
+			r.ui.Success(fmt.Sprintf("Synced %s", synced.MarkdownLint))
 		}
 	}
 
@@ -414,7 +419,7 @@ func (r *SetupReceiver) installHook(_ *starlark.Thread, _ *starlark.Builtin, arg
 	}
 
 	if DryRun {
-		cli.Note("[dry-run] would install %s hook", name)
+		r.ui.Note(fmt.Sprintf("[dry-run] would install %s hook", name))
 		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 			"success":           starlark.Bool(true),
 			"message":           starlark.String(fmt.Sprintf("[dry-run] would install %s hook", name)),
@@ -466,7 +471,7 @@ func (r *SetupReceiver) uninstallHook(_ *starlark.Thread, _ *starlark.Builtin, a
 	}
 
 	if DryRun {
-		cli.Note("[dry-run] would remove %s hook", name)
+		r.ui.Note(fmt.Sprintf("[dry-run] would remove %s hook", name))
 		return starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
 			"success": starlark.Bool(true),
 			"message": starlark.String(fmt.Sprintf("[dry-run] would remove %s hook", name)),

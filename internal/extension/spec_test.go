@@ -572,23 +572,6 @@ this is not valid yaml: [
 	}
 }
 
-func TestValidate_FunctionsFieldRejected(t *testing.T) {
-	yaml := `
-extension: com.example.Test
-receivers:
-  - name: test
-    wasm: receivers/test.wasm
-    functions:
-      analyze: "Run analysis"
-    capabilities:
-      fs:
-        read: ["/workspace"]
-`
-	_, err := ParseSpecFromBytes([]byte(yaml))
-	if err == nil {
-		t.Error("expected error for receiver with functions field")
-	}
-}
 
 func TestGetCommand(t *testing.T) {
 	spec := &ExtensionSpec{

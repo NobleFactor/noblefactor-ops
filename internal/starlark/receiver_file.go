@@ -12,54 +12,59 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/noblefactor-ops/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	"github.com/NobleFactor/noblefactor-ops/internal/ignore"
 )
 
 // FileReceiver provides file system operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type FileReceiver struct {
-	BaseReceiver
+	op.Receiver
+	ui *ui.Provider
 }
 
 // NewFileReceiver creates a new FileReceiver.
-func NewFileReceiver() *FileReceiver {
-	return &FileReceiver{BaseReceiver: NewBaseReceiver("file")}
+func NewFileReceiver(p *ui.Provider) *FileReceiver {
+	return &FileReceiver{
+		Receiver: op.NewReceiver("file"),
+		ui:       p,
+	}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *FileReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "read":
-		return MakeAttr("file.read", r.read), nil
+		return op.MakeAttr("file.read", r.read), nil
 	case "write":
-		return MakeAttr("file.write", r.write), nil
+		return op.MakeAttr("file.write", r.write), nil
 	case "exists":
-		return MakeAttr("file.exists", r.exists), nil
+		return op.MakeAttr("file.exists", r.exists), nil
 	case "is_directory":
-		return MakeAttr("file.is_directory", r.isDirectory), nil
+		return op.MakeAttr("file.is_directory", r.isDirectory), nil
 	case "is_file":
-		return MakeAttr("file.is_file", r.isFile), nil
+		return op.MakeAttr("file.is_file", r.isFile), nil
 	case "list":
-		return MakeAttr("file.list", r.list), nil
+		return op.MakeAttr("file.list", r.list), nil
 	case "join":
-		return MakeAttr("file.join", r.join), nil
+		return op.MakeAttr("file.join", r.join), nil
 	case "name":
-		return MakeAttr("file.name", r.name), nil
+		return op.MakeAttr("file.name", r.name), nil
 	case "parent":
-		return MakeAttr("file.parent", r.parent), nil
+		return op.MakeAttr("file.parent", r.parent), nil
 	case "glob":
-		return MakeAttr("file.glob", r.glob), nil
+		return op.MakeAttr("file.glob", r.glob), nil
 	case "walk_tree":
-		return MakeAttr("file.walk_tree", r.walkTree), nil
+		return op.MakeAttr("file.walk_tree", r.walkTree), nil
 	case "mkdir":
-		return MakeAttr("file.mkdir", r.mkdir), nil
+		return op.MakeAttr("file.mkdir", r.mkdir), nil
 	case "remove":
-		return MakeAttr("file.remove", r.remove), nil
+		return op.MakeAttr("file.remove", r.remove), nil
 	case "remove_all":
-		return MakeAttr("file.remove_all", r.removeAll), nil
+		return op.MakeAttr("file.remove_all", r.removeAll), nil
 	default:
-		return nil, NoSuchAttrError("file", name)
+		return nil, op.NoSuchAttrError("file", name)
 	}
 }
 
@@ -103,7 +108,7 @@ func (r *FileReceiver) write(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would write %d bytes to %s", len(content), path)
+		r.ui.Note(fmt.Sprintf("would write %d bytes to %s", len(content), path))
 		return starlark.None, nil
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -426,7 +431,7 @@ func (r *FileReceiver) mkdir(_ *starlark.Thread, _ *starlark.Builtin, args starl
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would create directory %s", path)
+		r.ui.Note(fmt.Sprintf("would create directory %s", path))
 		return starlark.None, nil
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -442,7 +447,7 @@ func (r *FileReceiver) remove(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would remove %s", path)
+		r.ui.Note(fmt.Sprintf("would remove %s", path))
 		return starlark.None, nil
 	}
 	if err := os.Remove(path); err != nil {
@@ -458,7 +463,7 @@ func (r *FileReceiver) removeAll(_ *starlark.Thread, _ *starlark.Builtin, args s
 		return nil, err
 	}
 	if DryRun {
-		cli.Note("would remove %s (recursively)", path)
+		r.ui.Note(fmt.Sprintf("would remove %s (recursively)", path))
 		return starlark.None, nil
 	}
 	if err := os.RemoveAll(path); err != nil {

@@ -10,6 +10,8 @@ import (
 
 	starlarklib "go.starlark.net/starlark"
 	"go.starlark.net/syntax"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
 
 // =============================================================================
@@ -188,7 +190,7 @@ func execStarlark(t *testing.T, script string, root string) starlarklib.StringDi
 	thread := &starlarklib.Thread{Name: "test"}
 
 	predeclared := starlarklib.StringDict{
-		"file": File,
+		"file": NewFileReceiver(&ui.Provider{Writer: os.Stderr}),
 		"ROOT": starlarklib.String(root),
 	}
 
