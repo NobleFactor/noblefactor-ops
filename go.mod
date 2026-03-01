@@ -6,7 +6,7 @@ module github.com/NobleFactor/noblefactor-ops
 go 1.26.0
 
 require (
-	github.com/NobleFactor/devlore-cli v0.1.0-dev.20260223223859
+	github.com/NobleFactor/devlore-cli v0.1.0-dev.20260223223859.0.20260301201209-d11e26d3aa6a
 	github.com/go-git/go-git/v5 v5.16.5
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
@@ -42,5 +42,3 @@ require (
 	golang.org/x/sys v0.41.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
-
-replace github.com/NobleFactor/devlore-cli => ../devlore-cli.binding-unification
