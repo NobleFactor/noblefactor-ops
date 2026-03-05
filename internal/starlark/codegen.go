@@ -30,7 +30,6 @@ type generateDescriptor struct {
 	Namespace           string               // dotted namespace (e.g., "plan.file")
 	ImplType            string               // implementation struct name for delegation (e.g., "fileOps")
 	Methods             []methodInfo         // analyzed methods
-	ExtraAttrs          []string             // additional attr names from companion files (e.g., query methods)
 	AllMethodNames      []string             // all method names on the provider (for compensate validation)
 	Access              string               // access level: "immediate", "planned", "both"
 	AccessTitle         string               // title-case access for Go constants: "Immediate", "Planned", "Both"
@@ -346,18 +345,19 @@ func templateFuncProviderFieldInit(d *generateDescriptor) string {
 		}
 	}
 
-	buf.WriteString(fmt.Sprintf("\t\t\treturn New%s%s(&%sProvider{", d.StructName, d.WrapperSuffix, prefix))
-	for i, pf := range d.ProviderFields {
-		if i > 0 {
-			buf.WriteString(", ")
-		}
+	buf.WriteString(fmt.Sprintf("\t\t\treturn New%s%s(&%sProvider{\n", d.StructName, d.WrapperSuffix, prefix))
+	buf.WriteString("\t\t\t\tProviderBase: op.NewProviderBase(op.Context{\n")
+	buf.WriteString("\t\t\t\t\tWriter:   cfg.Writer,\n")
+	buf.WriteString("\t\t\t\t\tPlatform: cfg.Platform,\n")
+	buf.WriteString("\t\t\t\t}),\n")
+	for _, pf := range d.ProviderFields {
 		localVar := strings.ToLower(pf.GoName[:1]) + pf.GoName[1:]
 		if converted, ok := constructedVars[pf.GoName]; ok {
 			localVar = converted
 		}
-		buf.WriteString(fmt.Sprintf("%s: %s", pf.GoName, localVar))
+		buf.WriteString(fmt.Sprintf("\t\t\t\t%s: %s,\n", pf.GoName, localVar))
 	}
-	buf.WriteString("})")
+	buf.WriteString("\t\t\t})")
 	return buf.String()
 }
 
@@ -742,9 +742,10 @@ func init() {
 {{providerFieldInit .}}
 {{- else}}
 			return New{{.StructName}}{{.WrapperSuffix}}(&{{providerTypePrefix .}}Provider{
-				Writer:      cfg.Writer,
-				ProgramName: cfg.ProgramName,
-				Color:       cfg.Color,
+				ProviderBase: op.NewProviderBase(op.Context{
+					Writer:   cfg.Writer,
+					Platform: cfg.Platform,
+				}),
 			})
 {{- end}}
 		},
@@ -1076,19 +1077,6 @@ func descriptorFromValue(templateName string, v starlark.Value) (*generateDescri
 			return nil, fmt.Errorf("descriptor.methods[%d]: %w", i, err)
 		}
 		desc.Methods = append(desc.Methods, m)
-	}
-
-	// Optional: extra attribute names from companion files
-	extraVal, err := valueGetList(v, "extra_attrs")
-	if err != nil {
-		return nil, fmt.Errorf("descriptor.extra_attrs: %w", err)
-	}
-	for i := 0; i < extraVal.Len(); i++ {
-		s, ok := starlark.AsString(extraVal.Index(i))
-		if !ok {
-			return nil, fmt.Errorf("descriptor.extra_attrs[%d]: expected string, got %s", i, extraVal.Index(i).Type())
-		}
-		desc.ExtraAttrs = append(desc.ExtraAttrs, s)
 	}
 
 	// Optional: all method names on the provider (for compensate validation)
