@@ -150,26 +150,24 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 		return op.MakeAttr("go.const_groups", r.constGroups), nil
 	case "deps":
 		return op.MakeAttr("go.deps", r.deps), nil
+	case "format":
+		return op.MakeAttr("go.format", r.goFormat), nil
 	case "funcs":
 		return op.MakeAttr("go.funcs", r.goFuncs), nil
-	case "generate":
-		return op.MakeAttr("go.generate", r.goGenerate), nil
-	case "mapping":
-		return op.MakeAttr("go.mapping", r.goMapping), nil
 	case "methods":
 		return op.MakeAttr("go.methods", r.goMethods), nil
 	case "metrics":
 		return op.MakeAttr("go.metrics", r.metrics), nil
 	case "raw_string":
 		return op.MakeAttr("go.raw_string", r.goRawString), nil
+	case "render":
+		return op.MakeAttr("go.render", r.goRender), nil
 	case "return_string":
 		return op.MakeAttr("go.return_string", r.goReturnString), nil
 	case "return_strings":
 		return op.MakeAttr("go.return_strings", r.goReturnStrings), nil
 	case "structs":
 		return op.MakeAttr("go.structs", r.goStructs), nil
-	case "template":
-		return op.MakeAttr("go.template", r.goTemplate), nil
 	case "type_doc":
 		return op.MakeAttr("go.type_doc", r.goTypeDoc), nil
 	default:
@@ -179,7 +177,7 @@ func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 
 // AttrNames implements starlark.HasAttrs.
 func (r *GoReceiver) AttrNames() []string {
-	return []string{"callable", "calls", "composites", "const_groups", "deps", "funcs", "generate", "mapping", "methods", "metrics", "raw_string", "return_string", "return_strings", "structs", "template", "type_doc"}
+	return []string{"callable", "calls", "composites", "const_groups", "deps", "format", "funcs", "methods", "metrics", "raw_string", "render", "return_string", "return_strings", "structs", "type_doc"}
 }
 
 // =============================================================================
