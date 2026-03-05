@@ -701,6 +701,16 @@ func (r *GoReceiver) goStructs(_ *starlark.Thread, _ *starlark.Builtin, args sta
 				var fields []starlark.Value
 				for _, field := range st.Fields.List {
 					if len(field.Names) == 0 {
+						// Embedded field — include with embedded flag.
+						fieldType := typeToString(field.Type)
+						fields = append(fields, starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+							"name":        starlark.String(fieldType),
+							"json_name":   starlark.String(""),
+							"type":        starlark.String(fieldType),
+							"required":    starlark.Bool(false),
+							"description": starlark.String(""),
+							"embedded":    starlark.Bool(true),
+						}))
 						continue
 					}
 					jsonName := ""
@@ -726,6 +736,7 @@ func (r *GoReceiver) goStructs(_ *starlark.Thread, _ *starlark.Builtin, args sta
 							"type":        starlark.String(fieldType),
 							"required":    starlark.Bool(required),
 							"description": starlark.String(desc),
+							"embedded":    starlark.Bool(false),
 						}))
 					}
 				}
