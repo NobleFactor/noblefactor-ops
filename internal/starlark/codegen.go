@@ -55,6 +55,8 @@ type providerField struct {
 	CfgField  string // BindingConfig field (e.g., "WorkDir")
 	Default   string // Go default expression (e.g., `"."`)
 	ZeroValue string // Go zero-value expression for comparison (e.g., `""`)
+	GoType    string // Go type of the Provider field, set only when it differs from CfgType
+	CfgType   string // Go type of the BindingConfig field, set only when GoType is set
 }
 
 // converterInfo describes a struct-to-Starlark converter function.
@@ -311,6 +313,10 @@ var genTemplateFuncs = template.FuncMap{
 
 // templateFuncProviderFieldInit generates the Provider struct construction for
 // ImmediateFactory from ProviderFields. Replaces the hard-coded Writer/ProgramName/Color.
+//
+// When a provider field's Go type differs from the BindingConfig field type
+// (e.g., Root is file.Resource but WorkDir is string), generates an
+// op.Construct call to marshal the value through the constructor registry.
 func templateFuncProviderFieldInit(d *generateDescriptor) string {
 	if len(d.ProviderFields) == 0 {
 		return ""
@@ -318,20 +324,37 @@ func templateFuncProviderFieldInit(d *generateDescriptor) string {
 
 	prefix := templateFuncProviderTypePrefix(d)
 	var buf strings.Builder
+
+	// Track fields that need construction (type mismatch).
+	constructedVars := make(map[string]string)
+
 	for _, pf := range d.ProviderFields {
-		buf.WriteString(fmt.Sprintf("\t\t\t%s := cfg.%s\n", strings.ToLower(pf.GoName[:1])+pf.GoName[1:], pf.CfgField))
+		localVar := strings.ToLower(pf.GoName[:1]) + pf.GoName[1:]
+		buf.WriteString(fmt.Sprintf("\t\t\t%s := cfg.%s\n", localVar, pf.CfgField))
 		if pf.Default != "" {
 			buf.WriteString(fmt.Sprintf("\t\t\tif %s == %s {\n\t\t\t\t%s = %s\n\t\t\t}\n",
-				strings.ToLower(pf.GoName[:1])+pf.GoName[1:], pf.ZeroValue,
-				strings.ToLower(pf.GoName[:1])+pf.GoName[1:], pf.Default))
+				localVar, pf.ZeroValue, localVar, pf.Default))
+		}
+		if pf.GoType != "" {
+			convertedVar := localVar + "Val"
+			qualifiedType := prefix + pf.GoType
+			buf.WriteString(fmt.Sprintf("\t\t\t%s, err := op.Construct[%s](%s)\n",
+				convertedVar, qualifiedType, localVar))
+			buf.WriteString(fmt.Sprintf("\t\t\tif err != nil {\n\t\t\t\tpanic(\"%s: construct %s: \" + err.Error())\n\t\t\t}\n",
+				d.Provider, pf.GoName))
+			constructedVars[pf.GoName] = convertedVar
 		}
 	}
+
 	buf.WriteString(fmt.Sprintf("\t\t\treturn New%s%s(&%sProvider{", d.StructName, d.WrapperSuffix, prefix))
 	for i, pf := range d.ProviderFields {
 		if i > 0 {
 			buf.WriteString(", ")
 		}
 		localVar := strings.ToLower(pf.GoName[:1]) + pf.GoName[1:]
+		if converted, ok := constructedVars[pf.GoName]; ok {
+			localVar = converted
+		}
 		buf.WriteString(fmt.Sprintf("%s: %s", pf.GoName, localVar))
 	}
 	buf.WriteString("})")
@@ -374,17 +397,31 @@ func templateFuncParamNamesList(m methodInfo) string {
 // templateFuncProviderInit generates the ImmediateFactory body that constructs
 // the provider and delegates to New<StructName>Receiver. For providers with
 // ProviderFields (bind directives), fields are read from BindingConfig first.
+//
+// When a provider field's Go type differs from the BindingConfig field type
+// (e.g., Root is file.Resource but WorkDir is string), generates an
+// op.Construct call to marshal the value through the constructor registry.
 func templateFuncProviderInit(d *generateDescriptor) string {
 	prefix := templateFuncProviderTypePrefix(d)
 	var buf strings.Builder
 
 	if len(d.ProviderFields) > 0 {
+		constructedVars := make(map[string]string)
 		for _, pf := range d.ProviderFields {
 			localVar := strings.ToLower(pf.GoName[:1]) + pf.GoName[1:]
 			buf.WriteString(fmt.Sprintf("\t\t\t%s := cfg.%s\n", localVar, pf.CfgField))
 			if pf.Default != "" {
 				buf.WriteString(fmt.Sprintf("\t\t\tif %s == %s {\n\t\t\t\t%s = %s\n\t\t\t}\n",
 					localVar, pf.ZeroValue, localVar, pf.Default))
+			}
+			if pf.GoType != "" {
+				convertedVar := localVar + "Val"
+				qualifiedType := prefix + pf.GoType
+				buf.WriteString(fmt.Sprintf("\t\t\t%s, err := op.Construct[%s](%s)\n",
+					convertedVar, qualifiedType, localVar))
+				buf.WriteString(fmt.Sprintf("\t\t\tif err != nil {\n\t\t\t\tpanic(\"%s: construct %s: \" + err.Error())\n\t\t\t}\n",
+					d.Provider, pf.GoName))
+				constructedVars[pf.GoName] = convertedVar
 			}
 		}
 		buf.WriteString(fmt.Sprintf("\t\t\treturn New%s%s(&%sProvider{", d.StructName, d.WrapperSuffix, prefix))
@@ -393,6 +430,9 @@ func templateFuncProviderInit(d *generateDescriptor) string {
 				buf.WriteString(", ")
 			}
 			localVar := strings.ToLower(pf.GoName[:1]) + pf.GoName[1:]
+			if converted, ok := constructedVars[pf.GoName]; ok {
+				localVar = converted
+			}
 			buf.WriteString(fmt.Sprintf("%s: %s", pf.GoName, localVar))
 		}
 		buf.WriteString("})")
@@ -1235,11 +1275,15 @@ func providerFieldFromValue(v starlark.Value) (providerField, error) {
 	}
 	dflt, _ := valueGetString(v, "default")
 	zeroVal, _ := valueGetString(v, "zero_value")
+	goType, _ := valueGetString(v, "go_type")
+	cfgType, _ := valueGetString(v, "cfg_type")
 	return providerField{
 		GoName:    goName,
 		CfgField:  cfgField,
 		Default:   dflt,
 		ZeroValue: zeroVal,
+		GoType:    goType,
+		CfgType:   cfgType,
 	}, nil
 }
 
