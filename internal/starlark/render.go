@@ -12,6 +12,8 @@ import (
 	"unicode"
 
 	"go.starlark.net/starlark"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // =============================================================================
@@ -37,7 +39,10 @@ func (r *GoReceiver) goRender(_ *starlark.Thread, _ *starlark.Builtin, args star
 		return nil, fmt.Errorf("go.render: template parse: %w", err)
 	}
 
-	data := starlarkToGo(dataVal)
+	data, err := op.UnmarshalToAny(dataVal)
+	if err != nil {
+		return nil, fmt.Errorf("go.render: convert data: %w", err)
+	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {

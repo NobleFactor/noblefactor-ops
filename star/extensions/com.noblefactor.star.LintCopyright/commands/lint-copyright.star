@@ -146,7 +146,7 @@ def check_file(path, license, holder):
     spdx_line = lines[start_line]
     spdx_match = regexp.find_submatch(SPDX_PATTERN, spdx_line)
 
-    if spdx_match == None:
+    if not spdx_match:
         return {"ok": False, "message": "Missing SPDX license header", "skipped": False}
 
     found_license = spdx_match[2]
@@ -160,7 +160,7 @@ def check_file(path, license, holder):
     copyright_line = lines[start_line + 1]
     copyright_match = regexp.find_submatch(COPYRIGHT_PATTERN, copyright_line)
 
-    if copyright_match == None:
+    if not copyright_match:
         return {"ok": False, "message": "Missing copyright holder line", "skipped": False}
 
     found_holder = copyright_match[2]

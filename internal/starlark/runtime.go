@@ -14,7 +14,13 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
+	regexpgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
+	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
+	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
+
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 	"github.com/NobleFactor/noblefactor-ops/internal/wasm"
@@ -29,6 +35,7 @@ var DryRun bool
 type Runtime struct {
 	commands map[string]*Command
 	config   *config.Config // Unified config for builtin and extension config
+	star     *op.StarlarkRuntime
 
 	// wasmHosts maps extension name to its WASM host.
 	// Each extension gets its own host with its receiver's capabilities.
@@ -46,25 +53,39 @@ type Runtime struct {
 	file  *FileReceiver
 	lint  *LintReceiver
 	setup *SetupReceiver
-	ui    *UiReceiver
 }
 
 // NewRuntime creates a new Starlark runtime.
 func NewRuntime() *Runtime {
+
+	cfg := op.NewBindingConfig("star").
+		WithReceivers(jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver).
+		WithColor()
+	star := op.NewStarlarkRuntime(cfg)
+
+	// Initialize the framework runtime so BuildReceivers can construct providers.
+	star.Initialize(op.NewActionRegistry(), op.ContextBase{
+		Context: context.Background(),
+		Writer:  os.Stderr,
+	})
+
+	// UIProvider is shared with hand-coded receivers (file, lint, setup) and
+	// exposed for --silent flag wiring in main.
 	uip := &ui.Provider{
 		Writer:      os.Stderr,
 		ProgramName: "star",
 		Color:       true,
 	}
+
 	return &Runtime{
 		commands:      make(map[string]*Command),
 		wasmHosts:     make(map[string]*wasm.WasmHost),
 		wasmReceivers: make(map[string]*WasmReceiver),
+		star:          star,
 		UIProvider:    uip,
 		file:          NewFileReceiver(uip),
 		lint:          NewLintReceiver(uip),
 		setup:         NewSetupReceiver(uip),
-		ui:            NewUiReceiver(uip),
 	}
 }
 
@@ -291,26 +312,22 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 // buildPredeclared constructs the predeclared environment for Starlark execution.
 // If spec is non-nil, it may provide extension-specific bindings (WASM receivers).
 func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.StringDict {
-	predeclared := starlark.StringDict{
-		// Receiver-pattern bindings (all modules use HasAttrs pattern)
-		"file":           r.file,
-		"json":           JSON,
-		"yaml":           YAML,
-		"schema":         Schema,
-		"shellcheck":     Shellcheck,
-		"regexp":         Regexp,
-		"go":             Go,
-		"lint":           r.lint,
-		"setup":          r.setup,
-		"config":         Config,
-		"starlark_parse": StarlarkParse,
 
-		// UI output (note, warn, error, success, fail via ui.* receiver)
-		"ui": r.ui,
+	// Framework-managed receivers (json, yaml, regexp, ui).
+	predeclared := r.star.BuildReceivers()
 
-		// Command tree navigation (current command set at runtime)
-		"commands": NewCommandsReceiver(r),
-	}
+	// Hand-coded receivers (not yet migrated to framework providers).
+	predeclared["file"] = r.file
+	predeclared["schema"] = Schema
+	predeclared["shellcheck"] = Shellcheck
+	predeclared["go"] = Go
+	predeclared["lint"] = r.lint
+	predeclared["setup"] = r.setup
+	predeclared["config"] = Config
+	predeclared["starlark_parse"] = StarlarkParse
+
+	// Command tree navigation (current command set at runtime).
+	predeclared["commands"] = NewCommandsReceiver(r)
 
 	// Add WASM receivers from extension spec
 	if spec != nil {

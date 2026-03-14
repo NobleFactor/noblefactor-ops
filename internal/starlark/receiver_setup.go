@@ -13,7 +13,6 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 )
@@ -21,14 +20,14 @@ import (
 // SetupReceiver provides repository setup operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type SetupReceiver struct {
-	op.Receiver
+	Receiver
 	ui *ui.Provider
 }
 
 // NewSetupReceiver creates a new SetupReceiver.
 func NewSetupReceiver(p *ui.Provider) *SetupReceiver {
 	return &SetupReceiver{
-		Receiver: op.NewReceiver("setup"),
+		Receiver: NewReceiver("setup"),
 		ui:       p,
 	}
 }
@@ -37,21 +36,21 @@ func NewSetupReceiver(p *ui.Provider) *SetupReceiver {
 func (r *SetupReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "tools":
-		return op.MakeAttr("setup.tools", r.tools), nil
+		return MakeAttr("setup.tools", r.tools), nil
 	case "precommit_install":
-		return op.MakeAttr("setup.precommit_install", r.precommitInstall), nil
+		return MakeAttr("setup.precommit_install", r.precommitInstall), nil
 	case "precommit_check":
-		return op.MakeAttr("setup.precommit_check", r.precommitCheck), nil
+		return MakeAttr("setup.precommit_check", r.precommitCheck), nil
 	case "init_config":
-		return op.MakeAttr("setup.init_config", r.initConfig), nil
+		return MakeAttr("setup.init_config", r.initConfig), nil
 	case "install_hook":
-		return op.MakeAttr("setup.install_hook", r.installHook), nil
+		return MakeAttr("setup.install_hook", r.installHook), nil
 	case "uninstall_hook":
-		return op.MakeAttr("setup.uninstall_hook", r.uninstallHook), nil
+		return MakeAttr("setup.uninstall_hook", r.uninstallHook), nil
 	case "check_hook":
-		return op.MakeAttr("setup.check_hook", r.checkHook), nil
+		return MakeAttr("setup.check_hook", r.checkHook), nil
 	default:
-		return nil, op.NoSuchAttrError("setup", name)
+		return nil, NoSuchAttrError("setup", name)
 	}
 }
 

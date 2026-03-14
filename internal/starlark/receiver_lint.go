@@ -17,21 +17,20 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 )
 
 // LintReceiver provides static analysis operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type LintReceiver struct {
-	op.Receiver
+	Receiver
 	ui *ui.Provider
 }
 
 // NewLintReceiver creates a new LintReceiver.
 func NewLintReceiver(p *ui.Provider) *LintReceiver {
 	return &LintReceiver{
-		Receiver: op.NewReceiver("lint"),
+		Receiver: NewReceiver("lint"),
 		ui:       p,
 	}
 }
@@ -40,15 +39,15 @@ func NewLintReceiver(p *ui.Provider) *LintReceiver {
 func (r *LintReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "go":
-		return op.MakeAttr("lint.go", r.lintGo), nil
+		return MakeAttr("lint.go", r.lintGo), nil
 	case "shell":
-		return op.MakeAttr("lint.shell", r.lintShell), nil
+		return MakeAttr("lint.shell", r.lintShell), nil
 	case "markdown":
-		return op.MakeAttr("lint.markdown", r.lintMarkdown), nil
+		return MakeAttr("lint.markdown", r.lintMarkdown), nil
 	case "ensure_tools":
-		return op.MakeAttr("lint.ensure_tools", r.ensureTools), nil
+		return MakeAttr("lint.ensure_tools", r.ensureTools), nil
 	default:
-		return nil, op.NoSuchAttrError("lint", name)
+		return nil, NoSuchAttrError("lint", name)
 	}
 }
 

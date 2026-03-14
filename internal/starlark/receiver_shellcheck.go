@@ -14,34 +14,32 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // ShellcheckReceiver provides shell script analysis operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type ShellcheckReceiver struct {
-	op.Receiver
+	Receiver
 }
 
 // NewShellcheckReceiver creates a new ShellcheckReceiver.
 func NewShellcheckReceiver() *ShellcheckReceiver {
-	return &ShellcheckReceiver{Receiver: op.NewReceiver("shellcheck")}
+	return &ShellcheckReceiver{Receiver: NewReceiver("shellcheck")}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *ShellcheckReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "lint":
-		return op.MakeAttr("shellcheck.lint", r.lint), nil
+		return MakeAttr("shellcheck.lint", r.lint), nil
 	case "format":
-		return op.MakeAttr("shellcheck.format", r.format), nil
+		return MakeAttr("shellcheck.format", r.format), nil
 	case "parse":
-		return op.MakeAttr("shellcheck.parse", r.parse), nil
+		return MakeAttr("shellcheck.parse", r.parse), nil
 	case "complexity":
-		return op.MakeAttr("shellcheck.complexity", r.complexity), nil
+		return MakeAttr("shellcheck.complexity", r.complexity), nil
 	default:
-		return nil, op.NoSuchAttrError("shellcheck", name)
+		return nil, NoSuchAttrError("shellcheck", name)
 	}
 }
 

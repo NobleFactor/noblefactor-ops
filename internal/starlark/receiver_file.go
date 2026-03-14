@@ -12,7 +12,6 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	"github.com/NobleFactor/noblefactor-ops/internal/ignore"
 )
@@ -20,14 +19,14 @@ import (
 // FileReceiver provides file system operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type FileReceiver struct {
-	op.Receiver
+	Receiver
 	ui *ui.Provider
 }
 
 // NewFileReceiver creates a new FileReceiver.
 func NewFileReceiver(p *ui.Provider) *FileReceiver {
 	return &FileReceiver{
-		Receiver: op.NewReceiver("file"),
+		Receiver: NewReceiver("file"),
 		ui:       p,
 	}
 }
@@ -36,35 +35,35 @@ func NewFileReceiver(p *ui.Provider) *FileReceiver {
 func (r *FileReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "read":
-		return op.MakeAttr("file.read", r.read), nil
+		return MakeAttr("file.read", r.read), nil
 	case "write":
-		return op.MakeAttr("file.write", r.write), nil
+		return MakeAttr("file.write", r.write), nil
 	case "exists":
-		return op.MakeAttr("file.exists", r.exists), nil
+		return MakeAttr("file.exists", r.exists), nil
 	case "is_directory":
-		return op.MakeAttr("file.is_directory", r.isDirectory), nil
+		return MakeAttr("file.is_directory", r.isDirectory), nil
 	case "is_file":
-		return op.MakeAttr("file.is_file", r.isFile), nil
+		return MakeAttr("file.is_file", r.isFile), nil
 	case "list":
-		return op.MakeAttr("file.list", r.list), nil
+		return MakeAttr("file.list", r.list), nil
 	case "join":
-		return op.MakeAttr("file.join", r.join), nil
+		return MakeAttr("file.join", r.join), nil
 	case "name":
-		return op.MakeAttr("file.name", r.name), nil
+		return MakeAttr("file.name", r.name), nil
 	case "parent":
-		return op.MakeAttr("file.parent", r.parent), nil
+		return MakeAttr("file.parent", r.parent), nil
 	case "glob":
-		return op.MakeAttr("file.glob", r.glob), nil
+		return MakeAttr("file.glob", r.glob), nil
 	case "walk_tree":
-		return op.MakeAttr("file.walk_tree", r.walkTree), nil
+		return MakeAttr("file.walk_tree", r.walkTree), nil
 	case "mkdir":
-		return op.MakeAttr("file.mkdir", r.mkdir), nil
+		return MakeAttr("file.mkdir", r.mkdir), nil
 	case "remove":
-		return op.MakeAttr("file.remove", r.remove), nil
+		return MakeAttr("file.remove", r.remove), nil
 	case "remove_all":
-		return op.MakeAttr("file.remove_all", r.removeAll), nil
+		return MakeAttr("file.remove_all", r.removeAll), nil
 	default:
-		return nil, op.NoSuchAttrError("file", name)
+		return nil, NoSuchAttrError("file", name)
 	}
 }
 
