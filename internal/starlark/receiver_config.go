@@ -7,20 +7,19 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 )
 
 // ConfigReceiver provides configuration operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type ConfigReceiver struct {
-	op.Receiver
+	Receiver
 	cfg *config.Config
 }
 
 // NewConfigReceiver creates a new ConfigReceiver.
 func NewConfigReceiver() *ConfigReceiver {
-	return &ConfigReceiver{Receiver: op.NewReceiver("config")}
+	return &ConfigReceiver{Receiver: NewReceiver("config")}
 }
 
 // SetConfig sets the fully-populated config on the receiver.
@@ -33,13 +32,13 @@ func (r *ConfigReceiver) SetConfig(cfg *config.Config) {
 func (r *ConfigReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "get":
-		return op.MakeAttr("config.get", r.get), nil
+		return MakeAttr("config.get", r.get), nil
 	case "show":
-		return op.MakeAttr("config.show", r.show), nil
+		return MakeAttr("config.show", r.show), nil
 	case "sync":
-		return op.MakeAttr("config.sync", r.sync), nil
+		return MakeAttr("config.sync", r.sync), nil
 	default:
-		return nil, op.NoSuchAttrError("config", name)
+		return nil, NoSuchAttrError("config", name)
 	}
 }
 

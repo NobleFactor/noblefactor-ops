@@ -18,21 +18,21 @@ import (
 // SchemaReceiver provides JSON Schema validation operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type SchemaReceiver struct {
-	op.Receiver
+	Receiver
 }
 
 // NewSchemaReceiver creates a new SchemaReceiver.
 func NewSchemaReceiver() *SchemaReceiver {
-	return &SchemaReceiver{Receiver: op.NewReceiver("schema")}
+	return &SchemaReceiver{Receiver: NewReceiver("schema")}
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *SchemaReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "validate":
-		return op.MakeAttr("schema.validate", r.validate), nil
+		return MakeAttr("schema.validate", r.validate), nil
 	default:
-		return nil, op.NoSuchAttrError("schema", name)
+		return nil, NoSuchAttrError("schema", name)
 	}
 }
 
@@ -66,7 +66,10 @@ func (r *SchemaReceiver) validate(_ *starlark.Thread, _ *starlark.Builtin, args 
 	}
 
 	// Convert Starlark value to Go, then to JSON for validation
-	goVal := starlarkToGo(data)
+	goVal, err := op.UnmarshalToAny(data)
+	if err != nil {
+		return nil, fmt.Errorf("schema.validate: convert data: %w", err)
+	}
 	jsonBytes, err := json.Marshal(goVal)
 	if err != nil {
 		return nil, fmt.Errorf("schema.validate: marshal data: %w", err)

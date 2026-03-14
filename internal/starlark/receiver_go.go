@@ -16,14 +16,12 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // GoReceiver provides Go source parsing operations.
 // Implements starlark.Value and starlark.HasAttrs.
 type GoReceiver struct {
-	op.Receiver
+	Receiver
 	fileCache sync.Map // path → *parsedFile
 }
 
@@ -35,7 +33,7 @@ type parsedFile struct {
 
 // NewGoReceiver creates a new GoReceiver.
 func NewGoReceiver() *GoReceiver {
-	return &GoReceiver{Receiver: op.NewReceiver("go")}
+	return &GoReceiver{Receiver: NewReceiver("go")}
 }
 
 // parseFile parses a Go file with caching.
@@ -141,37 +139,37 @@ func optionalString(v starlark.Value) string {
 func (r *GoReceiver) Attr(name string) (starlark.Value, error) {
 	switch name {
 	case "callable":
-		return op.MakeAttr("go.callable", r.goCallable), nil
+		return MakeAttr("go.callable", r.goCallable), nil
 	case "calls":
-		return op.MakeAttr("go.calls", r.goCalls), nil
+		return MakeAttr("go.calls", r.goCalls), nil
 	case "composites":
-		return op.MakeAttr("go.composites", r.goComposites), nil
+		return MakeAttr("go.composites", r.goComposites), nil
 	case "const_groups":
-		return op.MakeAttr("go.const_groups", r.constGroups), nil
+		return MakeAttr("go.const_groups", r.constGroups), nil
 	case "deps":
-		return op.MakeAttr("go.deps", r.deps), nil
+		return MakeAttr("go.deps", r.deps), nil
 	case "format":
-		return op.MakeAttr("go.format", r.goFormat), nil
+		return MakeAttr("go.format", r.goFormat), nil
 	case "funcs":
-		return op.MakeAttr("go.funcs", r.goFuncs), nil
+		return MakeAttr("go.funcs", r.goFuncs), nil
 	case "methods":
-		return op.MakeAttr("go.methods", r.goMethods), nil
+		return MakeAttr("go.methods", r.goMethods), nil
 	case "metrics":
-		return op.MakeAttr("go.metrics", r.metrics), nil
+		return MakeAttr("go.metrics", r.metrics), nil
 	case "raw_string":
-		return op.MakeAttr("go.raw_string", r.goRawString), nil
+		return MakeAttr("go.raw_string", r.goRawString), nil
 	case "render":
-		return op.MakeAttr("go.render", r.goRender), nil
+		return MakeAttr("go.render", r.goRender), nil
 	case "return_string":
-		return op.MakeAttr("go.return_string", r.goReturnString), nil
+		return MakeAttr("go.return_string", r.goReturnString), nil
 	case "return_strings":
-		return op.MakeAttr("go.return_strings", r.goReturnStrings), nil
+		return MakeAttr("go.return_strings", r.goReturnStrings), nil
 	case "structs":
-		return op.MakeAttr("go.structs", r.goStructs), nil
+		return MakeAttr("go.structs", r.goStructs), nil
 	case "type_doc":
-		return op.MakeAttr("go.type_doc", r.goTypeDoc), nil
+		return MakeAttr("go.type_doc", r.goTypeDoc), nil
 	default:
-		return nil, op.NoSuchAttrError("go", name)
+		return nil, NoSuchAttrError("go", name)
 	}
 }
 

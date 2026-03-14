@@ -9,9 +9,12 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func TestStarlarkToGo(t *testing.T) {
+func TestUnmarshalToAny(t *testing.T) {
+
 	tests := []struct {
 		name string
 		val  starlark.Value
@@ -20,27 +23,34 @@ func TestStarlarkToGo(t *testing.T) {
 		{"none", starlark.None, nil},
 		{"bool_true", starlark.Bool(true), true},
 		{"bool_false", starlark.Bool(false), false},
-		{"int", starlark.MakeInt(42), int64(42)},
+		{"int", starlark.MakeInt(42), 42},
 		{"float", starlark.Float(3.14), float64(3.14)},
 		{"string", starlark.String("hello"), "hello"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := starlarkToGo(tt.val)
+			got, err := op.UnmarshalToAny(tt.val)
+			if err != nil {
+				t.Fatalf("UnmarshalToAny(%v) error: %v", tt.val, err)
+			}
 			if got != tt.want {
-				t.Errorf("starlarkToGo(%v) = %v (%T), want %v (%T)", tt.val, got, got, tt.want, tt.want)
+				t.Errorf("UnmarshalToAny(%v) = %v (%T), want %v (%T)", tt.val, got, got, tt.want, tt.want)
 			}
 		})
 	}
 }
 
-func TestStarlarkToGo_Dict(t *testing.T) {
+func TestUnmarshalToAny_Dict(t *testing.T) {
+
 	d := starlark.NewDict(2)
 	_ = d.SetKey(starlark.String("name"), starlark.String("test"))
 	_ = d.SetKey(starlark.String("count"), starlark.MakeInt(5))
 
-	got := starlarkToGo(d)
+	got, err := op.UnmarshalToAny(d)
+	if err != nil {
+		t.Fatalf("UnmarshalToAny error: %v", err)
+	}
 
 	m, ok := got.(map[string]any)
 	if !ok {
@@ -49,32 +59,40 @@ func TestStarlarkToGo_Dict(t *testing.T) {
 	if m["name"] != "test" {
 		t.Errorf("m[name] = %v, want test", m["name"])
 	}
-	if m["count"] != int64(5) {
+	if m["count"] != 5 {
 		t.Errorf("m[count] = %v, want 5", m["count"])
 	}
 }
 
-func TestStarlarkToGo_List(t *testing.T) {
+func TestUnmarshalToAny_List(t *testing.T) {
+
 	l := starlark.NewList([]starlark.Value{starlark.String("a"), starlark.String("b")})
 
-	got := starlarkToGo(l)
+	got, err := op.UnmarshalToAny(l)
+	if err != nil {
+		t.Fatalf("UnmarshalToAny error: %v", err)
+	}
 
-	sl, ok := got.([]any)
+	sl, ok := got.([]string)
 	if !ok {
-		t.Fatalf("expected []any, got %T", got)
+		t.Fatalf("expected []string, got %T", got)
 	}
 	if len(sl) != 2 || sl[0] != "a" || sl[1] != "b" {
 		t.Errorf("got %v, want [a, b]", sl)
 	}
 }
 
-func TestStarlarkToGo_Struct(t *testing.T) {
+func TestUnmarshalToAny_Struct(t *testing.T) {
+
 	s := starlarkstruct.FromStringDict(starlark.String("test"), starlark.StringDict{
 		"foo": starlark.String("bar"),
 		"num": starlark.MakeInt(10),
 	})
 
-	got := starlarkToGo(s)
+	got, err := op.UnmarshalToAny(s)
+	if err != nil {
+		t.Fatalf("UnmarshalToAny error: %v", err)
+	}
 
 	m, ok := got.(map[string]any)
 	if !ok {
@@ -85,14 +103,18 @@ func TestStarlarkToGo_Struct(t *testing.T) {
 	}
 }
 
-func TestStarlarkToGo_Nested(t *testing.T) {
+func TestUnmarshalToAny_Nested(t *testing.T) {
+
 	inner := starlark.NewDict(1)
 	_ = inner.SetKey(starlark.String("key"), starlark.String("value"))
 
 	outer := starlark.NewDict(1)
 	_ = outer.SetKey(starlark.String("nested"), inner)
 
-	got := starlarkToGo(outer)
+	got, err := op.UnmarshalToAny(outer)
+	if err != nil {
+		t.Fatalf("UnmarshalToAny error: %v", err)
+	}
 
 	m := got.(map[string]any)
 	nested := m["nested"].(map[string]any)

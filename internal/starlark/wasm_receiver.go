@@ -18,7 +18,7 @@ import (
 // Each attribute access returns a builtin that invokes the corresponding
 // WASM function via shared memory.
 type WasmReceiver struct {
-	op.Receiver
+	Receiver
 	module    extension.WasmModule
 	functions map[string]bool // Available functions from extension.yaml
 }
@@ -31,7 +31,7 @@ func NewWasmReceiver(name string, module extension.WasmModule, functions []strin
 		funcMap[fn] = true
 	}
 	return &WasmReceiver{
-		Receiver: op.NewReceiver(name),
+		Receiver: NewReceiver(name),
 		module:       module,
 		functions:    funcMap,
 	}
@@ -40,7 +40,7 @@ func NewWasmReceiver(name string, module extension.WasmModule, functions []strin
 // Attr implements starlark.HasAttrs.
 func (r *WasmReceiver) Attr(name string) (starlark.Value, error) {
 	if !r.functions[name] {
-		return nil, op.NoSuchAttrError(r.String(), name)
+		return nil, NoSuchAttrError(r.String(), name)
 	}
 	return starlark.NewBuiltin(r.String()+"."+name, r.makeCall(name)), nil
 }
@@ -55,7 +55,7 @@ func (r *WasmReceiver) AttrNames() []string {
 }
 
 // makeCall returns a builtin function that invokes the WASM method.
-func (r *WasmReceiver) makeCall(method string) op.BuiltinFunc {
+func (r *WasmReceiver) makeCall(method string) BuiltinFunc {
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		// Convert Starlark args to JSON
 		params, err := wasmArgsToJSON(args, kwargs)
@@ -93,14 +93,21 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 			if !ok {
 				continue
 			}
-			// Use existing starlarkToGo (returns interface{}, no error)
-			obj[key] = starlarkToGo(kv[1])
+			val, err := op.UnmarshalToAny(kv[1])
+			if err != nil {
+				return nil, fmt.Errorf("convert kwarg %s: %w", key, err)
+			}
+			obj[key] = val
 		}
 		// Also include positional args if any
 		if len(args) > 0 {
 			for i, arg := range args {
 				// Use numeric keys for positional args
-				obj[fmt.Sprintf("arg%d", i)] = starlarkToGo(arg)
+				v, err := op.UnmarshalToAny(arg)
+				if err != nil {
+					return nil, fmt.Errorf("convert arg%d: %w", i, err)
+				}
+				obj[fmt.Sprintf("arg%d", i)] = v
 			}
 		}
 		return json.Marshal(obj)
@@ -111,7 +118,10 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 		return []byte("{}"), nil
 	}
 	if len(args) == 1 {
-		val := starlarkToGo(args[0])
+		val, err := op.UnmarshalToAny(args[0])
+		if err != nil {
+			return nil, fmt.Errorf("convert arg: %w", err)
+		}
 		// If it's already a map, marshal directly
 		if _, ok := val.(map[string]interface{}); ok {
 			return json.Marshal(val)
@@ -123,16 +133,18 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 	// Multiple positional args - convert to array
 	arr := make([]any, len(args))
 	for i, arg := range args {
-		arr[i] = starlarkToGo(arg)
+		v, err := op.UnmarshalToAny(arg)
+		if err != nil {
+			return nil, fmt.Errorf("convert arg%d: %w", i, err)
+		}
+		arr[i] = v
 	}
 	return json.Marshal(arr)
 }
 
 // wasmJSONToStarlark converts JSON bytes to a Starlark value.
-// Unlike goToStarlark which returns dicts for JSON objects, this function
-// returns starlarkstruct.Struct values so that Starlark scripts can use
-// attribute access (result.field) rather than dict access (result["field"]).
-// This ensures WASM receivers behave identically to builtin receivers.
+// Returns starlarkstruct.Struct values for JSON objects so that Starlark scripts
+// can use attribute access (result.field) rather than dict access (result["field"]).
 func wasmJSONToStarlark(data []byte) (starlark.Value, error) {
 	var v any
 	if err := json.Unmarshal(data, &v); err != nil {
