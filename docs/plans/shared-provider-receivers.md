@@ -477,27 +477,40 @@ framework equivalents.
 - `internal/starlark/receiver_regexp.go` — Delete
 - `internal/starlark/receiver_ui.go` — Delete
 
-### Phase 6: All provider and plan operation tests pass (pending)
+### Phase 6: Variadic reflection, choose executor branch isolation (complete)
 
-Fix all skipped provider and plan operation tests. No test skips allowed except environment-conditional guards
-(PowerShell not installed, E2E_TEST not set, etc.).
+Fix variadic parameter support and choose executor branch isolation.
 
-- [ ] Fix `TestChooseNotExists` — choose executor runs then-branch even when predicate is false
-- [ ] Fix `TestIsFile` — choose executor passes empty path for Output captured in lambda closure
-- [ ] Fix `TestFileJoin` — reflection bug: cannot use []string as variadic string in generated receiver
+- [x] Fix `TestChooseNotExists` — branch phases marked `Branch=true`, skipped by top-level executor
+- [x] Fix `TestIsFile` — choose seeds branch results from `ctx.Results` for cross-phase promise resolution
+- [x] Fix `TestFileJoin` — strip `*` prefix in action/planned paths, use `CallSlice` for variadic methods
+- [x] `make build` and `make test` pass
+
+**PR #219** (devlore-cli): variadic reflection, choose executor branch isolation
+
+### Phase 7: Dependent type codegen and t.Skip elimination (pending)
+
+Implement codegen for dependent types (structs returned by provider methods that have their own exported
+methods). Today the only dependent type is `starcode.Sources`. Then eliminate all remaining `t.Skip` calls.
+
+- [ ] Implement dependent type codegen in `generate.star` (currently skipped with TODO)
+- [ ] Create dependent type HasAttrs wrapper template
+- [ ] Regenerate starcode — produces `Sources` wrapper in `gen/`
 - [ ] Fix `TestIntegration` — issue #172
 - [ ] Fix `TestStarcodeIntegration` — issue #173
-- [ ] Remove all `t.Skip` calls for the above tests
-- [ ] `make build` and `make test` pass with zero skipped provider/plan tests
+- [ ] Fix 3 starcode `receiver_test.go` tests
+- [ ] Remove all remaining `t.Skip` calls (replace with `t.Fatalf` where env-conditional)
+- [ ] `make build` and `make test` pass with zero `t.Skip` calls
 
 **Files** (devlore-cli):
 
-- `internal/execution/` — Modify (fix choose executor predicate evaluation)
-- `pkg/op/receiver_reflect.go` — Modify (fix variadic []string reflection)
-- `internal/e2e/testrunner/runner_test.go` — Modify (remove t.Skip calls)
-- `internal/starlark/integration_test.go` — Modify (remove t.Skip)
-- `pkg/op/provider/starcode/integration_test.go` — Modify (remove t.Skip)
-- Additional files TBD based on root cause analysis
+- `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` — implement dependent type codegen
+- New template for dependent type HasAttrs wrappers
+- `pkg/op/provider/starcode/gen/` — regenerated with Sources wrapper
+- `internal/starlark/integration_test.go` — remove t.Skip
+- `pkg/op/provider/starcode/integration_test.go` — remove t.Skip
+- `pkg/op/provider/starcode/receiver_test.go` — remove 3 t.Skip calls
+- All files with remaining `t.Skip` calls
 
 ## Design Decisions
 
