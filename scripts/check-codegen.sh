@@ -40,18 +40,18 @@ BRANCH=""
 
 for arg in "$@"; do
     case "$arg" in
-        --branch=*)
-            BRANCH="${arg#--branch=}"
-            ;;
-        --help|-h)
-            sed -n '7,27p' "$0" | sed 's/^# \?//'
-            exit 0
-            ;;
-        *)
-            echo "error: unknown argument: $arg" >&2
-            echo "usage: scripts/check-codegen.sh --branch=develop" >&2
-            exit 2
-            ;;
+    --branch=*)
+        BRANCH="${arg#--branch=}"
+        ;;
+    --help | -h)
+        sed -n '7,27p' "$0" | sed 's/^# \?//'
+        exit 0
+        ;;
+    *)
+        echo "error: unknown argument: $arg" >&2
+        echo "usage: scripts/check-codegen.sh --branch=develop" >&2
+        exit 2
+        ;;
     esac
 done
 
@@ -165,7 +165,7 @@ for provider in "${PROVIDERS[@]}"; do
             continue
         fi
 
-        if ! diff -u "$committed" "$genfile" > /dev/null 2>&1; then
+        if ! diff -u "$committed" "$genfile" >/dev/null 2>&1; then
             HAS_DIFF=1
             DIFF_OUTPUT+="$(diff -u \
                 --label "committed: $rel_provider/gen/$basename" "$committed" \
