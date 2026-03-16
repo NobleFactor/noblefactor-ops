@@ -245,16 +245,41 @@ All `go.*` calls become `goast.*` in devlore-cli. Three files, ~72 call sites:
       against devlore-cli providers, not the new noblefactor-ops provider)
 - [ ] Existing extensions that use `goast.*` produce identical results to the old `go.*` calls
 
-### Phase 1: Add `RewrapComments` and `SortDeclarations` methods (pending)
+### Phase 1: Add `RewrapComments` and `SortDeclarations` methods (complete)
 
 Add the two new provider methods needed by the linter rules.
 
-- [ ] `RewrapComments(path string, width int) (string, error)` — rewrap doc comment paragraphs to fill to `width`.
+#### Step 1a: Fix existing provider parameter names and add `+devlore:defaults`
+
+The Phase 0 codegen produced incorrect Starlark parameter names because Go parameter names didn't match the desired
+Starlark names. The params.gen.go was manually fixed — this must not happen again. Fix the root cause in provider.go:
+
+- [x] Rename `Render` parameter `tmpl` → `template` (alias the `text/template` import as `tmpl` to avoid shadowing)
+- [x] Add `+devlore:defaults` directives to all methods with optional parameters:
+      - `Calls`: `+devlore:defaults name=`
+      - `Composites`: `+devlore:defaults typeName=`
+      - `ConstGroups`: `+devlore:defaults typeName=`
+      - `Funcs`: `+devlore:defaults name=`
+      - `Methods`: `+devlore:defaults name=,receiverType=,returns=`
+      - `TypeDoc`: `+devlore:defaults name=`
+- [x] Run codegen from devlore-cli: `cd ~/Workspace/NobleFactor/devlore-cli && ../noblefactor-ops/bin/star devlore actions generate --source=../noblefactor-ops/internal/provider/goast --gen=true --write=true --output=../noblefactor-ops/internal/provider/goast`
+- [x] Verify generated params.gen.go has correct `?` suffixes and parameter names
+- [x] `make build` passes
+
+#### Step 1b: Add new provider methods
+
+- [x] `RewrapComments(path string, width int) (string, error)` — rewrap doc comment paragraphs to fill to `width`.
       Skip indented code blocks (4+ spaces after `//`). Return modified file content.
-- [ ] `SortDeclarations(path, scope, order string) (string, error)` — reorder declarations within a scope.
-- [ ] Regenerate codegen
-- [ ] Unit tests for both methods
-- [ ] `make build` and `make test` pass
+- [x] `SortDeclarations(path, scope, order string) (string, error)` — reorder declarations within a scope.
+      `scope`: `"file"` or `"lines:START-END"`. `order`: `"alphabetical"`.
+
+#### Step 1c: Regenerate codegen and test
+
+- [x] Rebuild star binary (`make build`) so codegen sees new methods
+- [x] Run codegen from devlore-cli (same command as Step 1a)
+- [x] Verify params.gen.go includes `RewrapComments` and `SortDeclarations` entries
+- [x] Unit tests for both methods
+- [x] `make build` and `make test` pass
 
 ### Phase 2: Extension scaffolding and orchestrator (pending)
 

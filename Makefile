@@ -16,7 +16,7 @@ EXTENSIONS :=
 # Include all extension build rules
 -include extensions/*/build.mk
 
-.PHONY: all build test install deps
+.PHONY: all build test install deps check-codegen
 .PHONY: build-extensions package-extensions clean-extensions
 .PHONY: check-wasm-target clean
 
@@ -45,6 +45,11 @@ install: build
 deps:
 	go mod download
 	go mod verify
+
+# Verify generated provider files match LKG codegen output
+CODEGEN_BRANCH ?= develop
+check-codegen:
+	scripts/check-codegen.sh --branch=$(CODEGEN_BRANCH)
 
 # =============================================================================
 # Extension targets
@@ -78,6 +83,7 @@ help:
 	@echo "  test               Run Go tests"
 	@echo "  clean              Clean all build artifacts"
 	@echo "  install            Install binary to GOBIN or ~/.local/bin"
+	@echo "  check-codegen      Verify gen/ files match LKG codegen (CODEGEN_BRANCH=develop)"
 	@echo ""
 	@echo "Extension targets:"
 	@echo "  build-extensions   Build all WASM extensions"

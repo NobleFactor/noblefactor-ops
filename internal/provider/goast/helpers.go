@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 	"unicode"
@@ -817,4 +818,280 @@ func renderLCFirst(s string) string {
 	}
 
 	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// =============================================================================
+// COMMENT REWRAPPING
+// =============================================================================
+
+// commentBodyPrefix extracts the leading whitespace and comment marker from a comment line. Returns the prefix (e.g.,
+// "// " or "\t// ") and the body (content after the prefix).
+//
+// Parameters:
+//   - line: the raw comment line from source.
+//
+// Returns:
+//   - string: the prefix including indentation and "// ".
+//   - string: the body text after the prefix.
+func commentBodyPrefix(line string) (string, string) {
+
+	trimmed := strings.TrimLeft(line, " \t")
+	indent := line[:len(line)-len(trimmed)]
+
+	if strings.HasPrefix(trimmed, "// ") {
+		return indent + "// ", trimmed[3:]
+	}
+
+	if trimmed == "//" {
+		return indent + "//", ""
+	}
+
+	if strings.HasPrefix(trimmed, "//") {
+		return indent + "//", trimmed[2:]
+	}
+
+	return line, ""
+}
+
+// rewrapCommentGroup rewraps a comment group's lines to fill to the target column width. Blank separator lines and
+// indented code blocks (4+ spaces after "//") pass through unchanged. Regular paragraphs and bullet items are reflowed.
+//
+// Parameters:
+//   - lines: the raw source lines of the comment group.
+//   - width: the target line width in columns.
+//
+// Returns:
+//   - []string: the rewrapped lines.
+func rewrapCommentGroup(lines []string, width int) []string {
+
+	var result []string
+	i := 0
+
+	for i < len(lines) {
+		_, body := commentBodyPrefix(lines[i])
+
+		// Blank separator line.
+		if strings.TrimSpace(body) == "" {
+			result = append(result, lines[i])
+			i++
+			continue
+		}
+
+		// Code block (4+ spaces after "// ").
+		if strings.HasPrefix(body, "    ") && !strings.HasPrefix(body, "  - ") {
+			for i < len(lines) {
+				_, b := commentBodyPrefix(lines[i])
+				if strings.TrimSpace(b) == "" || !strings.HasPrefix(b, "    ") || strings.HasPrefix(b, "  - ") {
+					break
+				}
+				result = append(result, lines[i])
+				i++
+			}
+			continue
+		}
+
+		// Bullet item (starts with "  - ").
+		if strings.HasPrefix(body, "  - ") {
+			for i < len(lines) {
+				_, b := commentBodyPrefix(lines[i])
+				if !strings.HasPrefix(b, "  - ") {
+					break
+				}
+
+				// Collect this bullet: first line + continuation lines.
+				bulletStart := i
+				i++
+				for i < len(lines) {
+					_, nb := commentBodyPrefix(lines[i])
+					if strings.TrimSpace(nb) == "" || strings.HasPrefix(nb, "  - ") || !strings.HasPrefix(nb, "    ") {
+						break
+					}
+					i++
+				}
+
+				result = append(result, rewrapBulletItem(lines[bulletStart:i], width)...)
+			}
+			continue
+		}
+
+		// Regular text paragraph.
+		paraStart := i
+		for i < len(lines) {
+			_, b := commentBodyPrefix(lines[i])
+			if strings.TrimSpace(b) == "" || strings.HasPrefix(b, "    ") || strings.HasPrefix(b, "  - ") {
+				break
+			}
+			i++
+		}
+
+		result = append(result, rewrapTextParagraph(lines[paraStart:i], width)...)
+	}
+
+	return result
+}
+
+// rewrapTextParagraph rewraps a regular text paragraph to fill to the target column width.
+//
+// Parameters:
+//   - lines: the raw source lines of the paragraph.
+//   - width: the target line width in columns.
+//
+// Returns:
+//   - []string: the rewrapped lines.
+func rewrapTextParagraph(lines []string, width int) []string {
+
+	if len(lines) == 0 {
+		return nil
+	}
+
+	prefix, firstBody := commentBodyPrefix(lines[0])
+
+	var words []string
+	words = append(words, strings.Fields(firstBody)...)
+	for _, line := range lines[1:] {
+		_, body := commentBodyPrefix(line)
+		words = append(words, strings.Fields(body)...)
+	}
+
+	return fillWords(words, prefix, prefix, width)
+}
+
+// rewrapBulletItem rewraps a bullet item (first line "  - name: ..." plus any continuation lines) to fill to the target
+// column width.
+//
+// Parameters:
+//   - lines: the raw source lines of the bullet item.
+//   - width: the target line width in columns.
+//
+// Returns:
+//   - []string: the rewrapped lines.
+func rewrapBulletItem(lines []string, width int) []string {
+
+	if len(lines) == 0 {
+		return nil
+	}
+
+	prefix, body := commentBodyPrefix(lines[0])
+	firstPrefix := prefix + "  - "
+	contPrefix := prefix + "    "
+
+	// Strip "  - " from the body.
+	text := strings.TrimPrefix(body, "  - ")
+
+	// Append continuation line text.
+	for _, line := range lines[1:] {
+		_, b := commentBodyPrefix(line)
+		text += " " + strings.TrimSpace(b)
+	}
+
+	words := strings.Fields(text)
+
+	return fillWords(words, firstPrefix, contPrefix, width)
+}
+
+// fillWords fills words into lines, using firstPrefix for the first line and contPrefix for continuation lines.
+// Lines are filled greedily: words are added until the next word would exceed the width.
+//
+// Parameters:
+//   - words: the words to fill.
+//   - firstPrefix: the prefix for the first line.
+//   - contPrefix: the prefix for continuation lines.
+//   - width: the target line width in columns.
+//
+// Returns:
+//   - []string: the filled lines.
+func fillWords(words []string, firstPrefix, contPrefix string, width int) []string {
+
+	if len(words) == 0 {
+		return []string{firstPrefix}
+	}
+
+	var result []string
+	currentPrefix := firstPrefix
+	currentLine := currentPrefix + words[0]
+
+	for _, word := range words[1:] {
+		if len(currentLine)+1+len(word) <= width {
+			currentLine += " " + word
+		} else {
+			result = append(result, currentLine)
+			currentPrefix = contPrefix
+			currentLine = currentPrefix + word
+		}
+	}
+
+	result = append(result, currentLine)
+
+	return result
+}
+
+// stringSlicesEqual returns true if two string slices have identical contents.
+//
+// Parameters:
+//   - a: the first slice.
+//   - b: the second slice.
+//
+// Returns:
+//   - bool: true if slices are equal.
+func stringSlicesEqual(a, b []string) bool {
+
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// =============================================================================
+// SCOPE RANGE PARSING
+// =============================================================================
+
+// parseScopeRange parses a scope string into a line range. Supports "file" for the entire file and "lines:START-END"
+// for a specific line range (1-indexed, inclusive).
+//
+// Parameters:
+//   - scope: the scope string to parse.
+//   - totalLines: the total number of lines in the file.
+//
+// Returns:
+//   - int: the start line (1-indexed, inclusive).
+//   - int: the end line (1-indexed, inclusive).
+//   - error: non-nil if the scope format is invalid.
+func parseScopeRange(scope string, totalLines int) (int, int, error) {
+
+	if scope == "file" || scope == "" {
+		return 1, totalLines, nil
+	}
+
+	if strings.HasPrefix(scope, "lines:") {
+		rangeStr := strings.TrimPrefix(scope, "lines:")
+		parts := strings.SplitN(rangeStr, "-", 2)
+		if len(parts) != 2 {
+			return 0, 0, fmt.Errorf("invalid line range: %s", scope)
+		}
+
+		start, err := strconv.Atoi(parts[0])
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid start line: %s", parts[0])
+		}
+
+		end, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return 0, 0, fmt.Errorf("invalid end line: %s", parts[1])
+		}
+
+		if start < 1 || end < start || end > totalLines {
+			return 0, 0, fmt.Errorf("line range out of bounds: %d-%d (file has %d lines)", start, end, totalLines)
+		}
+
+		return start, end, nil
+	}
+
+	return 0, 0, fmt.Errorf("invalid scope: %s (expected \"file\" or \"lines:START-END\")", scope)
 }
