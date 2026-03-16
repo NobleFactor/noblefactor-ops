@@ -281,16 +281,16 @@ Starlark names. The params.gen.go was manually fixed — this must not happen ag
 - [x] Unit tests for both methods
 - [x] `make build` and `make test` pass
 
-### Phase 2: Extension scaffolding and orchestrator (pending)
+### Phase 2: Extension scaffolding and orchestrator (complete)
 
 Create the `com.noblefactor.star.LintGoStyle` extension with the orchestrator script.
 
-- [ ] Create `extension.yaml`
-- [ ] Implement `lint-go-style.star` orchestrator: rule discovery, file collection, check/fix dispatch
-- [ ] Support `--fix`, `--path`, `--exclude`, `--generated`, `--tests`, `--rule`, `--verbose` flags
-- [ ] Support `disabled_rules` config
-- [ ] Support project override directory `.star/lint/go-style/`
-- [ ] `star lint go-style --path=. --verbose` runs with no rules (exits 0)
+- [x] Create `extension.yaml`
+- [x] Implement `lint-go-style.star` orchestrator: rule discovery, file collection, check/fix dispatch
+- [x] Support `--fix`, `--path`, `--exclude`, `--generated`, `--tests`, `--rule`, `--verbose` flags
+- [x] Support `disabled_rules` config
+- [x] Support project override directory `.star/lint/go-style/`
+- [x] `star lint go-style --path=. --verbose` runs with no rules (exits 0)
 
 ### Phase 3: Implement rules (pending)
 
