@@ -102,3 +102,19 @@ type BuiltinFunc func(
 	thread *starlark.Thread, fn *starlark.Builtin,
 	args starlark.Tuple, kwargs []starlark.Tuple,
 ) (starlark.Value, error)
+
+// stringsToStarlarkList converts a Go string slice to a Starlark list of strings.
+//
+// Parameters:
+//   - ss: the string slice to convert.
+//
+// Returns:
+//   - starlark.Value: the Starlark list.
+func stringsToStarlarkList(ss []string) starlark.Value {
+	var list []starlark.Value
+	for _, s := range ss {
+		list = append(list, starlark.String(s))
+	}
+
+	return starlark.NewList(list)
+}

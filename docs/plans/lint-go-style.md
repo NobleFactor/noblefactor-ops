@@ -1,8 +1,9 @@
 ---
 title: "Go Style Linter Extension"
-status: proposal
+status: approved
 created: 2026-03-14
 updated: 2026-03-15
+tracking: noblefactor-ops#98
 ---
 
 # Plan: Go Style Linter Extension
@@ -35,6 +36,27 @@ directory.
 
 ## Architecture
 
+### Go Provider (`goast`)
+
+The `go` Starlark receiver is backed by a proper `pkg/op` provider: `internal/provider/goast/provider.go`. It embeds
+`op.ProviderBase`, follows the ReceiverFactory pattern, and uses devlore-cli's codegen templates to produce `gen/`
+files. The package is named `goast` because `go` is a Go keyword. The Starlark receiver name is `goast` (matching the
+package name — breaking change accepted).
+
+The provider is structured identically to `devlore-cli/pkg/op/provider/*` so relocation is a simple
+`mv internal/provider/goast/ devlore-cli/pkg/op/provider/goast/`.
+
+The Starlark receiver name is `goast` (matching the package name). All existing scripts that call `go.funcs()`,
+`go.render()`, etc. are updated to `goast.funcs()`, `goast.render()`, etc. This is a breaking change — accepted.
+
+Existing methods (`funcs`, `methods`, `structs`, `type_doc`, `render`, `format`, etc.) migrate from the hand-coded
+`receiver_go.go` to provider methods. Two new methods are added for the linter:
+
+- `RewrapComments(path string, width int) (string, error)` — rewraps all doc comment paragraphs in a Go file to fill
+  to the specified column width. Skips indented code blocks. Returns the modified file content.
+- `SortDeclarations(path, scope, order string) (string, error)` — reorders Go declarations within a scope. Preserves
+  doc comments and blank lines attached to each declaration.
+
 ### Rule Engine
 
 The command `star lint go-style` is a thin orchestrator that discovers rules, loads them, and runs them against each
@@ -64,10 +86,10 @@ def check(ctx):
         ctx: RuleContext with fields:
             - path:     string — absolute file path
             - lines:    list[string] — file content split by newline
-            - funcs:    list — go.funcs(path) result
-            - methods:  dict — {receiver_type: go.methods(path, receiver_type=...)}
-            - structs:  list — go.structs(path) result
-            - type_doc: func(type) — go.type_doc(path, type)
+            - funcs:    list — goast.funcs(path) result
+            - methods:  dict — {receiver_type: goast.methods(path, receiver_type=...)}
+            - structs:  list — goast.structs(path) result
+            - type_doc: func(type) — goast.type_doc(path, type)
             - config:   dict — merged config for this rule
 
     Returns:
@@ -114,19 +136,160 @@ Each rule has a short kebab-case name that matches its script filename:
 | `line-width`   | `rules/line-width.star`   | Maximum 120-column line length                               |
 | `formatting`   | `rules/formatting.star`   | Blank line rules (after signature, before return)            |
 
-### Go Receiver API Extensions
+## Implementation Phases
 
-Two new Go receiver methods support the rules that need performance-sensitive operations:
+### Phase 0: Rewrite Go receiver as a `pkg/op` provider (complete)
 
-**`go.rewrap_comments(path, width)`** — rewraps all doc comment paragraphs in a Go file to fill to the specified column
-width. Skips indented code blocks (4+ spaces or tab-indented after `//`). Returns the modified file content.
+Migrate the hand-coded `receiver_go.go` (1,464 lines) to a proper provider at `internal/provider/goast/`. The provider
+embeds `op.ProviderBase`, uses `+devlore:access=immediate`, and follows the ReceiverFactory pattern with codegen.
+Tracks noblefactor-ops#98 (GoReceiver checkbox).
 
-**`go.sort_declarations(path, scope, order)`** — reorders Go declarations within a scope. Parameters:
-- `path` — the file to modify
-- `scope` — `"file"` (top-level), `"struct:<Name>"` (methods of a struct), or `"region:<name>"` (within a region)
-- `order` — `"alpha"` (alphabetical), `"kind"` (by delineator: compensable → fallible → actions)
+#### Step 0a: Create provider package
 
-Returns the modified file content. Preserves doc comments and blank lines attached to each declaration.
+Create `internal/provider/goast/provider.go`:
+
+```go
+// Package goast provides Go AST operations as a Starlark receiver.
+//
+// +devlore:access=immediate
+type Provider struct {
+    op.ProviderBase
+    fileCache sync.Map // path → *parsedFile (AST cache)
+}
+
+func NewProvider(ctx op.Context) *Provider {
+    return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+}
+```
+
+Provider methods — typed Go parameters, return Go types that auto-marshal to Starlark structs:
+
+| Method | Signature | Starlark params |
+| --- | --- | --- |
+| Callable | `(path, name string) (CallableResult, error)` | `path`, `name` |
+| Calls | `(scope, name string) ([]CallResult, error)` | `scope`, `name?` |
+| Composites | `(scope, typeName string) ([]CompositeResult, error)` | `scope`, `type_name?` |
+| ConstGroups | `(path, typeName string) ([]ConstGroupResult, error)` | `path`, `type_name?` |
+| Deps | `(path string) (DepsResult, error)` | `path` |
+| Format | `(code string) (string, error)` | `code` |
+| Funcs | `(path, name string) ([]FuncResult, error)` | `path`, `name?` |
+| Methods | `(path, name, receiverType, returns string) ([]MethodResult, error)` | `path`, `name?`, `receiver_type?`, `returns?` |
+| Metrics | `(path string) (MetricsResult, error)` | `path` |
+| RawString | `(scope string) (string, error)` | `scope` |
+| Render | `(tmpl string, data any) (string, error)` | `tmpl`, `data` |
+| ReturnString | `(scope string) (string, error)` | `scope` |
+| ReturnStrings | `(scope string) ([]string, error)` | `scope` |
+| Structs | `(path string) ([]StructResult, error)` | `path` |
+| TypeDoc | `(path, name string) (string, error)` | `path`, `name?` |
+
+Methods return Go structs with exported fields. `op.Marshal` → `marshalStruct` converts these to
+`starlarkstruct.Struct` with attribute access (snake_case field names via `camelToSnake`, overridable with
+`starlark:"name"` tags). This preserves backward compatibility with existing scripts that use `result.field_name`
+attribute access. Note: `map[string]any` marshals to Starlark **Dict** (bracket access), not Struct — so maps are only
+used where dict-style access is appropriate (e.g., `Composites` field maps).
+
+- [ ] Create `internal/provider/goast/provider.go` with Provider struct and all 15 public methods
+- [ ] Create `internal/provider/goast/helpers.go` with unexported functions and types migrated from
+      `receiver_go.go` and `render.go`:
+      - AST helpers: `parseFile`, `findScopeBody`, `encodeScope`, `decodeScope`, `typeToString`, `receiverTypeName`,
+        `returnTypeString`, `commentGroupRaw`, `extractReturnString`, `extractReturnStrings`
+      - File collection: `collectGoFiles`, `analyzeFileMetrics`, `analyzeFileDeps`, `detectModulePath`, `isStdlib`
+      - Doc/param helpers: `parseParamDocs`, `extractParams`, `parseJSONTag`
+      - Template helpers: `renderFuncs`, `renderCamelToSnake`, `renderLCFirst`
+      - Struct types: `parsedFile`, `FileMetrics`, `FileDeps`, `ImportInfo`
+      - Note: Starlark marshaling helpers (`fileMetricsToStarlark`, `fileDepsToStarlark`, `stringsToStarlarkList`,
+        `mapKeysToStarlarkList`, `optionalString`) are **not** migrated — `op.Marshal` handles conversion
+        automatically when provider methods return `map[string]any` / `[]map[string]any`
+
+#### Step 0b: Generate receiver bindings
+
+Run devlore-cli codegen (`star generate`) targeting the new provider to produce:
+
+- [ ] `internal/provider/goast/gen/receiver.gen.go` — `Factory` struct, `init()` → `op.Announce(Receiver)`,
+      `GetOrCreateProvider`, `ReceiverName() → "goast"`, `NewExecuting`, `Register`
+- [ ] `internal/provider/goast/gen/params.gen.go` — method-to-Starlark-param mapping
+- [ ] `internal/provider/goast/gen/receiver_gen_test.go` — generated tests for AttrNames, Attr, Type
+
+#### Step 0c: Wire into runtime
+
+Modify `internal/starlark/runtime.go`:
+
+- [ ] Add import: `goastgen "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/gen"`
+- [ ] Add `goastgen.Receiver` to the `WithReceivers(...)` call in `NewRuntime()`
+- [ ] Remove `"go": Go` from `buildPredeclared()` — framework manages it as `"goast"`
+
+#### Step 0d: Delete old receiver
+
+- [ ] Delete `internal/starlark/receiver_go.go` (1,464 lines)
+- [ ] Delete `internal/starlark/render.go` (119 lines) — `goRender`, `goFormat`, template helpers moved to provider
+- [ ] Remove `Go = NewGoReceiver()` from `internal/starlark/receivers.go`
+- [ ] Delete `internal/starlark/receiver_go_ast_test.go` (1,259 lines) — replace with provider-level tests
+- [ ] Delete `internal/starlark/receiver_go_callable_test.go` (177 lines) — replace with provider-level tests
+- [ ] Delete `internal/starlark/render_test.go` (286 lines) — replace with provider-level tests
+- [ ] `make build` passes in noblefactor-ops
+
+#### Step 0e: Update Starlark scripts (breaking change — devlore-cli)
+
+All `go.*` calls become `goast.*` in devlore-cli. Three files, ~72 call sites:
+
+- [ ] `star/extensions/com.noblefactor.devlore.Knowledge/commands/extract.star` — 28 calls
+- [ ] `star/extensions/com.noblefactor.devlore.Actions/commands/validate.star` — 9 calls
+- [ ] `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` — 35 calls
+- [ ] Update `extension.yaml` files in devlore-cli that declare the `go` receiver in their receivers list
+- [ ] `make build` and `make test` pass in devlore-cli
+
+#### Step 0f: Verify
+
+- [ ] `make build` and `make test` pass in both repos
+- [ ] `star generate` still works (codegen reads provider.go via goast receiver — not circular because codegen runs
+      against devlore-cli providers, not the new noblefactor-ops provider)
+- [ ] Existing extensions that use `goast.*` produce identical results to the old `go.*` calls
+
+### Phase 1: Add `RewrapComments` and `SortDeclarations` methods (pending)
+
+Add the two new provider methods needed by the linter rules.
+
+- [ ] `RewrapComments(path string, width int) (string, error)` — rewrap doc comment paragraphs to fill to `width`.
+      Skip indented code blocks (4+ spaces after `//`). Return modified file content.
+- [ ] `SortDeclarations(path, scope, order string) (string, error)` — reorder declarations within a scope.
+- [ ] Regenerate codegen
+- [ ] Unit tests for both methods
+- [ ] `make build` and `make test` pass
+
+### Phase 2: Extension scaffolding and orchestrator (pending)
+
+Create the `com.noblefactor.star.LintGoStyle` extension with the orchestrator script.
+
+- [ ] Create `extension.yaml`
+- [ ] Implement `lint-go-style.star` orchestrator: rule discovery, file collection, check/fix dispatch
+- [ ] Support `--fix`, `--path`, `--exclude`, `--generated`, `--tests`, `--rule`, `--verbose` flags
+- [ ] Support `disabled_rules` config
+- [ ] Support project override directory `.star/lint/go-style/`
+- [ ] `star lint go-style --path=. --verbose` runs with no rules (exits 0)
+
+### Phase 3: Implement rules (pending)
+
+Implement each rule as an independent `.star` script in `rules/`.
+
+- [ ] `doc-comments.star` — doc comment structure, fill width, Parameters/Returns, signature sync
+- [ ] `regions.star` — method region hierarchy markers
+- [ ] `method-order.star` — alphabetical ordering within regions and delineators
+- [ ] `file-layout.star` — top-level declaration ordering
+- [ ] `receivers.star` — consistent pointer/value receiver types
+- [ ] `line-width.star` — maximum 120-column line length
+- [ ] `formatting.star` — blank line rules
+- [ ] Integration tests: run all rules against known-good and known-bad fixture files
+
+### Phase 4: Integration (pending)
+
+Wire the linter into CI, pre-commit hooks, and Makefiles.
+
+- [ ] Add `go-style` target to devlore-cli Makefile
+- [ ] Add `go-style` target to noblefactor-ops Makefile
+- [ ] Add to `check` target in both repos
+- [ ] Add `lint.go-style --fix` to pre-commit hook
+- [ ] CI runs check mode (no `--fix`)
+- [ ] Run against both codebases and fix all violations
 
 ## Command
 
@@ -200,7 +363,7 @@ Checks within each region/delineator group:
 2. Within Behaviors: Compensable actions → Fallible actions → Actions
 3. Within each group: alphabetical (CompensateX immediately follows X)
 
-**Fix behavior**: calls `go.sort_declarations` to reorder methods within their groups. Preserves attached doc comments
+**Fix behavior**: calls `goast.sort_declarations` to reorder methods within their groups. Preserves attached doc comments
 and blank lines.
 
 ### `file-layout` — File element ordering
@@ -222,7 +385,7 @@ Checks that all methods on a type use the same receiver kind (pointer or value).
 
 Checks that no line exceeds 120 columns. Applies to code and comments equally.
 
-**Fix behavior**: calls `go.rewrap_comments` for comment lines. Code lines require manual restructuring.
+**Fix behavior**: calls `goast.rewrap_comments` for comment lines. Code lines require manual restructuring.
 
 ### `formatting` — Blank line rules
 
@@ -251,6 +414,18 @@ com.noblefactor.star.LintGoStyle/
     └── formatting.star
 ```
 
+### Provider Structure
+
+```text
+internal/provider/goast/
+├── provider.go                     # Provider struct, all methods
+├── helpers.go                      # unexported free functions
+└── gen/
+    ├── receiver.gen.go             # codegen: ReceiverFactory
+    ├── params.gen.go               # codegen: method params
+    └── receiver_gen_test.go        # codegen: receiver tests
+```
+
 ### Overriding a Rule
 
 To replace the `doc-comments` rule in a project, create:
@@ -269,9 +444,9 @@ extension: com.noblefactor.star.LintGoStyle
 description: Enforce Go style guidelines with pluggable rules
 
 receivers:
-  - name: go
+  - name: goast
     builtin: true
-    type: GoReceiver
+    type: goast.Provider
     description: Go AST operations
   - name: file
     builtin: true
@@ -371,21 +546,25 @@ check: vet lint shell-lint complexity go-style test
 
 ## Decisions
 
-1. **Comment rewrapping scope**: rewrap everything — summary, extended description, Parameters, Returns. Only indented
+1. **Go provider**: the `go` receiver is rewritten as a proper `pkg/op` provider at `internal/provider/goast/`. Package
+   and Starlark receiver both named `goast`. All scripts updated from `go.*` to `goast.*` (breaking change accepted).
+   Structured for easy relocation to devlore-cli.
+
+2. **Comment rewrapping scope**: rewrap everything — summary, extended description, Parameters, Returns. Only indented
    code blocks are exempt.
 
-2. **TODO stubs**: `--fix` inserts TODO stubs with placeholders for each parameter name and return type when
+3. **TODO stubs**: `--fix` inserts TODO stubs with placeholders for each parameter name and return type when
    Parameters/Returns sections are missing.
 
-3. **Signature synchronization**: `doc-comments` cross-references the Go signature against the doc comment. Stale,
+4. **Signature synchronization**: `doc-comments` cross-references the Go signature against the doc comment. Stale,
    missing, or renamed parameters and returns are violations. `--fix` updates the doc to match the signature.
 
-4. **Method reordering**: implemented via `go.sort_declarations` Go receiver API, not in Starlark. The receiver
-   handles the AST-level reordering; the rule script calls it.
+5. **Method reordering**: implemented via `goast.sort_declarations` provider method, not in Starlark. The provider handles
+   the AST-level reordering; the rule script calls it.
 
-5. **Comment rewrapping**: implemented via `go.rewrap_comments` Go receiver API for performance. The receiver handles
+6. **Comment rewrapping**: implemented via `goast.rewrap_comments` provider method for performance. The provider handles
    the text processing; the rule script calls it.
 
-6. **Per-project rule disabling**: `disabled_rules` in `star.yaml` config allows disabling specific rules per-project.
+7. **Per-project rule disabling**: `disabled_rules` in `star.yaml` config allows disabling specific rules per-project.
 
-7. **Override resolution**: follows standard config precedence — CLI → environment → project config → global config.
+8. **Override resolution**: follows standard config precedence — CLI → environment → project config → global config.

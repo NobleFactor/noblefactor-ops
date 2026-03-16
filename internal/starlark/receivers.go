@@ -12,9 +12,6 @@ var (
 	// Shellcheck provides shell script analysis operations.
 	Shellcheck = NewShellcheckReceiver()
 
-	// Go provides Go source parsing operations.
-	Go = NewGoReceiver()
-
 	// Config provides configuration operations.
 	Config = NewConfigReceiver()
 
