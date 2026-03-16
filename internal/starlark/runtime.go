@@ -21,6 +21,8 @@ import (
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 
+	goastgen "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/gen"
+
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 	"github.com/NobleFactor/noblefactor-ops/internal/wasm"
@@ -59,7 +61,7 @@ type Runtime struct {
 func NewRuntime() *Runtime {
 
 	cfg := op.NewBindingConfig("star").
-		WithReceivers(jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver).
+		WithReceivers(jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver).
 		WithColor()
 	star := op.NewStarlarkRuntime(cfg)
 
@@ -320,7 +322,6 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 	predeclared["file"] = r.file
 	predeclared["schema"] = Schema
 	predeclared["shellcheck"] = Shellcheck
-	predeclared["go"] = Go
 	predeclared["lint"] = r.lint
 	predeclared["setup"] = r.setup
 	predeclared["config"] = Config
