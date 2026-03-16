@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintGoStyle
+description: Enforce Go style guidelines with pluggable rules
+
+receivers:
+  - name: goast
+    builtin: true
+    type: goast.Provider
+    description: Go AST operations
+  - name: file
+    builtin: true
+    type: FileReceiver
+    description: Filesystem operations
+  - name: regexp
+    builtin: true
+    type: RegexpReceiver
+    description: Regular expression operations
+  - name: config
+    builtin: true
+    type: ConfigReceiver
+    description: Configuration access
+
+commands:
+  - name: lint.go-style
+    help: Enforce Go style guidelines (pluggable rule engine)
+    implementation: commands/lint-go-style.star
+    flags:
+      - name: fix
+        type: bool
+        default: "false"
+        help: Rewrite files to fix violations
+      - name: path
+        type: string
+        default: "."
+        help: Root directory to scan
+      - name: exclude
+        type: string
+        default: ""
+        help: Comma-separated glob patterns to exclude
+      - name: generated
+        type: bool
+        default: "true"
+        help: Include generated files (DO NOT EDIT)
+      - name: tests
+        type: bool
+        default: "true"
+        help: Include test files (_test.go)
+      - name: rule
+        type: string
+        default: ""
+        help: Run only this rule
+      - name: verbose
+        type: bool
+        default: "false"
+        help: Print each file as it is checked
+
+config:
+  path: lint.go_style
+  type: GoStyleConfig
+  fields:
+    enabled: bool
+    line_width: int
+    exclude: "[]string"
+    disabled_rules: "[]string"
+  defaults:
+    enabled: true
+    line_width: 120
+    exclude:
+      - "**/vendor/**"
+      - "**/testdata/**"
+    disabled_rules: []
