@@ -40,18 +40,18 @@ BRANCH=""
 
 for arg in "$@"; do
     case "$arg" in
-    --branch=*)
-        BRANCH="${arg#--branch=}"
-        ;;
-    --help | -h)
-        sed -n '7,27p' "$0" | sed 's/^# \?//'
-        exit 0
-        ;;
-    *)
-        echo "error: unknown argument: $arg" >&2
-        echo "usage: scripts/check-codegen.sh --branch=develop" >&2
-        exit 2
-        ;;
+        --branch=*)
+            BRANCH="${arg#--branch=}"
+            ;;
+        --help | -h)
+            sed -n '7,27p' "$0" | sed 's/^# \?//'
+            exit 0
+            ;;
+        *)
+            echo "error: unknown argument: $arg" >&2
+            echo "usage: scripts/check-codegen.sh --branch=develop" >&2
+            exit 2
+            ;;
     esac
 done
 
