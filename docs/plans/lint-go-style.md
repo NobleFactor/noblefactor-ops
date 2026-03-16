@@ -168,15 +168,15 @@ Provider methods — typed Go parameters, return Go types that auto-marshal to S
 | --- | --- | --- |
 | Callable | `(path, name string) (CallableResult, error)` | `path`, `name` |
 | Calls | `(scope, name string) ([]CallResult, error)` | `scope`, `name?` |
-| Composites | `(scope, typeName string) ([]CompositeResult, error)` | `scope`, `type_name?` |
-| ConstGroups | `(path, typeName string) ([]ConstGroupResult, error)` | `path`, `type_name?` |
+| Composites | `(scope, typeName string) ([]CompositeResult, error)` | `scope`, `type?` |
+| ConstGroups | `(path, typeName string) ([]ConstGroupResult, error)` | `path`, `type?` |
 | Deps | `(path string) (DepsResult, error)` | `path` |
 | Format | `(code string) (string, error)` | `code` |
 | Funcs | `(path, name string) ([]FuncResult, error)` | `path`, `name?` |
 | Methods | `(path, name, receiverType, returns string) ([]MethodResult, error)` | `path`, `name?`, `receiver_type?`, `returns?` |
 | Metrics | `(path string) (MetricsResult, error)` | `path` |
 | RawString | `(scope string) (string, error)` | `scope` |
-| Render | `(tmpl string, data any) (string, error)` | `tmpl`, `data` |
+| Render | `(tmpl string, data any) (string, error)` | `template`, `data` |
 | ReturnString | `(scope string) (string, error)` | `scope` |
 | ReturnStrings | `(scope string) ([]string, error)` | `scope` |
 | Structs | `(path string) ([]StructResult, error)` | `path` |
