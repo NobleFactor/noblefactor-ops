@@ -11,11 +11,14 @@ import (
 	"fmt"
 	"go/ast"
 	"go/format"
+	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
-	"text/template"
+	tmpl "text/template"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -137,6 +140,8 @@ func (p *Provider) Callable(path, name string) (CallableResult, error) {
 // Returns:
 //   - []CallResult: the discovered calls.
 //   - error: non-nil if the scope cannot be resolved.
+//
+// +devlore:defaults name=
 func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 	fset, body, err := p.findScopeBody(scope)
 	if err != nil {
@@ -216,6 +221,8 @@ func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 // Returns:
 //   - []CompositeResult: the discovered composite literals.
 //   - error: non-nil if the scope cannot be resolved.
+//
+// +devlore:defaults typeName=
 func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error) {
 	fset, body, err := p.findScopeBody(scope)
 	if err != nil {
@@ -293,6 +300,8 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 // Returns:
 //   - []ConstGroupResult: the discovered constant groups.
 //   - error: non-nil if the path cannot be accessed.
+//
+// +devlore:defaults typeName=
 func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error) {
 	files, err := collectGoFiles(path)
 	if err != nil {
@@ -481,6 +490,8 @@ func (p *Provider) Format(code string) (string, error) {
 // Returns:
 //   - []FuncResult: the discovered functions.
 //   - error: non-nil if the path cannot be accessed.
+//
+// +devlore:defaults name=
 func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 	files, err := collectGoFiles(path)
 	if err != nil {
@@ -538,6 +549,8 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 // Returns:
 //   - []MethodResult: the discovered methods.
 //   - error: non-nil if the path cannot be accessed.
+//
+// +devlore:defaults name=,receiverType=,returns=
 func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodResult, error) {
 	files, err := collectGoFiles(path)
 	if err != nil {
@@ -701,14 +714,14 @@ func (p *Provider) RawString(scope string) (string, error) {
 // Render executes a Go text/template against data and returns go/format-formatted Go source code.
 //
 // Parameters:
-//   - tmpl: the Go template string.
+//   - template: the Go template string.
 //   - data: the template data (any type — dict, list, string, etc.).
 //
 // Returns:
 //   - string: the formatted Go source code.
 //   - error: non-nil if template parsing, execution, or formatting fails.
-func (p *Provider) Render(tmpl string, data any) (string, error) {
-	t, err := template.New("render").Funcs(renderFuncs).Parse(tmpl)
+func (p *Provider) Render(template string, data any) (string, error) {
+	t, err := tmpl.New("render").Funcs(renderFuncs).Parse(template)
 	if err != nil {
 		return "", fmt.Errorf("goast.render: template parse: %w", err)
 	}
@@ -758,6 +771,174 @@ func (p *Provider) ReturnStrings(scope string) ([]string, error) {
 	}
 
 	return extractReturnStrings(body), nil
+}
+
+// RewrapComments rewraps all doc comment paragraphs in a Go file to fill to the specified column width. Indented code
+// blocks (4+ spaces after "//") are preserved unchanged. Returns the modified file content.
+//
+// Parameters:
+//   - path: the Go source file path.
+//   - width: the target line width in columns (e.g., 120).
+//
+// Returns:
+//   - string: the modified file content with rewrapped comments.
+//   - error: non-nil if the file cannot be read or parsed.
+func (p *Provider) RewrapComments(path string, width int) (string, error) {
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
+	}
+
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+
+	// Process comment groups in reverse order so line numbers remain valid.
+	for i := len(node.Comments) - 1; i >= 0; i-- {
+		cg := node.Comments[i]
+		startLine := fset.Position(cg.Pos()).Line - 1 // 0-indexed
+		endLine := fset.Position(cg.End()).Line        // exclusive
+
+		cgLines := make([]string, endLine-startLine)
+		copy(cgLines, lines[startLine:endLine])
+
+		newLines := rewrapCommentGroup(cgLines, width)
+
+		if !stringSlicesEqual(cgLines, newLines) {
+			result := make([]string, 0, len(lines)-len(cgLines)+len(newLines))
+			result = append(result, lines[:startLine]...)
+			result = append(result, newLines...)
+			result = append(result, lines[endLine:]...)
+			lines = result
+		}
+	}
+
+	return strings.Join(lines, "\n"), nil
+}
+
+// SortDeclarations reorders function/method declarations within a scope of a Go file. Preserves doc comments and blank
+// lines attached to each declaration. Returns the modified file content.
+//
+// Parameters:
+//   - path: the Go source file path.
+//   - scope: the scope to sort within — "file" for all top-level declarations, or "lines:START-END" for a line range.
+//   - order: the sort order — "alphabetical" sorts by declaration name.
+//
+// Returns:
+//   - string: the modified file content with sorted declarations.
+//   - error: non-nil if the file cannot be read, parsed, or the scope is invalid.
+func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("goast.sort_declarations: %w", err)
+	}
+
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return "", fmt.Errorf("goast.sort_declarations: %w", err)
+	}
+
+	startLine, endLine, err := parseScopeRange(scope, len(strings.Split(string(content), "\n")))
+	if err != nil {
+		return "", fmt.Errorf("goast.sort_declarations: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+
+	// Collect function declarations within the scope.
+	type declBlock struct {
+		name      string
+		startLine int // 1-indexed, inclusive
+		endLine   int // 1-indexed, inclusive
+	}
+
+	var blocks []declBlock
+	for _, decl := range node.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name == nil {
+			continue
+		}
+
+		dStart := fset.Position(fn.Pos()).Line
+		dEnd := fset.Position(fn.End()).Line
+
+		// Include doc comment.
+		if fn.Doc != nil {
+			docStart := fset.Position(fn.Doc.Pos()).Line
+			if docStart < dStart {
+				dStart = docStart
+			}
+		}
+
+		// Skip declarations outside the scope.
+		if dStart < startLine || dEnd > endLine {
+			continue
+		}
+
+		blocks = append(blocks, declBlock{
+			name:      fn.Name.Name,
+			startLine: dStart,
+			endLine:   dEnd,
+		})
+	}
+
+	if len(blocks) <= 1 {
+		return string(content), nil
+	}
+
+	// Record the overall range of all blocks.
+	overallStart := blocks[0].startLine
+	overallEnd := blocks[0].endLine
+	for _, b := range blocks {
+		if b.startLine < overallStart {
+			overallStart = b.startLine
+		}
+		if b.endLine > overallEnd {
+			overallEnd = b.endLine
+		}
+	}
+
+	// Extract text for each block before sorting.
+	blockTexts := make(map[string]string, len(blocks))
+	for _, b := range blocks {
+		text := strings.Join(lines[b.startLine-1:b.endLine], "\n")
+		blockTexts[b.name] = strings.TrimRight(text, " \t\n")
+	}
+
+	// Sort blocks.
+	switch order {
+	case "alphabetical", "":
+		sort.Slice(blocks, func(i, j int) bool {
+			return blocks[i].name < blocks[j].name
+		})
+	default:
+		return "", fmt.Errorf("goast.sort_declarations: unknown order: %s", order)
+	}
+
+	// Build sorted content.
+	var sortedParts []string
+	for _, b := range blocks {
+		sortedParts = append(sortedParts, blockTexts[b.name])
+	}
+	replacement := strings.Join(sortedParts, "\n\n")
+
+	// Replace the overall range in the file.
+	before := lines[:overallStart-1]
+	after := lines[overallEnd:]
+
+	var resultLines []string
+	resultLines = append(resultLines, before...)
+	resultLines = append(resultLines, strings.Split(replacement, "\n")...)
+	resultLines = append(resultLines, after...)
+
+	return strings.Join(resultLines, "\n"), nil
 }
 
 // Structs returns struct definitions from Go source files.
@@ -865,6 +1046,8 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 // Returns:
 //   - string: the doc comment text.
 //   - error: non-nil if the path cannot be accessed.
+//
+// +devlore:defaults name=
 func (p *Provider) TypeDoc(path, name string) (string, error) {
 	if name == "" {
 		name = "Provider"
