@@ -251,16 +251,10 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 	// Build path to implementation file
 	implPath := filepath.Join(extDir, cmdSpec.Implementation)
 
-	// Create thread with print function
-	thread := &starlark.Thread{
-		Name:  cmdSpec.Name,
-		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
-	}
-
 	// Build predeclared environment with extension-specific context
 	predeclared := r.buildPredeclared(spec)
 
-	// Execute the script with extended dialect options
+	// Dialect options shared by the main script and any load() targets.
 	fileOpts := syntax.FileOptions{
 		Set:             true,
 		While:           true,
@@ -268,6 +262,32 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 		GlobalReassign:  true,
 		Recursion:       true,
 	}
+
+	// Module cache for load() — prevents re-executing the same file.
+	moduleCache := map[string]starlark.StringDict{}
+
+	// Create thread with print and load functions.
+	thread := &starlark.Thread{
+		Name:  cmdSpec.Name,
+		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
+		Load: func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
+			// Resolve relative to the extension directory.
+			modulePath := filepath.Join(extDir, module)
+			if cached, ok := moduleCache[modulePath]; ok {
+				return cached, nil
+			}
+
+			globals, err := starlark.ExecFileOptions(&fileOpts, thread, modulePath, nil, predeclared)
+			if err != nil {
+				return nil, fmt.Errorf("load %s: %w", module, err)
+			}
+			moduleCache[modulePath] = globals
+
+			return globals, nil
+		},
+	}
+
+	// Execute the command script.
 	globals, err := starlark.ExecFileOptions(&fileOpts, thread, implPath, nil, predeclared)
 	if err != nil {
 		return fmt.Errorf("exec %s: %w", implPath, err)
