@@ -292,17 +292,18 @@ Create the `com.noblefactor.star.LintGoStyle` extension with the orchestrator sc
 - [x] Support project override directory `.star/lint/go-style/`
 - [x] `star lint go-style --path=. --verbose` runs with no rules (exits 0)
 
-### Phase 3: Implement rules (pending)
+### Phase 3: Implement rules (complete)
 
 Implement each rule as an independent `.star` script in `rules/`.
 
-- [ ] `doc-comments.star` — doc comment structure, fill width, Parameters/Returns, signature sync
-- [ ] `regions.star` — method region hierarchy markers
-- [ ] `method-order.star` — alphabetical ordering within regions and delineators
-- [ ] `file-layout.star` — top-level declaration ordering
-- [ ] `receivers.star` — consistent pointer/value receiver types
-- [ ] `line-width.star` — maximum 120-column line length
-- [ ] `formatting.star` — blank line rules
+- [x] `doc-comments.star` — doc comment structure, fill width, Parameters/Returns, signature sync
+- [x] `regions.star` — method region hierarchy markers
+- [x] `method-order.star` — alphabetical ordering within regions and delineators
+- [x] `file-layout.star` — top-level declaration ordering
+- [x] `receivers.star` — consistent pointer/value receiver types
+- [x] `line-width.star` — maximum 120-column line length, under-filled detection
+- [x] `formatting.star` — blank line rules
+- [x] Starlark `load()` support added to runtime for rule imports
 - [ ] Integration tests: run all rules against known-good and known-bad fixture files
 
 ### Phase 4: Integration (pending)
