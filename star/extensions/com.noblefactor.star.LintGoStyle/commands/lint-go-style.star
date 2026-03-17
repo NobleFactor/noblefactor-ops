@@ -170,16 +170,16 @@ def run_fix(rules, files, verbose, line_width):
     for path in files:
         if verbose:
             ui.note("Fixing " + path)
-        ctx = build_context(path, line_width)
-        modified = False
+        original = file.read(path)
         for _, _, fix_fn in rules:
+            # Rebuild context from disk before each rule so goast sees current content.
+            ctx = build_context(path, line_width)
             new_content = fix_fn(ctx)
             if new_content and new_content != ctx["content"]:
-                ctx["content"] = new_content
-                ctx["lines"] = new_content.split("\n")
-                modified = True
-        if modified:
-            file.write(path, ctx["content"])
+                file.write(path, new_content)
+        # Check if the file changed overall.
+        final = file.read(path)
+        if final != original:
             fixed_count += 1
     return fixed_count
 
