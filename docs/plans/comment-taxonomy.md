@@ -101,7 +101,7 @@ No changes to existing provider methods — this phase is purely additive.
 | `internal/provider/goast/doctaxonomy/format.go`           | Create | Single-pass go/doc/comment formatting     |
 | `internal/provider/goast/doctaxonomy/doctaxonomy_test.go` | Create | Tests driven by canonical Backup example  |
 
-### Phase 2: Schema YAML and registry (pending)
+### Phase 2: Schema YAML and registry (complete)
 
 Define the schema YAML format. Implement the schema loader and registry. Register Go schemas for FuncDecl,
 TypeSpec, and File. Validation of `required` and `cardinality` constraints.
