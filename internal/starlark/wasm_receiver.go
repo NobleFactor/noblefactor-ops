@@ -10,7 +10,6 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 )
 
@@ -93,7 +92,7 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 			if !ok {
 				continue
 			}
-			val, err := op.UnmarshalToAny(kv[1])
+			val, err := starlarkToAny(kv[1])
 			if err != nil {
 				return nil, fmt.Errorf("convert kwarg %s: %w", key, err)
 			}
@@ -103,7 +102,7 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 		if len(args) > 0 {
 			for i, arg := range args {
 				// Use numeric keys for positional args
-				v, err := op.UnmarshalToAny(arg)
+				v, err := starlarkToAny(arg)
 				if err != nil {
 					return nil, fmt.Errorf("convert arg%d: %w", i, err)
 				}
@@ -118,7 +117,7 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 		return []byte("{}"), nil
 	}
 	if len(args) == 1 {
-		val, err := op.UnmarshalToAny(args[0])
+		val, err := starlarkToAny(args[0])
 		if err != nil {
 			return nil, fmt.Errorf("convert arg: %w", err)
 		}
@@ -133,7 +132,7 @@ func wasmArgsToJSON(args starlark.Tuple, kwargs []starlark.Tuple) ([]byte, error
 	// Multiple positional args - convert to array
 	arr := make([]any, len(args))
 	for i, arg := range args {
-		v, err := op.UnmarshalToAny(arg)
+		v, err := starlarkToAny(arg)
 		if err != nil {
 			return nil, fmt.Errorf("convert arg%d: %w", i, err)
 		}
@@ -179,5 +178,65 @@ func jsonToStarlarkStruct(v any) starlark.Value {
 		return starlarkstruct.FromStringDict(starlarkstruct.Default, dict)
 	default:
 		return starlark.String(fmt.Sprintf("%v", x))
+	}
+}
+
+// starlarkToAny converts a Starlark value to a Go any value.
+func starlarkToAny(sv starlark.Value) (any, error) {
+	switch v := sv.(type) {
+	case starlark.NoneType:
+		return nil, nil
+	case starlark.String:
+		return string(v), nil
+	case starlark.Int:
+		i, ok := v.Int64()
+		if !ok {
+			return nil, fmt.Errorf("starlarkToAny: int value out of range")
+		}
+		return int(i), nil
+	case starlark.Bool:
+		return bool(v), nil
+	case starlark.Float:
+		return float64(v), nil
+	case starlark.Bytes:
+		return []byte(v), nil
+	case *starlark.List:
+		n := v.Len()
+		arr := make([]any, n)
+		for i := range n {
+			val, err := starlarkToAny(v.Index(i))
+			if err != nil {
+				return nil, err
+			}
+			arr[i] = val
+		}
+		return arr, nil
+	case *starlark.Dict:
+		m := make(map[string]any)
+		for _, kv := range v.Items() {
+			key, ok := starlark.AsString(kv[0])
+			if !ok {
+				return nil, fmt.Errorf("starlarkToAny: dict key is not a string")
+			}
+			val, err := starlarkToAny(kv[1])
+			if err != nil {
+				return nil, err
+			}
+			m[key] = val
+		}
+		return m, nil
+	case *starlarkstruct.Struct:
+		m := make(map[string]any)
+		for _, name := range v.AttrNames() {
+			attr, _ := v.Attr(name)
+			val, err := starlarkToAny(attr)
+			if err != nil {
+				return nil, err
+			}
+			m[name] = val
+		}
+		return m, nil
+	default:
+		return nil, fmt.Errorf("starlarkToAny: unsupported starlark type %s", sv.Type())
 	}
 }

@@ -30,7 +30,7 @@ def detect_license(license_path):
     if not file.exists(license_path):
         return {"detected": False, "license": "", "error": "LICENSE file not found"}
 
-    content = file.read(license_path)
+    content = file.read_text(license_path)
 
     for spdx_id, pattern in LICENSE_PATTERNS.items():
         if regexp.match(pattern, content):
@@ -129,7 +129,7 @@ def check_file(path, license, holder):
     if comment == None:
         return {"ok": True, "message": "", "skipped": True}
 
-    content = file.read(path)
+    content = file.read_text(path)
     lines = content.split("\n")
 
     # Handle shebang for scripts
@@ -179,7 +179,7 @@ def fix_file(path, license, holder):
     if comment == None:
         return {"fixed": False, "error": "Unknown file type"}
 
-    content = file.read(path)
+    content = file.read_text(path)
     lines = content.split("\n")
     expected_header = build_expected_header(license, holder, comment)
 
@@ -213,7 +213,7 @@ def fix_file(path, license, holder):
     if not new_content.endswith("\n"):
         new_content = new_content + "\n"
 
-    file.write(path, new_content)
+    file.write_text(path, new_content)
     return {"fixed": True, "error": ""}
 
 # =============================================================================
@@ -235,9 +235,12 @@ def matches_pattern(path, pattern):
 
     # Handle ** patterns (e.g., vendor/**)
     if "**" in pattern:
-        # vendor/** matches vendor/anything
+        # vendor/** matches vendor/anything (relative or absolute paths)
         base = pattern.replace("/**", "")
         if path.startswith(base + "/") or path == base:
+            return True
+        # Also match when base appears as a path segment in absolute paths
+        if ("/" + base + "/") in path:
             return True
         # **/vendor matches anything/vendor
         if pattern.startswith("**/"):
@@ -275,10 +278,10 @@ def collect_source_files(path, exclude_patterns):
     all_files = []
 
     # Collect files by extension
-    # file.glob respects .gitignore by default
+    # file.find supports ** recursive patterns and respects .gitignore by default
     for ext in COMMENT_STYLES.keys():
         pattern = path + "/**/*" + ext
-        files = file.glob(pattern)
+        files = file.find(pattern)
         for f in files:
             # Apply explicit exclude patterns from config
             if not is_excluded(f, exclude_patterns):

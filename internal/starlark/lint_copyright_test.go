@@ -180,10 +180,8 @@ func setupExtension(t *testing.T, testDir string) (*Runtime, error) {
 		return nil, err
 	}
 
-	// Create runtime
-	r := NewRuntime()
-
-	// Change to test directory for config loading
+	// Change to test directory BEFORE creating runtime so file.Provider's
+	// Root is set to the test directory.
 	origDir, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -194,6 +192,9 @@ func setupExtension(t *testing.T, testDir string) (*Runtime, error) {
 	t.Cleanup(func() {
 		os.Chdir(origDir)
 	})
+
+	// Create runtime (Root picks up current working directory)
+	r := NewRuntime()
 
 	// Load extensions from the project's star/extensions directory
 	extDir := filepath.Join(projectRoot, "star", "extensions")
