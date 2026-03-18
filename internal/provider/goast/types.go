@@ -110,7 +110,7 @@ type StructResult struct {
 	File    string                 `starlark:"file"`
 	Line    int                    `starlark:"line"`
 	Fields  []FieldDetail          `starlark:"fields"`
-	Comment *doctaxonomy.TypeDoc   `starlark:"-"`
+	Comment *doctaxonomy.TypeDoc   `starlark:"comment"`
 }
 
 // FieldDetail holds information about a struct field.
@@ -154,7 +154,7 @@ type MethodResult struct {
 	File         string                 `starlark:"file"`
 	Line         int                    `starlark:"line"`
 	Doc          string                 `starlark:"doc"`
-	Comment      *doctaxonomy.FuncDoc   `starlark:"-"`
+	Comment      *doctaxonomy.FuncDoc   `starlark:"comment"`
 	Scope        string                 `starlark:"scope"`
 }
 
@@ -166,7 +166,7 @@ type FuncResult struct {
 	File    string                 `starlark:"file"`
 	Line    int                    `starlark:"line"`
 	Doc     string                 `starlark:"doc"`
-	Comment *doctaxonomy.FuncDoc   `starlark:"-"`
+	Comment *doctaxonomy.FuncDoc   `starlark:"comment"`
 	Scope   string                 `starlark:"scope"`
 }
 
