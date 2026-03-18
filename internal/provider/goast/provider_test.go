@@ -99,11 +99,12 @@ func Foo() {}
 		t.Fatalf("RewrapComments: %v", err)
 	}
 
-	if !strings.Contains(got, "//     indented code block") {
+	// go/doc/comment uses tab-indented code blocks.
+	if !strings.Contains(got, "//\tindented code block") {
 		t.Errorf("code block was modified, got:\n%s", got)
 	}
 
-	if !strings.Contains(got, "//     should not be wrapped") {
+	if !strings.Contains(got, "//\tshould not be wrapped") {
 		t.Errorf("code block was modified, got:\n%s", got)
 	}
 }

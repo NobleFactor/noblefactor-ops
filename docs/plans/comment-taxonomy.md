@@ -122,7 +122,7 @@ TypeSpec, and File. Validation of `required` and `cardinality` constraints.
 | `internal/provider/goast/doctaxonomy/schemas/go.yaml` | Create | Go FuncDecl, TypeSpec, File schemas        |
 | `internal/provider/goast/doctaxonomy/schema_test.go`  | Create | Schema loading and validation tests        |
 
-### Phase 3: Provider integration (pending)
+### Phase 3: Provider integration (complete)
 
 Wire the taxonomy into the goast provider. Every result type gains a `.Comment` field populated during
 extraction. Replace `parseParamDocs` and `RewrapComments` internals. Run codegen.

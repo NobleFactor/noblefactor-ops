@@ -4,9 +4,11 @@
 package doctaxonomy
 
 // Paragraph represents one or more text tokens (words, param names, return
-// types, colons) forming a prose paragraph.
+// types, colons) forming a prose paragraph. CodeLine is included so that
+// list item continuation lines (4-space indent) are captured as part of
+// the description rather than creating spurious CodeBlock elements.
 type Paragraph struct {
-	Words []string `parser:"@(Word | ParamName | ReturnType | Colon)+"`
+	Words []string `parser:"@(Word | ParamName | ReturnType | Colon | CodeLine)+"`
 }
 
 // Directive represents a +key value line (e.g., +devlore:defaults overwrite=true).

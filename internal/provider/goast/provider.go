@@ -21,6 +21,7 @@ import (
 	tmpl "text/template"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/noblefactor-ops/internal/provider/goast/doctaxonomy"
 )
 
 // Provider provides Go AST operations as a Starlark receiver.
@@ -516,20 +517,25 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 			}
 
 			returns := returnTypeString(fn.Type.Results)
-			doc := ""
+			rawDoc := ""
 			if fn.Doc != nil {
-				doc = strings.TrimSpace(fn.Doc.Text())
+				rawDoc = commentGroupRaw(fn.Doc)
 			}
+
+			pNames := astParamNames(fn.Type.Params)
+			rTypes := astReturnTypes(fn.Type.Results)
+			funcDoc := parseFuncDocSafe(rawDoc, pNames, rTypes)
 
 			scope := encodeScope(file, fn.Name.Name)
 
 			result = append(result, FuncResult{
 				Name:    fn.Name.Name,
 				Returns: returns,
-				Params:  extractParams(fn.Type.Params, nil),
+				Params:  extractParams(fn.Type.Params, funcDoc.ParamDocs()),
 				File:    filepath.Base(file),
 				Line:    fset.Position(fn.Pos()).Line,
-				Doc:     doc,
+				Doc:     rawDoc,
+				Comment: funcDoc,
 				Scope:   scope,
 			})
 		}
@@ -594,20 +600,24 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 
 			rawDoc := ""
 			if fn.Doc != nil {
-				rawDoc = strings.TrimSpace(fn.Doc.Text())
+				rawDoc = commentGroupRaw(fn.Doc)
 			}
 
-			cleanDoc, paramDocs := parseParamDocs(rawDoc)
+			pNames := astParamNames(fn.Type.Params)
+			rTypes := astReturnTypes(fn.Type.Results)
+			funcDoc := parseFuncDocSafe(rawDoc, pNames, rTypes)
+
 			scope := encodeScope(file, strings.TrimPrefix(recvType, "*")+"."+fn.Name.Name)
 
 			result = append(result, MethodResult{
 				Name:         fn.Name.Name,
 				ReceiverType: recvType,
 				Returns:      retStr,
-				Params:       extractParams(fn.Type.Params, paramDocs),
+				Params:       extractParams(fn.Type.Params, funcDoc.ParamDocs()),
 				File:         filepath.Base(file),
 				Line:         fset.Position(fn.Pos()).Line,
-				Doc:          cleanDoc,
+				Doc:          rawDoc,
+				Comment:      funcDoc,
 				Scope:        scope,
 			})
 		}
@@ -796,6 +806,27 @@ func (p *Provider) RewrapComments(path string, width int) (string, error) {
 		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
 	}
 
+	// Map comment groups to their associated declarations.
+	docOwner := make(map[*ast.CommentGroup]ast.Node)
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch d := n.(type) {
+		case *ast.FuncDecl:
+			if d.Doc != nil {
+				docOwner[d.Doc] = d
+			}
+		case *ast.GenDecl:
+			if d.Doc != nil {
+				docOwner[d.Doc] = d
+			}
+			for _, spec := range d.Specs {
+				if ts, ok := spec.(*ast.TypeSpec); ok && ts.Doc != nil {
+					docOwner[ts.Doc] = ts
+				}
+			}
+		}
+		return true
+	})
+
 	lines := strings.Split(string(content), "\n")
 
 	// Process comment groups in reverse order so line numbers remain valid.
@@ -807,9 +838,49 @@ func (p *Provider) RewrapComments(path string, width int) (string, error) {
 		cgLines := make([]string, endLine-startLine)
 		copy(cgLines, lines[startLine:endLine])
 
-		newLines := rewrapCommentGroup(cgLines, width)
+		raw := commentGroupRaw(cg)
+		if raw == "" {
+			continue
+		}
 
-		if !stringSlicesEqual(cgLines, newLines) {
+		// Skip copyright headers.
+		if strings.HasPrefix(raw, "SPDX-License-Identifier") {
+			continue
+		}
+
+		// Extract the indentation prefix from the first line.
+		indent := extractIndent(cgLines[0])
+
+		var formatted string
+		if fn, ok := docOwner[cg].(*ast.FuncDecl); ok {
+			// FuncDecl doc: parse with taxonomy, normalize, format.
+			pNames := astParamNames(fn.Type.Params)
+			rTypes := astReturnTypes(fn.Type.Results)
+			funcDoc := parseFuncDocSafe(raw, pNames, rTypes)
+			normalized := funcDoc.Normalize()
+			formatted = doctaxonomy.Format(normalized, width-len(indent))
+		} else if _, ok := docOwner[cg].(*ast.TypeSpec); ok {
+			// TypeSpec doc: parse as TypeDoc, normalize, format.
+			tp := doctaxonomy.NewTypeParser()
+			typeDoc, err := tp.ParseString("", raw)
+			if err == nil {
+				normalized := typeDoc.Normalize()
+				formatted = doctaxonomy.Format(normalized, width-len(indent))
+			} else {
+				formatted = doctaxonomy.Format(raw, width-len(indent))
+			}
+		} else {
+			// Other comments: reflow with go/doc/comment.
+			formatted = doctaxonomy.Format(raw, width-len(indent))
+		}
+
+		// Split formatted output into lines and add indentation.
+		newLines := strings.Split(strings.TrimRight(formatted, "\n"), "\n")
+		for j := range newLines {
+			newLines[j] = indent + newLines[j]
+		}
+
+		if !slicesEqual(cgLines, newLines) {
 			result := make([]string, 0, len(lines)-len(cgLines)+len(newLines))
 			result = append(result, lines[:startLine]...)
 			result = append(result, newLines...)
@@ -1022,11 +1093,28 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 					}
 				}
 
+				// Parse type doc with taxonomy.
+				var typeDoc *doctaxonomy.TypeDoc
+				if ts.Doc != nil {
+					raw := commentGroupRaw(ts.Doc)
+					if raw != "" {
+						tp := doctaxonomy.NewTypeParser()
+						typeDoc, _ = tp.ParseString("", raw)
+					}
+				} else if genDecl.Doc != nil && len(genDecl.Specs) == 1 {
+					raw := commentGroupRaw(genDecl.Doc)
+					if raw != "" {
+						tp := doctaxonomy.NewTypeParser()
+						typeDoc, _ = tp.ParseString("", raw)
+					}
+				}
+
 				result = append(result, StructResult{
-					Name:   ts.Name.Name,
-					File:   filepath.Base(file),
-					Line:   fset.Position(ts.Pos()).Line,
-					Fields: fields,
+					Name:    ts.Name.Name,
+					File:    filepath.Base(file),
+					Line:    fset.Position(ts.Pos()).Line,
+					Fields:  fields,
+					Comment: typeDoc,
 				})
 			}
 

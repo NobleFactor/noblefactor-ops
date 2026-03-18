@@ -3,6 +3,8 @@
 
 package goast
 
+import "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/doctaxonomy"
+
 // =============================================================================
 // METRICS RESULT TYPES
 // =============================================================================
@@ -104,10 +106,11 @@ type ParamDetail struct {
 
 // StructResult holds information about a struct type declaration.
 type StructResult struct {
-	Name   string        `starlark:"name"`
-	File   string        `starlark:"file"`
-	Line   int           `starlark:"line"`
-	Fields []FieldDetail `starlark:"fields"`
+	Name    string                 `starlark:"name"`
+	File    string                 `starlark:"file"`
+	Line    int                    `starlark:"line"`
+	Fields  []FieldDetail          `starlark:"fields"`
+	Comment *doctaxonomy.TypeDoc   `starlark:"-"`
 }
 
 // FieldDetail holds information about a struct field.
@@ -144,25 +147,27 @@ type ConstDetail struct {
 
 // MethodResult holds information about a method declaration.
 type MethodResult struct {
-	Name         string        `starlark:"name"`
-	ReceiverType string        `starlark:"receiver_type"`
-	Returns      string        `starlark:"returns"`
-	Params       []ParamDetail `starlark:"params"`
-	File         string        `starlark:"file"`
-	Line         int           `starlark:"line"`
-	Doc          string        `starlark:"doc"`
-	Scope        string        `starlark:"scope"`
+	Name         string                 `starlark:"name"`
+	ReceiverType string                 `starlark:"receiver_type"`
+	Returns      string                 `starlark:"returns"`
+	Params       []ParamDetail          `starlark:"params"`
+	File         string                 `starlark:"file"`
+	Line         int                    `starlark:"line"`
+	Doc          string                 `starlark:"doc"`
+	Comment      *doctaxonomy.FuncDoc   `starlark:"-"`
+	Scope        string                 `starlark:"scope"`
 }
 
 // FuncResult holds information about a top-level function declaration.
 type FuncResult struct {
-	Name    string        `starlark:"name"`
-	Returns string        `starlark:"returns"`
-	Params  []ParamDetail `starlark:"params"`
-	File    string        `starlark:"file"`
-	Line    int           `starlark:"line"`
-	Doc     string        `starlark:"doc"`
-	Scope   string        `starlark:"scope"`
+	Name    string                 `starlark:"name"`
+	Returns string                 `starlark:"returns"`
+	Params  []ParamDetail          `starlark:"params"`
+	File    string                 `starlark:"file"`
+	Line    int                    `starlark:"line"`
+	Doc     string                 `starlark:"doc"`
+	Comment *doctaxonomy.FuncDoc   `starlark:"-"`
+	Scope   string                 `starlark:"scope"`
 }
 
 // =============================================================================
