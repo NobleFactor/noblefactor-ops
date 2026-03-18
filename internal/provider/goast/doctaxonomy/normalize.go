@@ -5,6 +5,7 @@ package doctaxonomy
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -69,19 +70,59 @@ func (h *Heading) Normalize() string {
 	return "# " + strings.Join(h.Text, " ")
 }
 
-// Normalize assembles elements in schema order with correct blank-line
-// separators. Order: summary, body paragraphs/headings/code, directives,
-// parameters, returns.
+// defaultFuncDocOrder is the hardcoded element order used when no schema is
+// provided. Matches the Go func_doc schema: summary=1, body=2, directives=3,
+// parameters=4, returns=5.
+var defaultFuncDocOrder = []SchemaElement{
+	{Name: "summary", Type: "paragraph", Order: 1},
+	{Name: "body", Type: "block", Cardinality: "*", Order: 2},
+	{Name: "directives", Type: "directive", Cardinality: "*", Order: 3},
+	{Name: "parameters", Type: "param_section", Order: 4},
+	{Name: "returns", Type: "return_section", Order: 5},
+}
+
+// Normalize assembles elements in default schema order with correct blank-line
+// separators. For schema-driven ordering, use NormalizeWithSchema.
 func (d *FuncDoc) Normalize() string {
+	return d.NormalizeWithSchema(defaultFuncDocOrder)
+}
+
+// NormalizeWithSchema assembles elements in the order defined by the schema
+// elements, separated by blank lines.
+func (d *FuncDoc) NormalizeWithSchema(schemaElements []SchemaElement) string {
+	// Sort schema elements by Order.
+	ordered := make([]SchemaElement, len(schemaElements))
+	copy(ordered, schemaElements)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].Order < ordered[j].Order
+	})
+
+	// Classify parsed elements.
 	var paragraphs []*Paragraph
 	var directives []*Directive
 	var paramSection *ParamSection
 	var returnSection *ReturnSection
 
+	// bodyElements tracks headings, code blocks, and non-summary paragraphs
+	// in parse order.
+	type bodyElement struct {
+		text string
+	}
+	var bodyElements []bodyElement
+
+	paragraphIdx := 0
 	for _, el := range d.Elements {
 		switch {
 		case el.Paragraph != nil:
 			paragraphs = append(paragraphs, el.Paragraph)
+			if paragraphIdx > 0 {
+				bodyElements = append(bodyElements, bodyElement{el.Paragraph.Normalize()})
+			}
+			paragraphIdx++
+		case el.Heading != nil:
+			bodyElements = append(bodyElements, bodyElement{el.Heading.Normalize()})
+		case el.CodeBlock != nil:
+			bodyElements = append(bodyElements, bodyElement{el.CodeBlock.Normalize()})
 		case el.Directive != nil:
 			directives = append(directives, el.Directive)
 		case el.ParamSection != nil:
@@ -91,44 +132,31 @@ func (d *FuncDoc) Normalize() string {
 		}
 	}
 
+	// Emit elements in schema order.
 	var sections []string
-
-	// 1. Summary — first paragraph.
-	if len(paragraphs) > 0 {
-		sections = append(sections, paragraphs[0].Normalize())
-	}
-
-	// 2. Body — remaining paragraphs, headings, code blocks (in parse order).
-	// Track which body paragraphs we've emitted.
-	bodyIdx := 0
-	for _, el := range d.Elements {
-		switch {
-		case el.Heading != nil:
-			sections = append(sections, el.Heading.Normalize())
-		case el.CodeBlock != nil:
-			sections = append(sections, el.CodeBlock.Normalize())
-		case el.Paragraph != nil:
-			// Skip the first paragraph (already emitted as summary).
-			if bodyIdx > 0 {
-				sections = append(sections, el.Paragraph.Normalize())
+	for _, se := range ordered {
+		switch se.Type {
+		case "paragraph":
+			if len(paragraphs) > 0 {
+				sections = append(sections, paragraphs[0].Normalize())
 			}
-			bodyIdx++
+		case "block":
+			for _, be := range bodyElements {
+				sections = append(sections, be.text)
+			}
+		case "directive":
+			for _, dir := range directives {
+				sections = append(sections, dir.Normalize())
+			}
+		case "param_section":
+			if paramSection != nil {
+				sections = append(sections, paramSection.Normalize())
+			}
+		case "return_section":
+			if returnSection != nil {
+				sections = append(sections, returnSection.Normalize())
+			}
 		}
-	}
-
-	// 3. Directives.
-	for _, dir := range directives {
-		sections = append(sections, dir.Normalize())
-	}
-
-	// 4. Parameters section.
-	if paramSection != nil {
-		sections = append(sections, paramSection.Normalize())
-	}
-
-	// 5. Returns section.
-	if returnSection != nil {
-		sections = append(sections, returnSection.Normalize())
 	}
 
 	return strings.Join(sections, "\n\n")
