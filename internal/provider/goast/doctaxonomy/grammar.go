@@ -27,6 +27,42 @@ type FuncDoc struct {
 	Elements []*DocElement `parser:"(BlankLine* @@)* BlankLine*"`
 }
 
+// GetParamSection returns the first ParamSection from the parsed elements,
+// or nil if none exists.
+func (d *FuncDoc) GetParamSection() *ParamSection {
+	for _, el := range d.Elements {
+		if el.ParamSection != nil {
+			return el.ParamSection
+		}
+	}
+	return nil
+}
+
+// GetReturnSection returns the first ReturnSection from the parsed elements,
+// or nil if none exists.
+func (d *FuncDoc) GetReturnSection() *ReturnSection {
+	for _, el := range d.Elements {
+		if el.ReturnSection != nil {
+			return el.ReturnSection
+		}
+	}
+	return nil
+}
+
+// ParamDocs builds a map of parameter name → description from the parsed
+// ParamSection. Returns nil if no ParamSection exists.
+func (d *FuncDoc) ParamDocs() map[string]string {
+	ps := d.GetParamSection()
+	if ps == nil || len(ps.Items) == 0 {
+		return nil
+	}
+	docs := make(map[string]string, len(ps.Items))
+	for _, item := range ps.Items {
+		docs[item.Name] = item.Desc.Normalize()
+	}
+	return docs
+}
+
 // TypeDocElement is the wrapper struct for type doc alternation.
 // Type docs contain only paragraphs, code blocks, and headings.
 type TypeDocElement struct {

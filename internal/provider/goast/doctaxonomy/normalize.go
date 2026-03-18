@@ -15,6 +15,9 @@ import (
 func (p *Paragraph) Normalize() string {
 	var b strings.Builder
 	for i, w := range p.Words {
+		// CodeLine tokens have leading whitespace from 4-space indent;
+		// trim it so continuation lines join cleanly.
+		w = strings.TrimLeft(w, " \t")
 		if i > 0 && !isTrailingPunctuation(w) {
 			b.WriteByte(' ')
 		}
