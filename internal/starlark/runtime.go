@@ -27,6 +27,7 @@ import (
 	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 
 	goastgen "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/gen"
+	lintgen "github.com/NobleFactor/noblefactor-ops/internal/provider/lint/gen"
 	shellcheckgen "github.com/NobleFactor/noblefactor-ops/internal/provider/shellcheck/gen"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
@@ -58,7 +59,6 @@ type Runtime struct {
 	UIProvider *ui.Provider
 
 	// Receivers that depend on UIProvider (not singletons).
-	lint  *LintReceiver
 	setup *SetupReceiver
 }
 
@@ -69,7 +69,7 @@ func NewRuntime() *Runtime {
 		WithReceivers(
 			filegen.Receiver, jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver,
 			starindexgen.Receiver, starcomplexitygen.Receiver, starstatsgen.Receiver, staranalysisgen.Receiver,
-			shellcheckgen.Receiver,
+			shellcheckgen.Receiver, lintgen.Receiver,
 		).
 		WithColor()
 	star := op.NewStarlarkRuntime(cfg)
@@ -84,7 +84,7 @@ func NewRuntime() *Runtime {
 		Root:    op.NewRootReaderWriter(wd),
 	})
 
-	// UIProvider is shared with hand-coded receivers (lint, setup) and
+	// UIProvider is shared with hand-coded receivers (setup) and
 	// exposed for --silent flag wiring in main.
 	uip := &ui.Provider{
 		Writer:      os.Stderr,
@@ -98,7 +98,6 @@ func NewRuntime() *Runtime {
 		wasmReceivers: make(map[string]*WasmReceiver),
 		star:          star,
 		UIProvider:    uip,
-		lint:          NewLintReceiver(uip),
 		setup:         NewSetupReceiver(uip),
 	}
 }
@@ -351,7 +350,6 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 	predeclared := r.star.BuildReceivers()
 
 	// Hand-coded receivers (not yet migrated to framework providers).
-	predeclared["lint"] = r.lint
 	predeclared["setup"] = r.setup
 	predeclared["config"] = Config
 
