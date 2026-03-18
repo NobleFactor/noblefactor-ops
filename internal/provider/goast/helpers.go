@@ -15,6 +15,8 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+
+	"github.com/NobleFactor/noblefactor-ops/internal/provider/goast/doctaxonomy"
 )
 
 // =============================================================================
@@ -389,63 +391,74 @@ func commentGroupRaw(cg *ast.CommentGroup) string {
 }
 
 // =============================================================================
-// DOC COMMENT PARSING
+// TAXONOMY HELPERS
 // =============================================================================
 
-// parseParamDocs extracts parameter documentation from a method doc comment. It
-// looks for a "Parameters:" section and parses "- name: description" lines.
-// Returns the doc with the Parameters: section removed, and a map of param name
-// to description.
-//
-// Parameters:
-//   - doc: the raw doc comment text.
-//
-// Returns:
-//   - string: the doc with Parameters section removed.
-//   - map[string]string: parameter name to description mapping.
-func parseParamDocs(doc string) (string, map[string]string) {
-	docs := make(map[string]string)
-	if doc == "" {
-		return doc, docs
+// astParamNames extracts parameter names from an AST field list.
+func astParamNames(params *ast.FieldList) []string {
+	if params == nil {
+		return nil
 	}
-
-	lines := strings.Split(doc, "\n")
-	var descLines []string
-	inParams := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "Parameters:" {
-			inParams = true
-			continue
+	var names []string
+	for _, field := range params.List {
+		for _, name := range field.Names {
+			names = append(names, name.Name)
 		}
-
-		if inParams {
-			if strings.HasPrefix(trimmed, "- ") {
-				entry := strings.TrimPrefix(trimmed, "- ")
-				if colonIdx := strings.Index(entry, ": "); colonIdx > 0 {
-					docs[entry[:colonIdx]] = entry[colonIdx+2:]
-				}
-				continue
-			}
-
-			if trimmed == "" {
-				inParams = false
-				continue
-			}
-
-			// Non-entry line ends the Parameters section.
-			inParams = false
-			descLines = append(descLines, line)
-			continue
-		}
-
-		descLines = append(descLines, line)
 	}
+	return names
+}
 
-	cleanDoc := strings.TrimSpace(strings.Join(descLines, "\n"))
+// astReturnTypes extracts return type strings from an AST field list.
+func astReturnTypes(results *ast.FieldList) []string {
+	if results == nil {
+		return nil
+	}
+	var types []string
+	for _, field := range results.List {
+		t := typeToString(field.Type)
+		if len(field.Names) > 0 {
+			// Named return: use the names as tokens.
+			for _, name := range field.Names {
+				types = append(types, name.Name)
+			}
+		} else {
+			types = append(types, t)
+		}
+	}
+	return types
+}
 
-	return cleanDoc, docs
+// parseFuncDocSafe parses a raw doc comment into a FuncDoc. Returns a
+// non-nil (possibly empty) FuncDoc even if parsing fails.
+func parseFuncDocSafe(rawDoc string, paramNames, returnTypes []string) *doctaxonomy.FuncDoc {
+	if rawDoc == "" {
+		return &doctaxonomy.FuncDoc{}
+	}
+	p := doctaxonomy.NewFuncParser(paramNames, returnTypes)
+	doc, err := p.ParseString("", rawDoc)
+	if err != nil {
+		return &doctaxonomy.FuncDoc{}
+	}
+	return doc
+}
+
+// extractIndent returns the leading whitespace from a line.
+func extractIndent(line string) string {
+	trimmed := strings.TrimLeft(line, " \t")
+	return line[:len(line)-len(trimmed)]
+}
+
+// slicesEqual returns true if two string slices have identical contents.
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // =============================================================================
@@ -818,234 +831,6 @@ func renderLCFirst(s string) string {
 	}
 
 	return strings.ToLower(s[:1]) + s[1:]
-}
-
-// =============================================================================
-// COMMENT REWRAPPING
-// =============================================================================
-
-// commentBodyPrefix extracts the leading whitespace and comment marker from a comment line. Returns the prefix (e.g.,
-// "// " or "\t// ") and the body (content after the prefix).
-//
-// Parameters:
-//   - line: the raw comment line from source.
-//
-// Returns:
-//   - string: the prefix including indentation and "// ".
-//   - string: the body text after the prefix.
-func commentBodyPrefix(line string) (string, string) {
-
-	trimmed := strings.TrimLeft(line, " \t")
-	indent := line[:len(line)-len(trimmed)]
-
-	if strings.HasPrefix(trimmed, "// ") {
-		return indent + "// ", trimmed[3:]
-	}
-
-	if trimmed == "//" {
-		return indent + "//", ""
-	}
-
-	if strings.HasPrefix(trimmed, "//") {
-		return indent + "//", trimmed[2:]
-	}
-
-	return line, ""
-}
-
-// rewrapCommentGroup rewraps a comment group's lines to fill to the target column width. Blank separator lines and
-// indented code blocks (4+ spaces after "//") pass through unchanged. Regular paragraphs and bullet items are reflowed.
-//
-// Parameters:
-//   - lines: the raw source lines of the comment group.
-//   - width: the target line width in columns.
-//
-// Returns:
-//   - []string: the rewrapped lines.
-func rewrapCommentGroup(lines []string, width int) []string {
-
-	var result []string
-	i := 0
-
-	for i < len(lines) {
-		_, body := commentBodyPrefix(lines[i])
-
-		// Blank separator line.
-		if strings.TrimSpace(body) == "" {
-			result = append(result, lines[i])
-			i++
-			continue
-		}
-
-		// Code block (4+ spaces after "// ").
-		if strings.HasPrefix(body, "    ") && !strings.HasPrefix(body, "  - ") {
-			for i < len(lines) {
-				_, b := commentBodyPrefix(lines[i])
-				if strings.TrimSpace(b) == "" || !strings.HasPrefix(b, "    ") || strings.HasPrefix(b, "  - ") {
-					break
-				}
-				result = append(result, lines[i])
-				i++
-			}
-			continue
-		}
-
-		// Bullet item (starts with "  - ").
-		if strings.HasPrefix(body, "  - ") {
-			for i < len(lines) {
-				_, b := commentBodyPrefix(lines[i])
-				if !strings.HasPrefix(b, "  - ") {
-					break
-				}
-
-				// Collect this bullet: first line + continuation lines.
-				bulletStart := i
-				i++
-				for i < len(lines) {
-					_, nb := commentBodyPrefix(lines[i])
-					if strings.TrimSpace(nb) == "" || strings.HasPrefix(nb, "  - ") || !strings.HasPrefix(nb, "    ") {
-						break
-					}
-					i++
-				}
-
-				result = append(result, rewrapBulletItem(lines[bulletStart:i], width)...)
-			}
-			continue
-		}
-
-		// Regular text paragraph.
-		paraStart := i
-		for i < len(lines) {
-			_, b := commentBodyPrefix(lines[i])
-			if strings.TrimSpace(b) == "" || strings.HasPrefix(b, "    ") || strings.HasPrefix(b, "  - ") {
-				break
-			}
-			i++
-		}
-
-		result = append(result, rewrapTextParagraph(lines[paraStart:i], width)...)
-	}
-
-	return result
-}
-
-// rewrapTextParagraph rewraps a regular text paragraph to fill to the target column width.
-//
-// Parameters:
-//   - lines: the raw source lines of the paragraph.
-//   - width: the target line width in columns.
-//
-// Returns:
-//   - []string: the rewrapped lines.
-func rewrapTextParagraph(lines []string, width int) []string {
-
-	if len(lines) == 0 {
-		return nil
-	}
-
-	prefix, firstBody := commentBodyPrefix(lines[0])
-
-	var words []string
-	words = append(words, strings.Fields(firstBody)...)
-	for _, line := range lines[1:] {
-		_, body := commentBodyPrefix(line)
-		words = append(words, strings.Fields(body)...)
-	}
-
-	return fillWords(words, prefix, prefix, width)
-}
-
-// rewrapBulletItem rewraps a bullet item (first line "  - name: ..." plus any continuation lines) to fill to the target
-// column width.
-//
-// Parameters:
-//   - lines: the raw source lines of the bullet item.
-//   - width: the target line width in columns.
-//
-// Returns:
-//   - []string: the rewrapped lines.
-func rewrapBulletItem(lines []string, width int) []string {
-
-	if len(lines) == 0 {
-		return nil
-	}
-
-	prefix, body := commentBodyPrefix(lines[0])
-	firstPrefix := prefix + "  - "
-	contPrefix := prefix + "    "
-
-	// Strip "  - " from the body.
-	text := strings.TrimPrefix(body, "  - ")
-
-	// Append continuation line text.
-	for _, line := range lines[1:] {
-		_, b := commentBodyPrefix(line)
-		text += " " + strings.TrimSpace(b)
-	}
-
-	words := strings.Fields(text)
-
-	return fillWords(words, firstPrefix, contPrefix, width)
-}
-
-// fillWords fills words into lines, using firstPrefix for the first line and contPrefix for continuation lines.
-// Lines are filled greedily: words are added until the next word would exceed the width.
-//
-// Parameters:
-//   - words: the words to fill.
-//   - firstPrefix: the prefix for the first line.
-//   - contPrefix: the prefix for continuation lines.
-//   - width: the target line width in columns.
-//
-// Returns:
-//   - []string: the filled lines.
-func fillWords(words []string, firstPrefix, contPrefix string, width int) []string {
-
-	if len(words) == 0 {
-		return []string{firstPrefix}
-	}
-
-	var result []string
-	currentPrefix := firstPrefix
-	currentLine := currentPrefix + words[0]
-
-	for _, word := range words[1:] {
-		if len(currentLine)+1+len(word) <= width {
-			currentLine += " " + word
-		} else {
-			result = append(result, currentLine)
-			currentPrefix = contPrefix
-			currentLine = currentPrefix + word
-		}
-	}
-
-	result = append(result, currentLine)
-
-	return result
-}
-
-// stringSlicesEqual returns true if two string slices have identical contents.
-//
-// Parameters:
-//   - a: the first slice.
-//   - b: the second slice.
-//
-// Returns:
-//   - bool: true if slices are equal.
-func stringSlicesEqual(a, b []string) bool {
-
-	if len(a) != len(b) {
-		return false
-	}
-
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-
-	return true
 }
 
 // =============================================================================

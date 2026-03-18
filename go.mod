@@ -7,6 +7,7 @@ go 1.26.0
 
 require (
 	github.com/NobleFactor/devlore-cli v0.1.0-dev.20260314201016.0.20260318045713-e0b926108985
+	github.com/alecthomas/participle/v2 v2.1.4
 	github.com/go-git/go-git/v5 v5.16.5
 	github.com/spf13/cobra v1.10.2
 	github.com/tetratelabs/wazero v1.11.0
