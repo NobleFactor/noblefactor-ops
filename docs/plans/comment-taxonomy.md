@@ -153,7 +153,7 @@ extraction. Replace `parseParamDocs` and `RewrapComments` internals. Run codegen
 | `internal/provider/goast/gen/receiver.gen.go`      | Regenerate | Updated method count                                        |
 | `internal/provider/goast/gen/receiver_gen_test.go` | Regenerate | Updated test count                                          |
 
-### Phase 4: Linter rule migration (pending)
+### Phase 4: Linter rule migration (complete)
 
 Rewrite `doc-comments.star` and `line-width.star` to use `.comment` elements. Fix mode calls
 `goast.format_comment`. Other rules (`formatting`, `receivers`, `file-layout`, `regions`, `method-order`)
