@@ -12,38 +12,38 @@ import (
 // productions (Directive, ParamSection, ReturnSection) are tried before the
 // catch-all Paragraph.
 type DocElement struct {
-	Directive     *Directive     `  @@`
-	ParamSection  *ParamSection  `| @@`
-	ReturnSection *ReturnSection `| @@`
-	CodeBlock     *CodeBlock     `| @@`
-	Heading       *Heading       `| @@`
-	Paragraph     *Paragraph     `| @@`
+	Directive     *Directive     `parser:"  @@"`
+	ParamSection  *ParamSection  `parser:"| @@"`
+	ReturnSection *ReturnSection `parser:"| @@"`
+	CodeBlock     *CodeBlock     `parser:"| @@"`
+	Heading       *Heading       `parser:"| @@"`
+	Paragraph     *Paragraph     `parser:"| @@"`
 }
 
 // FuncDoc collects doc elements in whatever order they appear. BlankLine
 // tokens serve as element separators — they are NOT elided so that Paragraph
 // stops consuming at section boundaries.
 type FuncDoc struct {
-	Elements []*DocElement `(BlankLine* @@)* BlankLine*`
+	Elements []*DocElement `parser:"(BlankLine* @@)* BlankLine*"`
 }
 
 // TypeDocElement is the wrapper struct for type doc alternation.
 // Type docs contain only paragraphs, code blocks, and headings.
 type TypeDocElement struct {
-	CodeBlock *CodeBlock `  @@`
-	Heading   *Heading   `| @@`
-	Paragraph *Paragraph `| @@`
+	CodeBlock *CodeBlock `parser:"  @@"`
+	Heading   *Heading   `parser:"| @@"`
+	Paragraph *Paragraph `parser:"| @@"`
 }
 
 // TypeDoc collects type doc elements in any order.
 type TypeDoc struct {
-	Elements []*TypeDocElement `(BlankLine* @@)* BlankLine*`
+	Elements []*TypeDocElement `parser:"(BlankLine* @@)* BlankLine*"`
 }
 
 // CopyrightDoc represents a fixed-order SPDX + Copyright header.
 type CopyrightDoc struct {
-	SPDX      string   `"SPDX-License-Identifier" Colon @Word`
-	Copyright []string `"Copyright" @(Word | Colon)+`
+	SPDX      string   `parser:"'SPDX-License-Identifier' Colon @Word"`
+	Copyright []string `parser:"'Copyright' @(Word | Colon)+"`
 }
 
 // NewFuncParser constructs a participle parser for FuncDoc using a
