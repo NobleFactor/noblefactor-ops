@@ -12,20 +12,43 @@ import (
 // productions (Directive, ParamSection, ReturnSection) are tried before the
 // catch-all Paragraph.
 type DocElement struct {
-	Directive     *Directive     `parser:"  @@"`
-	ParamSection  *ParamSection  `parser:"| @@"`
-	ReturnSection *ReturnSection `parser:"| @@"`
-	CodeBlock     *CodeBlock     `parser:"| @@"`
-	Heading       *Heading       `parser:"| @@"`
-	Paragraph     *Paragraph     `parser:"| @@"`
+	Directive     *Directive     `parser:"  @@" starlark:"directive"`
+	ParamSection  *ParamSection  `parser:"| @@" starlark:"param_section"`
+	ReturnSection *ReturnSection `parser:"| @@" starlark:"return_section"`
+	CodeBlock     *CodeBlock     `parser:"| @@" starlark:"code_block"`
+	Heading       *Heading       `parser:"| @@" starlark:"heading"`
+	Paragraph     *Paragraph     `parser:"| @@" starlark:"paragraph"`
+}
+
+// String returns the normalized text of whichever element is non-nil.
+func (e *DocElement) String() string {
+	switch {
+	case e.Directive != nil:
+		return e.Directive.String()
+	case e.ParamSection != nil:
+		return e.ParamSection.String()
+	case e.ReturnSection != nil:
+		return e.ReturnSection.String()
+	case e.CodeBlock != nil:
+		return e.CodeBlock.String()
+	case e.Heading != nil:
+		return e.Heading.String()
+	case e.Paragraph != nil:
+		return e.Paragraph.String()
+	default:
+		return ""
+	}
 }
 
 // FuncDoc collects doc elements in whatever order they appear. BlankLine
 // tokens serve as element separators — they are NOT elided so that Paragraph
 // stops consuming at section boundaries.
 type FuncDoc struct {
-	Elements []*DocElement `parser:"(BlankLine* @@)* BlankLine*"`
+	Elements []*DocElement `parser:"(BlankLine* @@)* BlankLine*" starlark:"elements"`
 }
+
+// String returns the normalized text of the function doc comment.
+func (d *FuncDoc) String() string { return d.Normalize() }
 
 // GetParamSection returns the first ParamSection from the parsed elements,
 // or nil if none exists.
@@ -66,21 +89,41 @@ func (d *FuncDoc) ParamDocs() map[string]string {
 // TypeDocElement is the wrapper struct for type doc alternation.
 // Type docs contain only paragraphs, code blocks, and headings.
 type TypeDocElement struct {
-	CodeBlock *CodeBlock `parser:"  @@"`
-	Heading   *Heading   `parser:"| @@"`
-	Paragraph *Paragraph `parser:"| @@"`
+	CodeBlock *CodeBlock `parser:"  @@" starlark:"code_block"`
+	Heading   *Heading   `parser:"| @@" starlark:"heading"`
+	Paragraph *Paragraph `parser:"| @@" starlark:"paragraph"`
+}
+
+// String returns the normalized text of whichever element is non-nil.
+func (e *TypeDocElement) String() string {
+	switch {
+	case e.CodeBlock != nil:
+		return e.CodeBlock.String()
+	case e.Heading != nil:
+		return e.Heading.String()
+	case e.Paragraph != nil:
+		return e.Paragraph.String()
+	default:
+		return ""
+	}
 }
 
 // TypeDoc collects type doc elements in any order.
 type TypeDoc struct {
-	Elements []*TypeDocElement `parser:"(BlankLine* @@)* BlankLine*"`
+	Elements []*TypeDocElement `parser:"(BlankLine* @@)* BlankLine*" starlark:"elements"`
 }
+
+// String returns the normalized text of the type doc comment.
+func (d *TypeDoc) String() string { return d.Normalize() }
 
 // CopyrightDoc represents a fixed-order SPDX + Copyright header.
 type CopyrightDoc struct {
-	SPDX      string   `parser:"'SPDX-License-Identifier' Colon @Word"`
-	Copyright []string `parser:"'Copyright' @(Word | Colon)+"`
+	SPDX      string   `parser:"'SPDX-License-Identifier' Colon @Word" starlark:"spdx"`
+	Copyright []string `parser:"'Copyright' @(Word | Colon)+" starlark:"copyright"`
 }
+
+// String returns the normalized copyright text.
+func (c *CopyrightDoc) String() string { return c.Normalize() }
 
 // NewFuncParser constructs a participle parser for FuncDoc using a
 // context-aware lexer built from the given parameter names and return types.
