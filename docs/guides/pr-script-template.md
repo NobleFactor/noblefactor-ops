@@ -74,9 +74,9 @@ fi
 # --- Merge gate ---
 merge_state=$(gh pr view "${pr_number}" --json mergeStateStatus --jq '.mergeStateStatus')
 case "${merge_state}" in
-    CLEAN|HAS_HOOKS|UNSTABLE)
-        ;; # OK to merge
-    DIRTY|BLOCKED|BEHIND)
+    CLEAN|HAS_HOOKS|UNSTABLE|BLOCKED)
+        ;; # OK to merge (--admin bypasses BLOCKED)
+    DIRTY|BEHIND)
         echo "PR is not mergeable (state: ${merge_state})."
         if [[ "${merge_state}" == "DIRTY" ]]; then
             echo "Merge conflicts detected — resolve before merging."

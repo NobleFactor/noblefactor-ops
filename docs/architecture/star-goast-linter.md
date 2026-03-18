@@ -1,6 +1,6 @@
 ---
 title: "Comment Taxonomy"
-description: "Architecture for format-agnostic comment schemas: regex named groups parse into typed slots, Go templates render deterministic output"
+description: "Architecture for parsing doc comments with participle: context-aware lexer, unordered element collection, per-element printers, YAML-defined schemas"
 status: draft
 created: 2026-03-17
 updated: 2026-03-17
@@ -8,476 +8,691 @@ updated: 2026-03-17
 
 # Comment Taxonomy
 
-This document defines a comment taxonomy — a per-node-type schema of typed comment slots that makes doc comment
-formatting fully deterministic. You fill the slots, the format is predictable.
+This document defines a comment taxonomy — a grammar-based system for parsing, validating, and printing doc comments
+deterministically. Comments are parsed into typed elements (Paragraph, Section, List, CodeBlock, Directive, etc.)
+that can appear in any order but print in a defined order. Each element type has its own Printer.
 
-The taxonomy is format-agnostic: regex patterns with named capture groups parse comments into slots, and Go
-templates render slots back to text. The same slot types work across comment formats (`//`, `#`, `--`) by swapping
-the pattern and template while keeping the data model unchanged.
+The taxonomy uses [participle](https://github.com/alecthomas/participle) for parsing. A context-aware lexer injects
+code element names (parameter names, return types) as first-class tokens. The grammar can then match these tokens
+directly — a Parameters list item must reference an actual parameter name, or it fails to parse. Schemas are defined
+in YAML and loaded by goast extensions at runtime.
 
 ## Motivation
 
-The Go AST already attaches doc comments to every relevant node via `.Doc` fields on `FuncDecl`, `TypeSpec`,
-`GenDecl`, and `Field`. Today, the goast provider extracts node metadata (name, params, returns) but treats the
-doc comment as an opaque string. Linter rules re-parse that string with ad-hoc line walking — scanning backwards
-from function line numbers, searching for section headers like `Parameters:`, extracting parameter names by
-splitting on colons.
+`go/ast` attaches doc comments to every relevant node (`.Doc` on `FuncDecl`, `TypeSpec`, `GenDecl`, `Field`). Today,
+the goast provider extracts node metadata but treats the doc comment as an opaque string. Linter rules re-parse that
+string with ad-hoc line walking — scanning backwards from function line numbers, searching for section headers,
+extracting parameter names by splitting on colons.
 
 This creates three problems:
 
-1. **Fragile parsing.** Line-number walking (`_extract_doc_lines`) assumes comments are contiguous and immediately
-   above the declaration. Ad-hoc section detection (`_has_section`) relies on exact string matching.
-2. **Non-deterministic formatting.** Hand-rolled reflow helpers (`rewrapCommentGroup`, `fillWords`) produce output
-   that varies depending on input formatting. Two semantically identical comments can produce different output.
-3. **Duplicated logic.** The Starlark linter rule and the Go provider both parse doc comments — differently.
+1. **Fragile parsing.** Line-number walking assumes comments are contiguous and immediately above the declaration.
+   Section detection relies on exact string matching.
+2. **Non-deterministic formatting.** Hand-rolled reflow helpers produce output that varies depending on input
+   formatting. Two semantically identical comments can produce different output.
+3. **No connection to code.** The comment parser doesn't know what parameters exist, what types are returned, or
+   what the function is called. Validation is a separate step that re-derives this information.
 
-## Design
+## Design overview
 
-### Core idea: mine the AST's existing comment attachment
-
-`go/ast` already does the hard work of associating doc comments with their owning nodes. The taxonomy **mines**
-those existing attachments, parsing the raw text into typed slots. Provider result types (`MethodResult`,
-`FuncResult`, `StructResult`, `FieldDetail`) gain a `.Comment` field carrying the parsed taxonomy. Starlark rules
-access typed slots directly — no line-number walking, no text scanning.
-
-### Parallel AST–comment structure
-
-Every `go/ast` node that carries a `.Doc` field gets a parallel parsed comment object with typed slots. The goast
-provider creates both in a single pass — node metadata and parsed comment travel together.
+### Three-part architecture
 
 ```text
-go/ast nodes                 Provider results              Comment taxonomy
-═══════════                  ════════════════              ════════════════
-
-ast.File ──────────────────► FileResult ────────────────► FileComment
-  .Doc ─── comment text ──►   .Comment ──── parse ────►     .Copyright  ← VerbatimSlot
-  .Comments                    .Path                         .PackageDoc ← ParagraphSlot
-                               .Package
-
-ast.FuncDecl ──────────────► MethodResult ──────────────► FuncComment
-  .Doc ─── comment text ──►   .Comment ──── parse ────►     .Summary    ← ParagraphSlot
-  .Name ──────────────────►   .Name                          .Body       ← BlockSlot
-  .Type.Params ───────────►   .Params                        .Directives ← DirectiveSlot
-  .Type.Results ──────────►   .Returns                       .Parameters ← ParamListSlot
-                              .Line                          .Returns    ← ReturnListSlot
-
-ast.FuncDecl ──────────────► FuncResult ────────────────► FuncComment
-  .Doc ─── comment text ──►   .Comment ──── parse ────►     (same schema as above)
-
-ast.TypeSpec ──────────────► StructResult ──────────────► TypeComment
-  .Doc ─── comment text ──►   .Comment ──── parse ────►     .Summary    ← ParagraphSlot
-                              .Name                          .Body       ← BlockSlot
-                              .Fields
-
-ast.Field ─────────────────► FieldDetail ───────────────► FieldComment
-  .Comment ── comment ─────►   .Comment ──── parse ────►     .Inline     ← VerbatimSlot
-                               .Name
-                               .Type
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. LEXER (context-aware, per-function)                              │
+│     Input: raw comment text + code element names from AST            │
+│     Output: token stream with ParamName, ReturnType as token types   │
+├─────────────────────────────────────────────────────────────────────┤
+│  2. PARSER (participle, grammar via struct tags)                     │
+│     Input: token stream                                              │
+│     Output: []*DocElement — unordered collection of typed elements   │
+├─────────────────────────────────────────────────────────────────────┤
+│  3. NORMALIZE (one method per element type)                          │
+│     Input: typed elements                                            │
+│     Output: single-line-per-element text in canonical order          │
+│     No wrapping, no prefix — just structure and ordering             │
+├─────────────────────────────────────────────────────────────────────┤
+│  4. FORMAT (go/doc/comment — single pass)                            │
+│     Input: normalized text                                           │
+│     Output: final formatted comment with // prefix, line wrapping,   │
+│             list indentation, code block pass-through                │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Comment schemas
+### Element types — the building blocks
 
-Each Go node type has a comment schema with named, typed slots:
+Doc comments are composed from these element types. They can appear in any order in the input but print in a
+schema-defined order.
+
+| Element     | Content                                    | Cardinality in FuncDecl   |
+| ----------- | ------------------------------------------ | ------------------------- |
+| Paragraph   | Plain text, reflowed to column width       | 1+ (first = summary)      |
+| Heading     | `# Title` line                             | 0+                        |
+| CodeBlock   | Indented lines, passed through verbatim    | 0+                        |
+| Section     | Named section with child elements          | 0+ (Parameters, Returns)  |
+| List        | Bullet items (`- text`)                    | 0+                        |
+| Directive   | `+devlore:key value`, verbatim             | 0+                        |
+| Table       | Aligned columns (future)                   | 0+                        |
+| Diagram     | ASCII art block (future)                   | 0+                        |
+
+### Unordered parsing, ordered printing
+
+Participle collects elements via a wrapper struct with alternation (`@@*`). Each iteration tries each element
+type in order and populates exactly one field. After parsing, the schema defines the print order.
 
 ```text
-File
-  ├─ Copyright     (VerbatimSlot — required, SPDX + Copyright lines)
-  └─ PackageDoc    (ParagraphSlot — optional, "// Package foo provides...")
-
-FuncDecl
-  ├─ Summary       (ParagraphSlot — required, imperative verb phrase)
-  ├─ Body          (BlockSlot — optional, extended description: paragraphs, code, headings)
-  ├─ Directives    (DirectiveSlot — optional, +devlore:key=value)
-  ├─ Parameters    (ParamListSlot — required if func has params)
-  └─ Returns       (ReturnListSlot — required if func has returns)
-
-TypeSpec
-  ├─ Summary       (ParagraphSlot — required, type description)
-  └─ Body          (BlockSlot — optional, extended description)
-
-Field
-  └─ Inline        (VerbatimSlot — optional, trailing comment on same line)
+Input (any order)              Parse                     Print (canonical order)
+─────────────────              ─────                     ──────────────────────
+Paragraph "Backup..."    ──►   Element{Paragraph}   ──►  1. Summary paragraph
+Directive "+devlore:..."  ──►   Element{Directive}   ──►  2. Body paragraphs
+Section "Parameters:"    ──►   Element{Section}     ──►  3. Directives
+                                                          4. Parameters section
+                                                          5. Returns section
 ```
 
-### Slot types
+### Context-aware lexer
 
-| Slot type      | Content                           | Parsing                                  | Rendering                               |
-| -------------- | --------------------------------- | ---------------------------------------- | --------------------------------------- |
-| ParagraphSlot  | Plain text                        | Named group → raw text                   | `{{ reflow }}` template function        |
-| BlockSlot      | Paragraphs, code blocks, headings | Named group → raw text                   | `{{ reflow }}` preserving code blocks   |
-| DirectiveSlot  | `+devlore:key=value` lines        | Named group → sub-parse into Key/Value   | `{{ range }}` verbatim output           |
-| ParamListSlot  | `[]ParamDoc{Name, Desc}`          | Named group → sub-parse into Name/Desc   | `{{ range }}` with `{{ reflow }}` desc  |
-| ReturnListSlot | `[]ReturnDoc{Type, Desc}`         | Named group → sub-parse into Type/Desc   | `{{ range }}` with `{{ reflow }}` desc  |
-| VerbatimSlot   | Raw text lines                    | Named group → raw text                   | Passed through unchanged                |
-
-## Parse and render
-
-### Two-level parsing
-
-Parsing uses a two-level regex hierarchy:
-
-**Level 1 — Section pattern.** One regex per schema with named capture groups. Each group captures one
-section's raw text. The group name **is** the slot name. Unmatched optional groups produce empty strings —
-the slot's `Required` policy distinguishes "missing because optional" from "missing but required." The linter
-reports the latter; fix mode can populate the missing slot.
-
-**Level 2 — Item pattern.** For repeating slots (ParamList, ReturnList, Directive), the slot type defines an
-item pattern that splits the captured section text into individual items. The slot type determines the data
-model (`ParamDoc{Name, Desc}`); the item pattern determines how to extract those fields from each line.
+The lexer is constructed **per-function** with code element names injected as token types. Because participle
+lexer rules are tried in order, named tokens match before generic `Word` tokens.
 
 ```text
-Level 1: Section regex (one per schema)
-──────────────────────────────────────────────────────
-  (?P<summary>...)  (?P<body>...)  (?P<parameters>...)
-         │                │               │
-         ▼                ▼               ▼
-     ParagraphSlot    BlockSlot     ParamListSlot
-     (no level 2)    (no level 2)  (has level 2)
-                                        │
-Level 2: Item regex (on slot type)      ▼
-──────────────────────────────────────────────────────
-  Item pattern: (?P<name>\w+):\s+(?P<desc>.+)
-         │              │
-         ▼              ▼
-  ParamDoc{Name, Desc}  (repeated for each item)
+Function signature:  func (p *Provider) Backup(resource Resource, opts *BackupOpts) (Resource, Tombstone, error)
+                                                ────────           ────               ────────  ─────────  ─────
+Injected tokens:                                ParamName          ParamName           ReturnType ReturnType ReturnType
+
+Comment text:        "- resource: The file to back up."
+Token stream:        ListMarker  ParamName("resource")  Colon  Word("The")  Word("file")  ...
+
+Grammar match:       ListMarker @ParamName Colon @@    ← ParamItem matches because "resource" is a ParamName token
+                     ListMarker @ParamName Colon @@    ← "path" would be Word, not ParamName → no match → diagnostic
 ```
 
-Non-repeating slots (Paragraph, Block, Verbatim) have no level-2 pattern — the captured text is the value.
-Repeating slots carry an `ItemPattern` on the `SlotDef` that can override the slot type's default, enabling
-format-specific item syntax while keeping the data model unchanged.
+### Schema-driven via YAML
 
-### Comment prefix backreference
+Schemas are data, not compiled Go. The goast provider loads schema YAML at startup and uses it to configure the
+participle parser per node type and format.
 
-Multi-line comment patterns use a backreference to ensure prefix consistency within a single comment block.
-The first group captures the comment prefix (`//`, `#`, `--`, etc.), and subsequent lines backreference it:
-
-```regex
-^(?P<prefix>//|#)\s+(?P<summary>[^\n]+)
-(?:\n(?P=prefix)\s*\n(?P=prefix)\s+(?P<body>[^\n]+))?
+```yaml
+schemas:
+  func_doc:
+    format: go
+    elements:
+      - {name: summary, type: paragraph, required: true, order: 1}
+      - {name: body, type: paragraph, cardinality: "*", order: 2}
+      - {name: directives, type: directive, cardinality: "*", order: 3}
+      - {name: parameters, type: param_section, required: if_params, order: 4,
+         header: "Parameters:", item_tokens: param_names}
+      - {name: returns, type: return_section, required: if_returns, order: 5,
+         header: "Returns:", item_tokens: return_types}
 ```
 
-This guarantees that a comment starting with `//` can't accidentally match a `#` line mid-comment. The
-copyright linter already uses this pattern with `(?P<prefix>//|#)` and `(?P=prefix)`.
+## Parallel AST–comment structure
 
-### Parse: section regex with named capture groups
+`go/ast` already attaches `.Doc` to every relevant node. The taxonomy **mines** those attachments, parsing the
+raw text into typed elements. Provider result types gain a `.Comment` field carrying the parsed structure.
 
-Go FuncDecl section pattern:
+```text
+go/ast nodes                 Provider results              Parsed comment
+═══════════                  ════════════════              ══════════════
 
-```regex
-(?s)
-^(?P<prefix>//)\s+(?P<summary>[^\n]+)
-(?:\n(?P=prefix)\s*\n(?P<body>(?:(?P=prefix)\s+[^\n]+\n?)+))?
-(?:\n(?P=prefix)\s*\n(?P<directives>(?:(?P=prefix)\s+\+[^\n]+\n?)+))?
-(?:\n(?P=prefix)\s*\n(?P=prefix)\s+Parameters:\n(?P<parameters>(?:(?P=prefix)\s+\s+-\s+[^\n]+\n?)+))?
-(?:\n(?P=prefix)\s*\n(?P=prefix)\s+Returns:\n(?P<returns>(?:(?P=prefix)\s+\s+-\s+[^\n]+\n?)+))?
+ast.File ──────────────────► FileResult ────────────────► CopyrightDoc
+  .Doc ─── comment text ──►   .Comment ──── parse ────►     .SPDX
+  .Comments                    .Path                         .Copyright
+
+ast.FuncDecl ──────────────► MethodResult ──────────────► FuncDoc
+  .Doc ─── comment text ──►   .Comment ──── parse ────►     .Elements[]*DocElement
+  .Name ──────────────────►   .Name                          (Paragraph, Directive,
+  .Type.Params ───────────►   .Params  ─── inject ────►      Section{ParamItem...},
+  .Type.Results ──────────►   .Returns ─── tokens ────►      Section{ReturnItem...})
+
+ast.TypeSpec ──────────────► StructResult ──────────────► TypeDoc
+  .Doc ─── comment text ──►   .Comment ──── parse ────►     .Elements[]*DocElement
+
+ast.Field ─────────────────► FieldDetail ───────────────► FieldDoc
+  .Comment ── comment ─────►   .Comment ──── parse ────►     .Inline
 ```
 
-Same slot names, different section pattern for Starlark:
+## Canonical example: `Backup` method
 
-```regex
-(?s)
-^(?P<prefix>#)\s+(?P<summary>[^\n]+)
-(?:\n(?P=prefix)\s*\n(?P<body>(?:(?P=prefix)\s+[^\n]+\n?)+))?
-(?:\n(?P=prefix)\s*\n(?P=prefix)\s+Args:\n(?P<parameters>(?:(?P=prefix)\s+\s+\w+:\s+[^\n]+\n?)+))?
-```
+This example is the reference for implementation and test development.
 
-The slots are identical — `summary`, `body`, `parameters` — only the section regex and section headers differ.
-
-### Level-2 item patterns
-
-Each repeating slot type has a default item pattern. The schema can override it for format-specific syntax.
-
-| Slot type      | Default item pattern                             | Produces            |
-| -------------- | ------------------------------------------------ | ------------------- |
-| ParamListSlot  | `(?P<name>\w+):\s+(?P<desc>.+)`                 | `[]ParamDoc`        |
-| ReturnListSlot | `(?P<type>\w+):\s+(?P<desc>.+)`                 | `[]ReturnDoc`       |
-| DirectiveSlot  | `\+(?P<key>[\w:]+)\s+(?P<value>.+)`             | `[]Directive`       |
-
-The item pattern uses the same named-group-to-field mapping as the section pattern. Group names map to struct
-fields in the item type.
-
-### Graceful degradation on partial match
-
-When the section regex matches some groups but not others, the taxonomy populates whatever slots **did** match
-and leaves unmatched optional slots empty. This is the normal case for comments that don't have all sections:
+### Source
 
 ```go
-// Exists checks whether a resource exists.        ← summary matches
-//                                                   ← no body, no directives
-// Parameters:                                      ← parameters matches
-//   - resource: The resource to check.
-//                                                   ← no returns (returns bool, error)
-```
-
-The linter evaluates `Required` policy against the populated slots:
-- `summary`: present → ok
-- `body`: absent, `Required: Never` → ok
-- `parameters`: present → validate item sync against signature
-- `returns`: absent, `Required: IfReturns`, function returns `(bool, error)` → violation
-
-### Render: Go templates
-
-Each schema has a Go template (`text/template`). Slot values are template data. Custom template functions handle
-reflow.
-
-Go FuncDecl template:
-
-```go
-{{ .Summary | reflow 117 }}
+// Backup creates a timestamped copy of the resource. Existing backups
+// are overwritten.
 //
-{{- if .Body }}
-{{ .Body | reflow 117 }}
+// +devlore:defaults overwrite=true
 //
-{{- end }}
-{{- range .Directives }}
-// +{{ .Key }} {{ .Value }}
-{{- end }}
-{{- if .Directives }}
-//
-{{- end }}
-{{- if .Params }}
 // Parameters:
-{{- range .Params }}
-//   - {{ .Name }}: {{ .Desc | reflow 113 }}
-{{- end }}
-{{- end }}
-{{- if .Returns }}
+//   - resource: The file to back up.
+//   - opts: Backup options (default: nil).
 //
 // Returns:
-{{- range .Returns }}
-//   - {{ .Type }}: {{ .Desc | reflow 113 }}
-{{- end }}
-{{- end }}
+//   - Resource: The backup copy.
+//   - Tombstone: Compensation state.
+//   - error: Non-nil if the backup failed.
+func (p *Provider) Backup(resource Resource, opts *BackupOpts) (Resource, Tombstone, error) {
 ```
 
-`reflow` is a custom template function backed by `go/doc/comment.Printer`. The width argument accounts for the
-prefix: `117 = 120 - len("// ")`, `113 = 120 - len("//   - ")`.
+### Step 1: AST extraction
 
-Same slots, different template for Starlark:
+`go/parser.ParseFile` produces:
 
 ```go
-{{ .Summary | reflow 118 }}
-#
-{{- if .Params }}
-# Args:
-{{- range .Params }}
-#   {{ .Name }}: {{ .Desc | reflow 114 }}
-{{- end }}
-{{- end }}
+ast.FuncDecl{
+    Name: &ast.Ident{Name: "Backup"},
+    Doc:  &ast.CommentGroup{/* 13 comment lines */},
+    Recv: /* *Provider */,
+    Type: &ast.FuncType{
+        Params:  /* resource Resource, opts *BackupOpts */,
+        Results: /* Resource, Tombstone, error */,
+    },
+}
 ```
 
-Same data, different output format. The template controls the comment prefix, section headers, and layout.
+### Step 2: Lexer construction
 
-### Cross-format summary
+The goast provider extracts parameter names and return types from the AST, then constructs the lexer:
+
+```go
+paramNames  := []string{"resource", "opts"}
+returnTypes := []string{"Resource", "Tombstone", "error"}
+lex := newDocLexer(paramNames, returnTypes)
+```
+
+The lexer definition (dynamically built):
+
+```go
+lexer.MustStateful(lexer.Rules{
+    "Root": {
+        {"BlankLine",     `\n\s*\n`, nil},
+        {"DirectiveMark", `\+`, lexer.Push("Directive")},
+        {"SectionHeader", `(?:Parameters|Returns):`, nil},
+        {"ListMarker",    `-\s+`, nil},
+        {"CodeLine",      `    .+`, nil},
+        {"ParamName",     `resource|opts`, nil},          // ← injected from AST
+        {"ReturnType",    `Resource|Tombstone|error`, nil}, // ← injected from AST
+        {"Colon",         `:`, nil},
+        {"Word",          `\S+`, nil},
+        {"whitespace",    `[ \t]+`, nil},
+        {"Newline",       `\n`, nil},
+    },
+    "Directive": {
+        {"DirectiveKey",   `[\w:]+`, nil},
+        {"DirectiveValue", `.+`, lexer.Pop()},
+    },
+})
+```
+
+`ParamName` and `ReturnType` rules appear **before** `Word`. The lexer tries rules in order, so `resource`
+matches as `ParamName`, not `Word`. An undocumented name like `path` would match only as `Word`.
+
+### Step 3: Comment text preparation
+
+Strip `// ` prefix from each line of `ast.CommentGroup`:
 
 ```text
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Go pattern   │     │  Star pattern │     │  Shell pattern│
-│  // prefix    │     │  # prefix     │     │  # prefix     │
-│  Parameters:  │     │  Args:        │     │  Arguments:   │
-└──────┬───────┘     └──────┬───────┘     └──────┬───────┘
-       │                    │                    │
-       ▼                    ▼                    ▼
-  Named groups:        Named groups:        Named groups:
-  summary, body,       summary, body,       summary,
-  directives,          parameters           parameters
-  parameters,
-  returns
-       │                    │                    │
-       ▼                    ▼                    ▼
-┌──────────────────────────────────────────────────────────┐
-│            Shared slot types and data model               │
-│  FuncComment { Summary, Body, Directives, Params, ... }  │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-       ┌────────────┐ ┌──────────┐ ┌──────────┐
-       │ Go template │ │ Star tmpl │ │ Shell tmpl│
-       │ // prefix   │ │ # prefix  │ │ # prefix  │
-       └─────┬──────┘ └────┬─────┘ └────┬─────┘
-             ▼             ▼             ▼
-        Formatted      Formatted     Formatted
-        Go comment     Star comment  Shell comment
+Backup creates a timestamped copy of the resource. Existing backups
+are overwritten.
+
++devlore:defaults overwrite=true
+
+Parameters:
+  - resource: The file to back up.
+  - opts: Backup options (default: nil).
+
+Returns:
+  - Resource: The backup copy.
+  - Tombstone: Compensation state.
+  - error: Non-nil if the backup failed.
 ```
 
-### Copyright example
-
-The existing copyright linter already uses this pattern. One regex, named groups map to slot values:
-
-```regex
-^(?P<prefix>//|#)\s+SPDX-License-Identifier:\s+(?P<license>\S+)\s*\n(?P=prefix)\s+Copyright\s+(?P<holder>[^.]+)\.\s+All rights reserved\.
-```
-
-Named groups: `prefix`, `license`, `holder`. Template:
-
-```go
-{{ .Prefix }} SPDX-License-Identifier: {{ .License }}
-{{ .Prefix }} Copyright {{ .Holder }}. All rights reserved.
-```
-
-Same regex captures, same template rendering — regardless of whether the prefix is `//` or `#`.
-
-## Data flow
-
-### Source → AST → provider result → Starlark rule
+### Step 4: Lexer produces token stream
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│  Source file                                                 │
-│                                                              │
-│  // Backup creates a timestamped copy of the resource.       │
-│  //                                                          │
-│  // +devlore:defaults overwrite=true                         │
-│  //                                                          │
-│  // Parameters:                                              │
-│  //   - resource: The file to back up.                       │
-│  //   - opts: Backup options (default: nil).                 │
-│  //                                                          │
-│  // Returns:                                                 │
-│  //   - Resource: The backup copy.                           │
-│  //   - Tombstone: Compensation state.                       │
-│  //   - error: Non-nil if the backup failed.                 │
-│  func (p *Provider) Backup(resource Resource,                │
-│      opts *BackupOpts) (Resource, Tombstone, error) {        │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-                      go/parser.ParseFile
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ast.FuncDecl                                                │
-│    .Name = "Backup"                                          │
-│    .Doc  = *ast.CommentGroup{ ... }  ──── regex match ────►  │
-│    .Recv, .Type.Params, .Type.Results    named groups fill   │
-│                                          slot values         │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-                    goast provider builds
-                    MethodResult with
-                    .Comment populated
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  MethodResult                                                │
-│    .Name         = "Backup"                                  │
-│    .ReceiverType = "*Provider"                               │
-│    .Params       = [{resource, Resource}, {opts, *BackupOpts}]
-│    .Returns      = "(Resource, Tombstone, error)"            │
-│    .Comment      = FuncComment {                             │
-│        .Summary    = "Backup creates a timestamped copy..."  │
-│        .Directives = [{Key: "devlore:defaults",              │
-│                        Value: "overwrite=true"}]             │
-│        .Params     = [{Name: "resource",                     │
-│                        Desc: "The file to back up."},        │
-│                       {Name: "opts",                         │
-│                        Desc: "Backup options (default: nil)."}]
-│        .Returns    = [{Type: "Resource",                     │
-│                        Desc: "The backup copy."},            │
-│                       {Type: "Tombstone",                    │
-│                        Desc: "Compensation state."},         │
-│                       {Type: "error",                        │
-│                        Desc: "Non-nil if backup failed."}]   │
-│    }                                                         │
-└────────────────────────────┬────────────────────────────────┘
-                             │
-                    Starlark accesses
-                    typed slots directly
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────┐
-│  doc-comments.star                                           │
-│                                                              │
-│  for m in goast.methods(path=path):                          │
-│      c = m.comment                                           │
-│      if not c.summary:                                       │
-│          violation("missing summary")                        │
-│      sig_params = [p.name for p in m.params]                 │
-│      doc_params = [p.name for p in c.params]                 │
-│      for s in sig_params:                                    │
-│          if s not in doc_params:                              │
-│              violation("param '" + s + "' not documented")   │
-│                                                              │
-│  # No _extract_doc_lines. No _has_section. No line walking. │
-└─────────────────────────────────────────────────────────────┘
+Word("Backup")  Word("creates")  Word("a")  Word("timestamped")  Word("copy")
+Word("of")  Word("the")  ParamName("resource")  ...  Word("overwritten.")
+BlankLine
+DirectiveMark("+")  DirectiveKey("devlore:defaults")  DirectiveValue("overwrite=true")
+BlankLine
+SectionHeader("Parameters:")
+ListMarker("- ")  ParamName("resource")  Colon(":")  Word("The")  Word("file")  ...
+ListMarker("- ")  ParamName("opts")      Colon(":")  Word("Backup")  Word("options")  ...
+BlankLine
+SectionHeader("Returns:")
+ListMarker("- ")  ReturnType("Resource")   Colon(":")  Word("The")  Word("backup")  ...
+ListMarker("- ")  ReturnType("Tombstone")  Colon(":")  Word("Compensation")  ...
+ListMarker("- ")  ReturnType("error")      Colon(":")  Word("Non-nil")  ...
 ```
 
-## Layers
+Note: `resource` in the summary paragraph also matches as `ParamName`. The grammar handles this — `Paragraph`
+accepts both `Word` and `ParamName` tokens as text. Only `ParamItem` requires `@ParamName` specifically.
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│  Starlark rules (.star)                                         │
-│  m.comment.summary, m.comment.params, ...                       │
-│  goast.format_comment(comment, width) → rendered string         │
-├─────────────────────────────────────────────────────────────────┤
-│  goast Provider (provider.go)                                   │
-│  Methods(), Funcs(), Structs() → results with .Comment          │
-│  FormatComment(), RewrapComments()                              │
-├───────────────┬─────────────────┬───────────────────────────────┤
-│  Regex parse  │  Go templates   │  go/ast                       │
-│  named groups │  render output  │  .Doc fields on nodes          │
-│  → slot data  │  + reflow funcs │  Read-only AST queries        │
-└───────────────┴─────────────────┴───────────────────────────────┘
-```
+### Step 5: Participle grammar parses tokens
 
-## Go types
-
-### Comment types (one per node kind)
+Grammar structs (with participle struct tags):
 
 ```go
-// FuncComment holds the parsed doc comment for a FuncDecl (function or method).
-// Populated by parsing ast.FuncDecl.Doc through the taxonomy.
-type FuncComment struct {
-    Summary    string          `starlark:"summary"`     // imperative verb phrase
-    Body       string          `starlark:"body"`        // extended description
-    Directives []Directive     `starlark:"directives"`  // +devlore:key=value entries
-    Params     []ParamDoc      `starlark:"params"`      // documented parameters
-    Returns    []ReturnDoc     `starlark:"returns"`     // documented return values
+// Paragraph — one or more text tokens (words, param names, return types, colons).
+type Paragraph struct {
+    Words []string `@(Word | ParamName | ReturnType | Colon)+`
 }
 
-// TypeComment holds the parsed doc comment for a TypeSpec (struct, interface, etc.).
-// Populated by parsing ast.TypeSpec.Doc through the taxonomy.
-type TypeComment struct {
-    Summary string `starlark:"summary"`  // type description
-    Body    string `starlark:"body"`     // extended description
-}
-
-// FileComment holds the parsed file-level comments for an ast.File.
-// Populated from ast.File.Comments (copyright) and ast.File.Doc (package doc).
-type FileComment struct {
-    Copyright  string `starlark:"copyright"`    // SPDX + Copyright lines
-    PackageDoc string `starlark:"package_doc"`  // "Package foo provides..."
-}
-
-// FieldComment holds the parsed comment for a struct field.
-// Populated from ast.Field.Comment (trailing inline comment).
-type FieldComment struct {
-    Inline string `starlark:"inline"`  // trailing comment on same line
-}
-```
-
-### Shared sub-types
-
-```go
+// Directive — +key value.
 type Directive struct {
-    Key   string `starlark:"key"`     // e.g., "devlore:defaults"
-    Value string `starlark:"value"`   // e.g., "key=value"
+    Key   string `DirectiveMark @DirectiveKey`
+    Value string `@DirectiveValue`
 }
 
-type ParamDoc struct {
-    Name string `starlark:"name"`
-    Desc string `starlark:"desc"`     // may include "(default: value)"
+// ParamItem — "- resource: The file to back up."
+// @ParamName only matches tokens in the function's actual parameter list.
+type ParamItem struct {
+    Name string     `ListMarker @ParamName Colon`
+    Desc *Paragraph `@@`
 }
 
-type ReturnDoc struct {
-    Type string `starlark:"type"`
-    Desc string `starlark:"desc"`
+// ParamSection — "Parameters:" followed by zero or more ParamItems.
+type ParamSection struct {
+    Items []*ParamItem `"Parameters" Colon @@*`
+}
+
+// ReturnItem — "- Resource: The backup copy."
+type ReturnItem struct {
+    Type string     `ListMarker @ReturnType Colon`
+    Desc *Paragraph `@@`
+}
+
+// ReturnSection — "Returns:" followed by zero or more ReturnItems.
+type ReturnSection struct {
+    Items []*ReturnItem `"Returns" Colon @@*`
+}
+
+// CodeBlock — indented lines, verbatim.
+type CodeBlock struct {
+    Lines []string `@CodeLine+`
+}
+
+// Heading — markdown-style heading in a doc comment.
+type Heading struct {
+    Text []string `"#" @(Word | ParamName | ReturnType)+`
+}
+
+// DocElement — wrapper struct for unordered alternation.
+// Exactly one field is non-nil after each parse iteration.
+type DocElement struct {
+    Directive     *Directive     `  @@`
+    ParamSection  *ParamSection  `| @@`
+    ReturnSection *ReturnSection `| @@`
+    CodeBlock     *CodeBlock     `| @@`
+    Heading       *Heading       `| @@`
+    Paragraph     *Paragraph     `| @@`
+}
+
+// FuncDoc — collect elements in whatever order they appear.
+type FuncDoc struct {
+    Elements []*DocElement `@@*`
 }
 ```
 
-### Updated provider result types
+Participle's `@@*` tries each alternative per iteration. The first match wins. `Directive` is tried before
+`Paragraph` because `+` at the start of a line is unambiguous. `ParamSection` and `ReturnSection` are tried
+before `Paragraph` because `SectionHeader` is unambiguous.
 
-Existing result types gain a `.Comment` field. The raw `.Doc` string is kept for backward compatibility.
+### Step 6: Parse result
+
+```go
+FuncDoc{
+    Elements: []*DocElement{
+        {Paragraph: &Paragraph{
+            Words: ["Backup", "creates", "a", "timestamped", "copy", "of", "the",
+                    "resource.", "Existing", "backups", "are", "overwritten."],
+        }},
+        {Directive: &Directive{
+            Key:   "devlore:defaults",
+            Value: "overwrite=true",
+        }},
+        {ParamSection: &ParamSection{
+            Items: []*ParamItem{
+                {Name: "resource", Desc: &Paragraph{
+                    Words: ["The", "file", "to", "back", "up."],
+                }},
+                {Name: "opts", Desc: &Paragraph{
+                    Words: ["Backup", "options", "(default:", "nil)."],
+                }},
+            },
+        }},
+        {ReturnSection: &ReturnSection{
+            Items: []*ReturnItem{
+                {Type: "Resource",  Desc: &Paragraph{Words: ["The", "backup", "copy."]}},
+                {Type: "Tombstone", Desc: &Paragraph{Words: ["Compensation", "state."]}},
+                {Type: "error",     Desc: &Paragraph{Words: ["Non-nil", "if", "the",
+                                                              "backup", "failed."]}},
+            },
+        }},
+    },
+}
+```
+
+### Step 7: Normalize — one line per element, canonical order
+
+Each element type has a `Normalize() string` method that produces a single unwrapped line. `FuncDoc.Normalize`
+sorts elements by schema order and concatenates with correct blank-line separators.
+
+```go
+func (p *Paragraph) Normalize() string {
+    return strings.Join(p.Words, " ")
+}
+
+func (d *Directive) Normalize() string {
+    return "+" + d.Key + " " + d.Value
+}
+
+func (s *ParamSection) Normalize() string {
+    var lines []string
+    lines = append(lines, "Parameters:")
+    for _, item := range s.Items {
+        lines = append(lines, "  - "+item.Name+": "+item.Desc.Normalize())
+    }
+    return strings.Join(lines, "\n")
+}
+
+func (s *ReturnSection) Normalize() string {
+    var lines []string
+    lines = append(lines, "Returns:")
+    for _, item := range s.Items {
+        lines = append(lines, "  - "+item.Type+": "+item.Desc.Normalize())
+    }
+    return strings.Join(lines, "\n")
+}
+```
+
+`FuncDoc.Normalize` assembles elements in schema order, one empty line between sections:
+
+```go
+func (d *FuncDoc) Normalize() string {
+    // 1. Summary — first paragraph (one unwrapped line)
+    // 2. Body — remaining paragraphs, headings, code blocks
+    // 3. Directives (one line each)
+    // 4. Parameters section (header + one line per item)
+    // 5. Returns section (header + one line per item)
+    // Sections separated by one empty line.
+    // Items within a section on consecutive lines.
+}
+```
+
+Normalized output for the Backup example:
+
+```text
+Backup creates a timestamped copy of the resource. Existing backups are overwritten.
+
++devlore:defaults overwrite=true
+
+Parameters:
+  - resource: The file to back up.
+  - opts: Backup options (default: nil).
+
+Returns:
+  - Resource: The backup copy.
+  - Tombstone: Compensation state.
+  - error: Non-nil if the backup failed.
+```
+
+Each element is one unwrapped line. No `//` prefix. No line wrapping. No indentation beyond list formatting.
+This is the canonical intermediate form.
+
+### Step 8: Format — `go/doc/comment` handles everything else
+
+The normalized text is passed through `go/doc/comment.Parser` + `Printer` in a single pass:
+
+```go
+func Format(normalized string, width int) string {
+    var p comment.Parser
+    doc := p.Parse(normalized)
+
+    var pr comment.Printer
+    pr.TextWidth = width - 3  // 120 - len("// ")
+    return string(pr.Comment(doc))
+}
+```
+
+`go/doc/comment.Printer` handles:
+- Line wrapping paragraphs to `TextWidth`
+- List item continuation indentation
+- Code block pass-through (indented lines)
+- `// ` prefix on every line
+- Blank line separators between blocks
+
+Directive lines (`+devlore:defaults overwrite=true`) are short enough to fit on one line — reflow is a no-op.
+
+Output with `width = 120`:
+
+```go
+// Backup creates a timestamped copy of the resource. Existing backups are overwritten.
+//
+// +devlore:defaults overwrite=true
+//
+// Parameters:
+//   - resource: The file to back up.
+//   - opts: Backup options (default: nil).
+//
+// Returns:
+//   - Resource: The backup copy.
+//   - Tombstone: Compensation state.
+//   - error: Non-nil if the backup failed.
+```
+
+Deterministic. Same input data always produces the same output, regardless of the order elements appeared in
+the original comment. Our code owns structure and ordering; `go/doc/comment` owns formatting.
+
+## Copyright schema
+
+```go
+// CopyrightDoc — fixed-order, both fields required, verbatim.
+type CopyrightDoc struct {
+    SPDX      string `"SPDX-License-Identifier" Colon @Word`
+    Copyright string `"Copyright" @(Word | Colon)+`
+}
+```
+
+Parses:
+
+```text
+SPDX-License-Identifier: SSPL-1.0
+Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+```
+
+Normalize:
+
+```go
+func (c *CopyrightDoc) Normalize() string {
+    return fmt.Sprintf("SPDX-License-Identifier: %s\nCopyright %s", c.SPDX, c.Copyright)
+}
+```
+
+Passed through `Format()` to add `// ` prefix.
+
+## Type schema
+
+```go
+// TypeDocElement — wrapper for unordered alternation.
+type TypeDocElement struct {
+    CodeBlock *CodeBlock `  @@`
+    Heading   *Heading   `| @@`
+    Paragraph *Paragraph `| @@`
+}
+
+// TypeDoc — collect elements in any order.
+type TypeDoc struct {
+    Elements []*TypeDocElement `@@*`
+}
+```
+
+First paragraph is Summary. Remaining elements are Body. Print order: Summary, then Body elements in parse order.
+
+Example:
+
+```go
+// Resource represents a handle to data that can be streamed.
+type Resource struct { ... }
+```
+
+Parse result:
+
+```go
+TypeDoc{
+    Elements: []*TypeDocElement{
+        {Paragraph: &Paragraph{
+            Words: ["Resource", "represents", "a", "handle", "to", "data",
+                    "that", "can", "be", "streamed."],
+        }},
+    },
+}
+```
+
+## Parameter validation via token types
+
+The context-aware lexer makes parameter validation structural rather than post-hoc. Consider three scenarios:
+
+### Correct: all parameters documented
+
+```go
+// Parameters:
+//   - resource: The file to back up.
+//   - opts: Backup options.
+```
+
+Token stream: `ListMarker ParamName("resource") Colon ... ListMarker ParamName("opts") Colon ...`
+
+`ParamItem` grammar matches both. Parse succeeds. Linter compares documented names against signature — all present.
+
+### Error: stale parameter name
+
+```go
+// Parameters:
+//   - path: The file to back up.       ← "path" is not a parameter
+//   - opts: Backup options.
+```
+
+Token stream: `ListMarker Word("path") Colon ...`
+
+`ParamItem` expects `@ParamName` but gets `Word`. The grammar does not match a `ParamItem`. The parser can
+report this as a diagnostic: `"path" is not a parameter of Backup`.
+
+### Error: missing parameter
+
+```go
+// Parameters:
+//   - resource: The file to back up.
+//                                       ← "opts" not documented
+```
+
+Parse succeeds (the grammar allows zero or more `ParamItem`). The linter compares `ParamSection.Items` names
+against `MethodResult.Params` names and reports: `parameter 'opts' not documented`.
+
+## Schema YAML format
+
+Schemas serialize as YAML, loaded by goast extensions at runtime. Adding a new comment format requires a new
+YAML file, not Go code changes.
+
+```yaml
+# doc-comment-schemas.yaml
+schemas:
+  copyright:
+    format: go
+    node_type: File
+    elements:
+      - name: spdx
+        type: verbatim
+        required: true
+        order: 1
+      - name: copyright
+        type: verbatim
+        required: true
+        order: 2
+
+  type_doc:
+    format: go
+    node_type: TypeSpec
+    elements:
+      - name: summary
+        type: paragraph
+        required: true
+        order: 1
+      - name: body
+        type: block
+        cardinality: "*"
+        order: 2
+
+  func_doc:
+    format: go
+    node_type: FuncDecl
+    elements:
+      - name: summary
+        type: paragraph
+        required: true
+        order: 1
+      - name: body
+        type: block
+        cardinality: "*"
+        order: 2
+      - name: directives
+        type: directive
+        cardinality: "*"
+        order: 3
+      - name: parameters
+        type: param_section
+        required: if_params
+        order: 4
+        header: "Parameters:"
+        item_tokens: param_names
+      - name: returns
+        type: return_section
+        required: if_returns
+        order: 5
+        header: "Returns:"
+        item_tokens: return_types
+
+  # Same slots, different format
+  func_doc_star:
+    format: star
+    node_type: FuncDecl
+    elements:
+      - name: summary
+        type: paragraph
+        required: true
+        order: 1
+      - name: body
+        type: block
+        cardinality: "*"
+        order: 2
+      - name: parameters
+        type: param_section
+        required: if_params
+        order: 3
+        header: "Args:"
+        item_tokens: param_names
+```
+
+The `item_tokens` field tells the schema engine which injected token type to use for matching list items.
+`param_names` means the lexer injects the function's parameter names as `ParamName` tokens. `return_types`
+injects return types as `ReturnType` tokens.
+
+## Graceful degradation
+
+When the parser matches some elements but not others, it populates whatever **did** match. The schema's
+`required` and `cardinality` fields drive validation:
+
+| Situation                        | Parser behavior              | Linter behavior                        |
+| -------------------------------- | ---------------------------- | -------------------------------------- |
+| Summary present, no Parameters   | Parses summary only          | Checks `required: if_params`           |
+| Parameters present, stale name   | `ParamItem` fails to match   | Reports stale name diagnostic          |
+| All elements present, wrong order | Parses all elements          | Printers output in canonical order     |
+| Empty doc comment                | No elements parsed           | Reports missing required `summary`     |
+
+## Provider result types
+
+Existing result types gain a `.Comment` field carrying the parsed comment structure:
 
 ```go
 type MethodResult struct {
@@ -488,7 +703,7 @@ type MethodResult struct {
     File         string        `starlark:"file"`
     Line         int           `starlark:"line"`
     Doc          string        `starlark:"doc"`      // raw text (kept for compat)
-    Comment      *FuncComment  `starlark:"comment"`  // parsed taxonomy
+    Comment      *FuncDoc      `starlark:"comment"`  // parsed structure
     Scope        string        `starlark:"scope"`
 }
 
@@ -499,7 +714,7 @@ type FuncResult struct {
     File    string        `starlark:"file"`
     Line    int           `starlark:"line"`
     Doc     string        `starlark:"doc"`
-    Comment *FuncComment  `starlark:"comment"`
+    Comment *FuncDoc      `starlark:"comment"`
     Scope   string        `starlark:"scope"`
 }
 
@@ -508,129 +723,116 @@ type StructResult struct {
     File    string        `starlark:"file"`
     Line    int           `starlark:"line"`
     Fields  []FieldDetail `starlark:"fields"`
-    Comment *TypeComment  `starlark:"comment"`
-}
-
-type FieldDetail struct {
-    Name        string        `starlark:"name"`
-    JSONName    string        `starlark:"json_name"`
-    Type        string        `starlark:"type"`
-    Required    bool          `starlark:"required"`
-    Description string        `starlark:"description"`  // kept for compat
-    Embedded    bool          `starlark:"embedded"`
-    Comment     *FieldComment `starlark:"comment"`
+    Comment *TypeDoc      `starlark:"comment"`
 }
 ```
 
-### Schema types
+## Starlark integration
 
-```go
-// CommentSchema defines the expected comment structure for a node type in a specific format.
-type CommentSchema struct {
-    NodeType string            // "File", "FuncDecl", "TypeSpec", "Field"
-    Format   string            // "go", "star", "shell", etc.
-    Pattern  *regexp.Regexp    // one regex with named capture groups
-    Template *template.Template // Go template for rendering
-    Slots    []SlotDef         // named group → slot type mapping
-}
+Starlark rules access parsed comment elements directly — no line walking, no text scanning:
 
-type SlotDef struct {
-    Name        string          // matches a regex named group (level 1)
-    Type        SlotType        // data model + default item pattern (level 2)
-    Required    RequiredPolicy  // when this slot must be present
-    ItemPattern string          // override level-2 item regex (optional; slot type has default)
-}
+```python
+for m in goast.methods(path=path):
+    c = m.comment
+    if not c.summary:
+        violation("missing summary")
 
-type SlotType int
+    # Parameter sync — compare documented params against signature
+    sig_params = [p.name for p in m.params if p.name]
+    doc_params = [item.name for item in c.param_section.items] if c.param_section else []
 
-const (
-    SlotParagraph  SlotType = iota  // plain text, reflowed via reflow template function
-    SlotBlock                       // multiple blocks, each reflowed/preserved
-    SlotDirective                   // sub-parsed into []Directive, rendered verbatim
-    SlotParamList                   // sub-parsed into []ParamDoc
-    SlotReturnList                  // sub-parsed into []ReturnDoc
-    SlotVerbatim                    // passed through unchanged
-)
-
-type RequiredPolicy int
-
-const (
-    Always    RequiredPolicy = iota
-    IfParams
-    IfReturns
-    Never
-)
+    for s in sig_params:
+        if s not in doc_params:
+            violation("parameter '" + s + "' not documented")
+    for d in doc_params:
+        if d not in sig_params:
+            violation("documented parameter '" + d + "' not in signature")
 ```
 
-### Template functions
+The `_extract_doc_lines`, `_has_section`, `_extract_param_names`, and `_check_fill_width` functions in the
+current `doc-comments.star` are eliminated entirely.
 
-Custom functions available in all comment templates:
+## Layers
 
-| Function | Signature                 | Behavior                                                          |
-| -------- | ------------------------- | ----------------------------------------------------------------- |
-| `reflow` | `reflow width text`       | Reflows text to fill to `width` columns using `go/doc/comment`    |
-| `wrap`   | `wrap width prefix text`  | Wraps text with a specific continuation prefix                    |
-| `join`   | `join sep items`          | Joins a slice with a separator                                    |
-
-`go/doc/comment.Printer` is the engine behind `reflow` — it handles paragraphs, headings, code blocks, and lists
-natively with configurable `TextWidth`. It's not exposed directly; it's a template function implementation detail.
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│  Starlark rules (.star)                                              │
+│  m.comment.summary, m.comment.param_section.items, ...               │
+│  goast.format_comment(comment, width) → rendered string              │
+├─────────────────────────────────────────────────────────────────────┤
+│  goast Provider (provider.go)                                        │
+│  Methods(), Funcs(), Structs() → results with .Comment               │
+│  FormatComment(), RewrapComments()                                   │
+├──────────────┬──────────────────┬────────────────────────────────────┤
+│  Participle  │  Normalize       │  go/ast                            │
+│  parser +    │  (one line per   │  .Doc fields → raw comment text    │
+│  context-    │  element, canon  │  .Type.Params → param names        │
+│  aware lexer │  order)          │  .Type.Results → return types      │
+├──────────────┴──────────────────┴────────────────────────────────────┤
+│  go/doc/comment (single formatting pass)                             │
+│  Line wrapping, list indentation, code block pass-through, // prefix │
+├─────────────────────────────────────────────────────────────────────┤
+│  Schema YAML                                                         │
+│  Defines element types, cardinality, required policy, element order  │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ## Scope
 
 ### What the taxonomy covers
 
-- Doc comments attached to nodes: functions, methods, types, fields, files
-- Parsing raw comment text into typed, named slots
-- Deterministic rendering from slot contents
-- Paragraph reflow via `go/doc/comment`
+- Doc comments attached to AST nodes: functions, methods, types, fields, files
+- Parsing raw comment text into typed elements via participle
+- Context-aware validation: parameter names and return types as lexer tokens
+- Deterministic rendering via per-element Printers
+- Paragraph reflow via `go/doc/comment.Printer`
+- Schema definitions in YAML, loaded at runtime
 
 ### What the taxonomy does not cover
 
-- **Structural comments** — region markers (`// region EXPORTED METHODS`), delineators (`// Compensable actions`),
-  and endregion markers are positional, not attached to any AST node. They are handled by the `regions` and
-  `method-order` linter rules, not the comment taxonomy.
-- **Code formatting** — indentation, brace placement, blank lines between statements. That's `go/format` and the
-  `formatting` linter rule.
-- **Declaration reordering** — reordering functions within a file is a separate concern (`SortDeclarations`). The
-  taxonomy ensures comments are correctly structured; reordering ensures they're in the right position.
+- **Structural comments** — region markers (`// region EXPORTED METHODS`), delineators
+  (`// Compensable actions`), endregion markers. These are positional, not attached to AST nodes. Handled by
+  the `regions` and `method-order` linter rules.
+- **Code formatting** — indentation, brace placement, blank lines. That's `go/format` and the `formatting`
+  linter rule.
+- **Declaration reordering** — `SortDeclarations` is a separate concern.
 
 ## Design decisions
 
-1. **Mine the AST, don't duplicate it.** `go/ast` already attaches `.Doc` to every relevant node. The taxonomy
-   parses that existing attachment into typed slots. No new comment-to-node correlation is needed.
+1. **Participle for parsing.** A PEG parser via Go struct tags gives us a real grammar with typed parse trees,
+   alternation, cardinality constraints, and composable element types. Replaces fragile regex extraction.
 
-2. **Regex named groups are slots.** One regex per schema, named capture groups map directly to slot names. The
-   group name is the slot name — no separate mapping, no per-slot regex. The regex defines structure; the slot
-   type defines semantics.
+2. **Context-aware lexer.** The lexer is constructed per-function with parameter names and return types injected
+   as first-class token types. The grammar matches these tokens directly — parameter validation is structural,
+   not a post-hoc string comparison.
 
-3. **Two-level parsing.** Level 1: section regex captures named groups (one per slot). Level 2: repeating slots
-   use an item pattern to split captured text into structured items. Non-repeating slots have no level 2. The
-   slot type defines the data model and a default item pattern; the schema can override it for format-specific
-   syntax.
+3. **Unordered collection, ordered normalization.** Participle's `@@*` with a wrapper struct collects elements
+   in whatever order they appear. Each element type has a `Normalize()` method producing a single unwrapped
+   line. The schema defines canonical output order.
 
-4. **Prefix backreference.** Multi-line patterns capture the comment prefix (`//`, `#`) in a named group and
-   backreference it for subsequent lines. This guarantees prefix consistency within a comment block and follows
-   the same pattern the copyright linter already uses.
+4. **Normalize-then-format pipeline.** Elements produce single-line content via `Normalize()`. Concatenated
+   with correct blank-line separators. The assembled text goes through `go/doc/comment.Printer` in one final
+   pass for line wrapping, list indentation, code block pass-through, and `// ` prefix. Our code owns
+   structure and ordering; `go/doc/comment` owns formatting. Directive lines are short enough that reflow
+   is a no-op — no strip-and-reinsert needed.
 
-5. **Graceful degradation on partial match.** When the section regex matches some groups but not others, the
-   taxonomy populates whatever slots did match and leaves unmatched optional slots empty. The linter evaluates
-   `Required` policy to distinguish "missing because optional" from "missing but required."
+5. **Schema as data.** Schemas are YAML, not compiled Go. Element types, cardinality, required policy, and print
+   order are defined declaratively. Adding a new comment format (Starlark, shell) is a new YAML file, not a code
+   change.
 
-6. **Go templates for rendering.** `text/template` with custom functions (`reflow`, `wrap`) produces deterministic
-   output. The template controls format-specific details (comment prefix, section headers, indentation). Slot data
-   is format-agnostic.
+6. **Mine the AST.** `go/ast` already attaches `.Doc` to nodes. The taxonomy parses that existing attachment.
+   Parameter names and return types come from `.Type.Params` and `.Type.Results` on the same AST node. No
+   separate correlation step.
 
-7. **Format-agnostic slot types.** The same `FuncComment` struct — with `Summary`, `Params`, `Returns` — works for
-   Go (`// `), Starlark (`# `), and any other comment format. Only the regex pattern and template change. This is
-   the same pattern the copyright linter already uses across 30+ file extensions.
+7. **Graceful degradation.** Partial matches populate whatever elements parsed successfully. The schema's
+   `required` and `cardinality` fields drive validation of what's present vs. what's expected.
 
-8. **Schema registration by format.** A registry mapping `(nodeType, format)` → `CommentSchema` lets the provider
-   look up the right pattern + template at parse time. The goast provider registers Go schemas; a future Starlark
-   linter registers Starlark schemas. Same taxonomy engine, different registered schemas.
+8. **Format-agnostic element types.** `Paragraph`, `ParamItem`, `ReturnItem`, `Directive` are format-agnostic
+   data. Only the lexer (comment prefix rules) and Printers (prefix strings) are format-specific.
 
-9. **Stdlib for paragraph reflow.** `go/doc/comment.Printer` is the engine behind the `reflow` template function.
-   It handles paragraphs, headings, code blocks, and lists natively with configurable `TextWidth`. Not exposed
-   directly — it's a template function implementation detail.
+## References
 
-10. **Uniformity over specifics.** The exact indentation of list items is flexible — what matters is that every
-    list item uses the same format. The template is the single source of truth for output format.
+- [participle](https://github.com/alecthomas/participle) — PEG parser via Go struct tags
+- [`go/doc/comment` stdlib](https://pkg.go.dev/go/doc/comment) — paragraph reflow engine
+- [Go style guidelines](docs/guides/go-style-guidelines.md) — Section 4: Doc Comment Format
+- [Go Doc Comments specification](https://go.dev/doc/comment) — the format our schemas implement
