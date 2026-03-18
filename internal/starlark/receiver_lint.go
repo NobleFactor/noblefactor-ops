@@ -18,6 +18,7 @@ import (
 	"go.starlark.net/starlarkstruct"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
+	shellcheckprov "github.com/NobleFactor/noblefactor-ops/internal/provider/shellcheck"
 )
 
 // LintReceiver provides static analysis operations.
@@ -464,7 +465,7 @@ func (r *LintReceiver) lintShell(_ *starlark.Thread, _ *starlark.Builtin, args s
 		return nil, fmt.Errorf("lint.shell: shfmt not installed\n  Install: go install mvdan.cc/sh/v3/cmd/shfmt@latest")
 	}
 
-	files, err := collectShellFiles(path)
+	files, err := shellcheckprov.CollectShellFiles(path)
 	if err != nil {
 		return nil, fmt.Errorf("lint.shell: %w", err)
 	}
@@ -535,7 +536,7 @@ func (r *LintReceiver) lintShell(_ *starlark.Thread, _ *starlark.Builtin, args s
 	}), nil
 }
 
-func runShellcheckForLint(path, severity string) ([]ShellcheckIssue, error) {
+func runShellcheckForLint(path, severity string) ([]shellcheckprov.LintIssue, error) {
 	cmd := exec.CommandContext(context.Background(), "shellcheck", "-f", "json", "-x", "--severity="+severity, path)
 	output, err := cmd.Output()
 	if err != nil && len(output) == 0 {
@@ -545,7 +546,7 @@ func runShellcheckForLint(path, severity string) ([]ShellcheckIssue, error) {
 		return nil, nil
 	}
 
-	var issues []ShellcheckIssue
+	var issues []shellcheckprov.LintIssue
 	if err := json.Unmarshal(output, &issues); err != nil {
 		return nil, fmt.Errorf("parsing shellcheck output: %w", err)
 	}

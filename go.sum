@@ -64,8 +64,8 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapp
 github.com/Microsoft/go-winio v0.5.2/go.mod h1:WpS1mjBmmwHBEWmogvA2mj8546UReBk4v8QkMxJ6pZY=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
-github.com/NobleFactor/devlore-cli v0.1.0-dev.20260314201016.0.20260318045713-e0b926108985 h1:9QOf4RNLdft6G4dyJxTzTJfBJStAsA3nel/ew3l09og=
-github.com/NobleFactor/devlore-cli v0.1.0-dev.20260314201016.0.20260318045713-e0b926108985/go.mod h1:xO1NZ8K3tasEdKmv8wi7rqnkAHVKEIcU+J/ETwnw/B0=
+github.com/NobleFactor/devlore-cli v0.1.0-dev.20260314201016.0.20260318211231-c0003919e138 h1:A9nnnr/3HcOate7w4fW6uaf2D53KuVRgyUUy2Eea3TU=
+github.com/NobleFactor/devlore-cli v0.1.0-dev.20260314201016.0.20260318211231-c0003919e138/go.mod h1:xO1NZ8K3tasEdKmv8wi7rqnkAHVKEIcU+J/ETwnw/B0=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 h1:TngWCqHvy9oXAN6lEVMRuU21PR1EtLVZJmdB18Gu3Rw=
 github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8D7ML55dXQrVaamCz2vxCfdQBasLZfHKk=
 github.com/ProtonMail/go-crypto v1.3.0 h1:ILq8+Sf5If5DCpHQp4PbZdS1J7HDFRXz/+xKBiRGFrw=

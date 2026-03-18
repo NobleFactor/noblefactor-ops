@@ -27,6 +27,7 @@ import (
 	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 
 	goastgen "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/gen"
+	shellcheckgen "github.com/NobleFactor/noblefactor-ops/internal/provider/shellcheck/gen"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
@@ -68,6 +69,7 @@ func NewRuntime() *Runtime {
 		WithReceivers(
 			filegen.Receiver, jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver,
 			starindexgen.Receiver, starcomplexitygen.Receiver, starstatsgen.Receiver, staranalysisgen.Receiver,
+			shellcheckgen.Receiver,
 		).
 		WithColor()
 	star := op.NewStarlarkRuntime(cfg)
@@ -349,7 +351,6 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 	predeclared := r.star.BuildReceivers()
 
 	// Hand-coded receivers (not yet migrated to framework providers).
-	predeclared["shellcheck"] = Shellcheck
 	predeclared["lint"] = r.lint
 	predeclared["setup"] = r.setup
 	predeclared["config"] = Config

@@ -4,12 +4,8 @@
 package starlark
 
 // Receiver singletons — these have no per-runtime dependencies.
-// JSON, YAML, Regexp, UI, and star* providers are framework-managed via StarlarkRuntime.
-// Schema and StarlarkParse are replaced by json/yaml.Resource.Validate and star* providers.
+// JSON, YAML, Regexp, UI, file, shellcheck, and star* providers are framework-managed via StarlarkRuntime.
 var (
-	// Shellcheck provides shell script analysis operations.
-	Shellcheck = NewShellcheckReceiver()
-
 	// Config provides configuration operations.
 	Config = NewConfigReceiver()
 )
