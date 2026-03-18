@@ -399,9 +399,10 @@ func TestRuntime_buildPredeclared(t *testing.T) {
 
 	// Verify essential modules are present
 	requiredModules := []string{
-		"file", "json", "yaml", "schema", "goast", "shellcheck",
-		"lint", "regexp", "config", "setup", "starlark_parse",
+		"file", "json", "yaml", "goast", "shellcheck",
+		"lint", "regexp", "config", "setup",
 		"commands", "ui",
+		"starindex", "starcomplexity", "starstats", "staranalysis",
 	}
 
 	for _, name := range requiredModules {

@@ -15,8 +15,13 @@ import (
 	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
 	regexpgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
+	staranalysisgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/staranalysis/gen"
+	starcomplexitygen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starcomplexity/gen"
+	starindexgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starindex/gen"
+	starstatsgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/starstats/gen"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
@@ -52,7 +57,6 @@ type Runtime struct {
 	UIProvider *ui.Provider
 
 	// Receivers that depend on UIProvider (not singletons).
-	file  *FileReceiver
 	lint  *LintReceiver
 	setup *SetupReceiver
 }
@@ -61,17 +65,24 @@ type Runtime struct {
 func NewRuntime() *Runtime {
 
 	cfg := op.NewBindingConfig("star").
-		WithReceivers(jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver).
+		WithReceivers(
+			filegen.Receiver, jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver,
+			starindexgen.Receiver, starcomplexitygen.Receiver, starstatsgen.Receiver, staranalysisgen.Receiver,
+		).
 		WithColor()
 	star := op.NewStarlarkRuntime(cfg)
 
 	// Initialize the framework runtime so BuildReceivers can construct providers.
+	// Root is set to the current working directory so file.Provider can perform I/O.
+	// RecoverySite is auto-created by Initialize when Root is non-nil.
+	wd, _ := os.Getwd()
 	star.Initialize(op.NewActionRegistry(), op.ContextBase{
 		Context: context.Background(),
 		Writer:  os.Stderr,
+		Root:    op.NewRootReaderWriter(wd),
 	})
 
-	// UIProvider is shared with hand-coded receivers (file, lint, setup) and
+	// UIProvider is shared with hand-coded receivers (lint, setup) and
 	// exposed for --silent flag wiring in main.
 	uip := &ui.Provider{
 		Writer:      os.Stderr,
@@ -85,7 +96,6 @@ func NewRuntime() *Runtime {
 		wasmReceivers: make(map[string]*WasmReceiver),
 		star:          star,
 		UIProvider:    uip,
-		file:          NewFileReceiver(uip),
 		lint:          NewLintReceiver(uip),
 		setup:         NewSetupReceiver(uip),
 	}
@@ -339,13 +349,10 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 	predeclared := r.star.BuildReceivers()
 
 	// Hand-coded receivers (not yet migrated to framework providers).
-	predeclared["file"] = r.file
-	predeclared["schema"] = Schema
 	predeclared["shellcheck"] = Shellcheck
 	predeclared["lint"] = r.lint
 	predeclared["setup"] = r.setup
 	predeclared["config"] = Config
-	predeclared["starlark_parse"] = StarlarkParse
 
 	// Command tree navigation (current command set at runtime).
 	predeclared["commands"] = NewCommandsReceiver(r)

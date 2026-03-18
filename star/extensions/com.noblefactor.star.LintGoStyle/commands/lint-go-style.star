@@ -65,7 +65,7 @@ def collect_go_files(path, exclude_patterns, include_generated, include_tests):
         list of string: file paths.
     """
     pattern = path + "/**/*.go"
-    all_files = file.glob(pattern)
+    all_files = file.find(pattern)
 
     result = []
     for f in all_files:
@@ -111,7 +111,7 @@ def glob_to_regex(pattern):
 
 def is_generated(path):
     """Check if a Go file is generated."""
-    content = file.read(path)
+    content = file.read_text(path)
     for line in content.split("\n")[:10]:
         if "DO NOT EDIT" in line or "Code generated" in line:
             return True
@@ -131,7 +131,7 @@ def build_context(path, line_width):
     Returns:
         dict: the rule context.
     """
-    content = file.read(path)
+    content = file.read_text(path)
     return {
         "path": path,
         "content": content,
@@ -170,15 +170,15 @@ def run_fix(rules, files, verbose, line_width):
     for path in files:
         if verbose:
             ui.note("Fixing " + path)
-        original = file.read(path)
+        original = file.read_text(path)
         for _, _, fix_fn in rules:
             # Rebuild context from disk before each rule so goast sees current content.
             ctx = build_context(path, line_width)
             new_content = fix_fn(ctx)
             if new_content and new_content != ctx["content"]:
-                file.write(path, new_content)
+                file.write_text(path, new_content)
         # Check if the file changed overall.
-        final = file.read(path)
+        final = file.read_text(path)
         if final != original:
             fixed_count += 1
     return fixed_count
