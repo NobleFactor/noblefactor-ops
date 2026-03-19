@@ -299,7 +299,7 @@ def run(ctx):
     path = ctx.args.get("path", ".")
 
     # Load config
-    cfg = config.get()
+    cfg = config.get
     copyright_cfg = cfg.lint.copyright
 
     if not copyright_cfg.enabled:

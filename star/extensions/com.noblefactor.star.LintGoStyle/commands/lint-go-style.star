@@ -198,7 +198,7 @@ def run(ctx):
     verbose = ctx.args.get("verbose", "false") == "true"
 
     # Load config.
-    cfg = config.get()
+    cfg = config.get
     go_style_cfg = cfg.lint.go_style
     line_width = go_style_cfg.line_width
     disabled_rules = list(go_style_cfg.disabled_rules)

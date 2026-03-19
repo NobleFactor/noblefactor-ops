@@ -28,7 +28,7 @@ def run(ctx):
 
         # Check if command should be skipped based on config
         if short_name == "copyright":
-            cfg = config.get()
+            cfg = config.get
             if not cfg.lint.copyright.enabled:
                 ui.note("Skipped (disabled in star.yaml)")
                 continue
