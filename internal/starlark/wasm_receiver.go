@@ -17,7 +17,7 @@ import (
 // Each attribute access returns a builtin that invokes the corresponding
 // WASM function via shared memory.
 type WasmReceiver struct {
-	Receiver
+	name      string
 	module    extension.WasmModule
 	functions map[string]bool // Available functions from extension.yaml
 }
@@ -30,18 +30,35 @@ func NewWasmReceiver(name string, module extension.WasmModule, functions []strin
 		funcMap[fn] = true
 	}
 	return &WasmReceiver{
-		Receiver: NewReceiver(name),
-		module:       module,
-		functions:    funcMap,
+		name:      name,
+		module:    module,
+		functions: funcMap,
 	}
+}
+
+// String implements starlark.Value.
+func (r *WasmReceiver) String() string { return r.name }
+
+// Type implements starlark.Value.
+func (r *WasmReceiver) Type() string { return r.name }
+
+// Truth implements starlark.Value.
+func (r *WasmReceiver) Truth() starlark.Bool { return true }
+
+// Freeze implements starlark.Value.
+func (r *WasmReceiver) Freeze() {}
+
+// Hash implements starlark.Value.
+func (r *WasmReceiver) Hash() (uint32, error) {
+	return 0, fmt.Errorf("unhashable type: %s", r.name)
 }
 
 // Attr implements starlark.HasAttrs.
 func (r *WasmReceiver) Attr(name string) (starlark.Value, error) {
 	if !r.functions[name] {
-		return nil, NoSuchAttrError(r.String(), name)
+		return nil, fmt.Errorf("%s has no .%s attribute", r.name, name)
 	}
-	return starlark.NewBuiltin(r.String()+"."+name, r.makeCall(name)), nil
+	return starlark.NewBuiltin(r.name+"."+name, r.makeCall(name)), nil
 }
 
 // AttrNames implements starlark.HasAttrs.
@@ -53,8 +70,14 @@ func (r *WasmReceiver) AttrNames() []string {
 	return names
 }
 
+// builtinFunc is the signature for builtin function implementations.
+type builtinFunc func(
+	thread *starlark.Thread, fn *starlark.Builtin,
+	args starlark.Tuple, kwargs []starlark.Tuple,
+) (starlark.Value, error)
+
 // makeCall returns a builtin function that invokes the WASM method.
-func (r *WasmReceiver) makeCall(method string) BuiltinFunc {
+func (r *WasmReceiver) makeCall(method string) builtinFunc {
 	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		// Convert Starlark args to JSON
 		params, err := wasmArgsToJSON(args, kwargs)
