@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	starlarklib "go.starlark.net/starlark"
-
 	"github.com/NobleFactor/noblefactor-ops/internal/extension"
 )
 
@@ -412,34 +410,7 @@ func TestRuntime_buildPredeclared(t *testing.T) {
 	}
 }
 
-// =============================================================================
-// Test: ConfigReceiver.get
-// =============================================================================
-
-func TestConfigReceiver_get(t *testing.T) {
-	t.Run("returns unified config", func(t *testing.T) {
-		// Get the "get" attribute from the Config receiver
-		getAttr, err := Config.Attr("get")
-		if err != nil {
-			t.Fatalf("Config.Attr(\"get\") error = %v", err)
-		}
-
-		// Call the get method
-		builtin := getAttr.(*starlarklib.Builtin)
-		val, err := builtin.CallInternal(nil, nil, nil)
-		if err != nil {
-			t.Fatalf("config.get() error = %v", err)
-		}
-
-		// Should return a unified config value
-		if val == nil {
-			t.Error("config.get() returned nil")
-		}
-		if val.Type() != "config" {
-			t.Errorf("config.get() type = %q, want %q", val.Type(), "config")
-		}
-	})
-}
+// ConfigReceiver.get test removed — config is now a framework provider.
 
 // =============================================================================
 // Helpers

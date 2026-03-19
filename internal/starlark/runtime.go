@@ -26,6 +26,7 @@ import (
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 
+	configgen "github.com/NobleFactor/noblefactor-ops/internal/provider/config/gen"
 	goastgen "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/gen"
 	lintgen "github.com/NobleFactor/noblefactor-ops/internal/provider/lint/gen"
 	setupgen "github.com/NobleFactor/noblefactor-ops/internal/provider/setup/gen"
@@ -68,7 +69,7 @@ func NewRuntime() *Runtime {
 		WithReceivers(
 			filegen.Receiver, jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver,
 			starindexgen.Receiver, starcomplexitygen.Receiver, starstatsgen.Receiver, staranalysisgen.Receiver,
-			shellcheckgen.Receiver, lintgen.Receiver, setupgen.Receiver,
+			shellcheckgen.Receiver, lintgen.Receiver, setupgen.Receiver, configgen.Receiver,
 		).
 		WithColor()
 	star := op.NewStarlarkRuntime(cfg)
@@ -175,9 +176,8 @@ func (r *Runtime) loadExtensionsFromPaths(paths ...string) error {
 		return fmt.Errorf("load config files: %w", err)
 	}
 
-	// Wire the loaded config into the ConfigReceiver singleton and context data
-	// so config.get()/show()/sync() and setup.init_config() use the populated config.
-	Config.SetConfig(r.Config())
+	// Wire the loaded config into context data so config.get()/show()/sync()
+	// and setup.init_config() use the populated config.
 	r.data["config"] = r.Config()
 
 	return nil
@@ -349,9 +349,6 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 
 	// Framework-managed receivers (json, yaml, regexp, ui).
 	predeclared := r.star.BuildReceivers()
-
-	// Hand-coded receivers (not yet migrated to framework providers).
-	predeclared["config"] = Config
 
 	// Command tree navigation (current command set at runtime).
 	predeclared["commands"] = NewCommandsReceiver(r)
