@@ -58,9 +58,9 @@ func (c *Command) Run(args map[string]string) error {
 		"extension": ext,
 	})
 
-	// Set current command context on the commands receiver
-	if cmds, ok := c.predeclared["commands"].(*CommandsReceiver); ok {
-		cmds.SetCurrentCommand(c.Name)
+	// Set current command name in context data for the commands provider.
+	if c.runtime != nil && c.runtime.data != nil {
+		c.runtime.data["current_command"] = c.Name
 	}
 
 	// Call the run function

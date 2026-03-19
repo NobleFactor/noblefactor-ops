@@ -26,6 +26,8 @@ import (
 	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 
+	commandsprov "github.com/NobleFactor/noblefactor-ops/internal/provider/commands"
+	commandsgen "github.com/NobleFactor/noblefactor-ops/internal/provider/commands/gen"
 	configgen "github.com/NobleFactor/noblefactor-ops/internal/provider/config/gen"
 	goastgen "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/gen"
 	lintgen "github.com/NobleFactor/noblefactor-ops/internal/provider/lint/gen"
@@ -69,7 +71,7 @@ func NewRuntime() *Runtime {
 		WithReceivers(
 			filegen.Receiver, jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver,
 			starindexgen.Receiver, starcomplexitygen.Receiver, starstatsgen.Receiver, staranalysisgen.Receiver,
-			shellcheckgen.Receiver, lintgen.Receiver, setupgen.Receiver, configgen.Receiver,
+			shellcheckgen.Receiver, lintgen.Receiver, setupgen.Receiver, configgen.Receiver, commandsgen.Receiver,
 		).
 		WithColor()
 	star := op.NewStarlarkRuntime(cfg)
@@ -93,7 +95,7 @@ func NewRuntime() *Runtime {
 		Color:       true,
 	}
 
-	return &Runtime{
+	rt := &Runtime{
 		commands:      make(map[string]*Command),
 		wasmHosts:     make(map[string]*wasm.WasmHost),
 		wasmReceivers: make(map[string]*WasmReceiver),
@@ -101,6 +103,11 @@ func NewRuntime() *Runtime {
 		data:          data,
 		UIProvider:    uip,
 	}
+
+	// Wire command tree into context data (shared map — providers read it lazily).
+	data["command_tree"] = rt
+
+	return rt
 }
 
 // Config returns the unified config, initializing if needed.
@@ -347,11 +354,8 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 // If spec is non-nil, it may provide extension-specific bindings (WASM receivers).
 func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.StringDict {
 
-	// Framework-managed receivers (json, yaml, regexp, ui).
+	// Framework-managed receivers.
 	predeclared := r.star.BuildReceivers()
-
-	// Command tree navigation (current command set at runtime).
-	predeclared["commands"] = NewCommandsReceiver(r)
 
 	// Add WASM receivers from extension spec
 	if spec != nil {
@@ -372,6 +376,47 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 // Commands returns all registered commands.
 func (r *Runtime) Commands() map[string]*Command {
 	return r.commands
+}
+
+// CommandNames implements commands.CommandTree.
+func (r *Runtime) CommandNames() []string {
+	names := make([]string, 0, len(r.commands))
+	for name := range r.commands {
+		names = append(names, name)
+	}
+	return names
+}
+
+// RunCommand implements commands.CommandTree.
+func (r *Runtime) RunCommand(name string, args map[string]string) error {
+	cmd, ok := r.commands[name]
+	if !ok {
+		return fmt.Errorf("command %q not found", name)
+	}
+	return cmd.Run(args)
+}
+
+// CommandHelp implements commands.CommandTree.
+func (r *Runtime) CommandHelp(name string) string {
+	spaceName := strings.ReplaceAll(name, ".", " ")
+	if cmd, ok := r.commands[spaceName]; ok {
+		return cmd.Help
+	}
+	return ""
+}
+
+// CommandFlags implements commands.CommandTree.
+func (r *Runtime) CommandFlags(name string) []commandsprov.CommandFlag {
+	spaceName := strings.ReplaceAll(name, ".", " ")
+	cmd, ok := r.commands[spaceName]
+	if !ok {
+		return nil
+	}
+	flags := make([]commandsprov.CommandFlag, len(cmd.Flags))
+	for i, f := range cmd.Flags {
+		flags[i] = commandsprov.CommandFlag{Name: f.Name, Help: f.Help, Default: f.Default}
+	}
+	return flags
 }
 
 // Close releases all resources held by the runtime.
