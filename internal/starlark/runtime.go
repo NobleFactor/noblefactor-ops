@@ -28,6 +28,7 @@ import (
 
 	goastgen "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/gen"
 	lintgen "github.com/NobleFactor/noblefactor-ops/internal/provider/lint/gen"
+	setupgen "github.com/NobleFactor/noblefactor-ops/internal/provider/setup/gen"
 	shellcheckgen "github.com/NobleFactor/noblefactor-ops/internal/provider/shellcheck/gen"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/config"
@@ -45,6 +46,7 @@ type Runtime struct {
 	commands map[string]*Command
 	config   *config.Config // Unified config for builtin and extension config
 	star     *op.StarlarkRuntime
+	data     map[string]any // Shared context data (dry_run, config, etc.)
 
 	// wasmHosts maps extension name to its WASM host.
 	// Each extension gets its own host with its receiver's capabilities.
@@ -57,9 +59,6 @@ type Runtime struct {
 	// UIProvider is the canonical UI output provider.
 	// Wire --silent to UIProvider.Silent in main.
 	UIProvider *ui.Provider
-
-	// Receivers that depend on UIProvider (not singletons).
-	setup *SetupReceiver
 }
 
 // NewRuntime creates a new Starlark runtime.
@@ -69,7 +68,7 @@ func NewRuntime() *Runtime {
 		WithReceivers(
 			filegen.Receiver, jsongen.Receiver, yamlgen.Receiver, regexpgen.Receiver, uigen.Receiver, goastgen.Receiver,
 			starindexgen.Receiver, starcomplexitygen.Receiver, starstatsgen.Receiver, staranalysisgen.Receiver,
-			shellcheckgen.Receiver, lintgen.Receiver,
+			shellcheckgen.Receiver, lintgen.Receiver, setupgen.Receiver,
 		).
 		WithColor()
 	star := op.NewStarlarkRuntime(cfg)
@@ -78,14 +77,15 @@ func NewRuntime() *Runtime {
 	// Root is set to the current working directory so file.Provider can perform I/O.
 	// RecoverySite is auto-created by Initialize when Root is non-nil.
 	wd, _ := os.Getwd()
+	data := map[string]any{"dry_run": DryRun}
 	star.Initialize(op.NewActionRegistry(), op.ContextBase{
 		Context: context.Background(),
 		Writer:  os.Stderr,
 		Root:    op.NewRootReaderWriter(wd),
+		Data:    data,
 	})
 
-	// UIProvider is shared with hand-coded receivers (setup) and
-	// exposed for --silent flag wiring in main.
+	// UIProvider is exposed for --silent flag wiring in main.
 	uip := &ui.Provider{
 		Writer:      os.Stderr,
 		ProgramName: "star",
@@ -97,8 +97,8 @@ func NewRuntime() *Runtime {
 		wasmHosts:     make(map[string]*wasm.WasmHost),
 		wasmReceivers: make(map[string]*WasmReceiver),
 		star:          star,
+		data:          data,
 		UIProvider:    uip,
-		setup:         NewSetupReceiver(uip),
 	}
 }
 
@@ -175,9 +175,10 @@ func (r *Runtime) loadExtensionsFromPaths(paths ...string) error {
 		return fmt.Errorf("load config files: %w", err)
 	}
 
-	// Wire the loaded config into the ConfigReceiver singleton so
-	// config.get()/show()/sync() use the fully-populated config.
+	// Wire the loaded config into the ConfigReceiver singleton and context data
+	// so config.get()/show()/sync() and setup.init_config() use the populated config.
 	Config.SetConfig(r.Config())
+	r.data["config"] = r.Config()
 
 	return nil
 }
@@ -350,7 +351,6 @@ func (r *Runtime) buildPredeclared(spec *extension.ExtensionSpec) starlark.Strin
 	predeclared := r.star.BuildReceivers()
 
 	// Hand-coded receivers (not yet migrated to framework providers).
-	predeclared["setup"] = r.setup
 	predeclared["config"] = Config
 
 	// Command tree navigation (current command set at runtime).
