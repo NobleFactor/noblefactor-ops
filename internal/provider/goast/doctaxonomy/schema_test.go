@@ -39,9 +39,9 @@ const testSchemaYAML = `schemas:
         cardinality: "*"
         order: 5
 
-  type_doc:
+  gen_decl:
     format: go
-    node_type: TypeSpec
+    node_type: GenDecl
     elements:
       - name: summary
         type: paragraph
@@ -77,15 +77,15 @@ func TestParseSchemas(t *testing.T) {
 		t.Fatalf("expected 3 schemas, got %d", len(schemas))
 	}
 
-	// Sorted by name: copyright, func_doc, type_doc.
+	// Sorted by name: copyright, func_doc, gen_decl.
 	if schemas[0].Name != "copyright" {
 		t.Errorf("schema 0 name = %q, want 'copyright'", schemas[0].Name)
 	}
 	if schemas[1].Name != "func_doc" {
 		t.Errorf("schema 1 name = %q, want 'func_doc'", schemas[1].Name)
 	}
-	if schemas[2].Name != "type_doc" {
-		t.Errorf("schema 2 name = %q, want 'type_doc'", schemas[2].Name)
+	if schemas[2].Name != "gen_decl" {
+		t.Errorf("schema 2 name = %q, want 'gen_decl'", schemas[2].Name)
 	}
 
 	funcDoc := schemas[1]
@@ -177,9 +177,9 @@ func TestSchemaRegistry(t *testing.T) {
 		t.Errorf("name = %q, want 'func_doc'", funcDoc.Name)
 	}
 
-	typeDoc := reg.Lookup("TypeSpec", "go")
+	typeDoc := reg.Lookup("GenDecl", "go")
 	if typeDoc == nil {
-		t.Fatal("Lookup(TypeSpec, go) returned nil")
+		t.Fatal("Lookup(GenDecl, go) returned nil")
 	}
 
 	missing := reg.Lookup("InterfaceDecl", "go")

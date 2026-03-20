@@ -12,9 +12,9 @@ schemas:
         required: true
         order: 2
 
-  type_doc:
+  gen_decl:
     format: go
-    node_type: TypeSpec
+    node_type: GenDecl
     elements:
       - name: summary
         type: paragraph

@@ -53,7 +53,7 @@ type fileNode struct {
 // of fileNode items. Positions are used during construction only — never during
 // output. Each declaration with a doc comment becomes two items (doc comment
 // and code) so the newline between them is captured as a gap.
-func buildFileTree(src string, fset *token.FileSet, node *ast.File, width int) []fileNode {
+func buildFileTree(src string, fset *token.FileSet, node *ast.File, width int, registry *doctaxonomy.SchemaRegistry) []fileNode {
 	var items []fileNode
 
 	// Map doc comments to their owners for replacement logic.
@@ -104,7 +104,7 @@ func buildFileTree(src string, fset *token.FileSet, node *ast.File, width int) [
 		all = append(all, positioned{startOff: off(cg.Pos()), endOff: off(cg.End()), emit: func() {
 			items = append(items, fileNode{
 				kind: nodeComment,
-				text: rewriteComment(cg, nil, width),
+				text: rewriteComment(cg, nil, width, registry),
 			})
 		}})
 	}
@@ -134,7 +134,7 @@ func buildFileTree(src string, fset *token.FileSet, node *ast.File, width int) [
 			all = append(all, positioned{startOff: off(doc.Pos()), endOff: off(doc.End()), emit: func() {
 				items = append(items, fileNode{
 					kind: nodeComment,
-					text: rewriteComment(doc, decl, width),
+					text: rewriteComment(doc, decl, width, registry),
 				})
 			}})
 		}
@@ -225,8 +225,9 @@ func buildFileTree(src string, fset *token.FileSet, node *ast.File, width int) [
 // =============================================================================
 
 // rewriteComment produces the text for a comment group — reformatted or
-// original. Skips copyright headers and delineator blocks.
-func rewriteComment(cg *ast.CommentGroup, decl ast.Node, width int) string {
+// original. Skips copyright headers and delineator blocks. Uses the schema
+// registry to enforce doc comment structure.
+func rewriteComment(cg *ast.CommentGroup, decl ast.Node, width int, registry *doctaxonomy.SchemaRegistry) string {
 	raw := commentGroupRaw(cg)
 	if raw == "" {
 		return commentText(cg)
@@ -240,20 +241,38 @@ func rewriteComment(cg *ast.CommentGroup, decl ast.Node, width int) string {
 		return commentText(cg)
 	}
 
-	// FuncDecl doc — taxonomy.
+	// FuncDecl doc — taxonomy with schema.
 	if fn, ok := decl.(*ast.FuncDecl); ok {
 		pNames := astParamNames(fn.Type.Params)
 		rTypes := astReturnTypes(fn.Type.Results)
-		funcDoc := parseFuncDocSafe(raw, pNames, rTypes)
+		prepared := splitSummary(raw, fn.Name.Name)
+		funcDoc := parseFuncDocSafe(prepared, pNames, rTypes)
+		schema := registry.Lookup("FuncDecl", "go")
+		if schema != nil {
+			ctx := doctaxonomy.FuncContext{
+				Name:        fn.Name.Name,
+				ParamNames:  pNames,
+				ReturnTypes: rTypes,
+			}
+			normalized := funcDoc.NormalizeWithContext(schema.Elements, ctx)
+			return strings.TrimRight(doctaxonomy.Format(normalized, width), "\n")
+		}
 		normalized := funcDoc.Normalize()
 		return strings.TrimRight(doctaxonomy.Format(normalized, width), "\n")
 	}
 
-	// GenDecl type doc — TypeDoc parser.
-	if gd, ok := decl.(*ast.GenDecl); ok && gd.Tok == token.TYPE {
+	// GenDecl doc (type, var, const) — TypeDoc parser with schema.
+	if gd, ok := decl.(*ast.GenDecl); ok {
+		declName := genDeclName(gd)
+		prepared := splitSummary(raw, declName)
 		tp := doctaxonomy.NewTypeParser()
-		typeDoc, err := tp.ParseString("", raw)
+		typeDoc, err := tp.ParseString("", prepared)
 		if err == nil {
+			schema := registry.Lookup("GenDecl", "go")
+			if schema != nil {
+				normalized := typeDoc.NormalizeWithSchema(schema.Elements)
+				return strings.TrimRight(doctaxonomy.Format(normalized, width), "\n")
+			}
 			normalized := typeDoc.Normalize()
 			return strings.TrimRight(doctaxonomy.Format(normalized, width), "\n")
 		}
@@ -261,6 +280,66 @@ func rewriteComment(cg *ast.CommentGroup, decl ast.Node, width int) string {
 
 	// Floating prose or other — reflow.
 	return strings.TrimRight(doctaxonomy.Format(raw, width), "\n")
+}
+
+// genDeclName returns the primary name for a GenDecl — the first TypeSpec,
+// ValueSpec, or ImportSpec name.
+func genDeclName(gd *ast.GenDecl) string {
+	for _, spec := range gd.Specs {
+		switch s := spec.(type) {
+		case *ast.TypeSpec:
+			return s.Name.Name
+		case *ast.ValueSpec:
+			if len(s.Names) > 0 {
+				return s.Names[0].Name
+			}
+		}
+	}
+	return ""
+}
+
+// splitSummary inserts a blank line after the summary sentence if needed.
+// The summary is the first sentence that starts with elementName. If the
+// raw text already has a blank line after the summary, it is returned
+// unchanged.
+func splitSummary(raw, elementName string) string {
+	if elementName == "" {
+		return raw
+	}
+	if !strings.HasPrefix(raw, elementName) {
+		return raw
+	}
+
+	// Find the end of the first sentence: ". " or ".\n" after the element name.
+	idx := strings.Index(raw, ". ")
+	nlIdx := strings.Index(raw, ".\n")
+	if nlIdx >= 0 && (idx < 0 || nlIdx < idx) {
+		idx = nlIdx
+	}
+	if idx < 0 {
+		// Single sentence — check for trailing period at end.
+		if strings.HasSuffix(strings.TrimSpace(raw), ".") {
+			return raw
+		}
+		return raw
+	}
+
+	// Split at the period. Include the period in the summary.
+	summaryEnd := idx + 1
+	rest := raw[summaryEnd:]
+
+	// If there's already a blank line, no change needed.
+	if strings.HasPrefix(rest, "\n\n") {
+		return raw
+	}
+
+	// Trim the leading whitespace/newline from the rest and insert blank line.
+	rest = strings.TrimLeft(rest, " \n")
+	if rest == "" {
+		return raw
+	}
+
+	return raw[:summaryEnd] + "\n\n" + rest
 }
 
 // commentText returns the original text of a comment group with // prefixes.
@@ -347,6 +426,7 @@ func rewriteFileFromSource(filename, src string, width int) (string, error) {
 		return "", fmt.Errorf("rewrite %s: %w", filename, err)
 	}
 
-	tree := buildFileTree(src, fset, node, width)
+	registry := doctaxonomy.DefaultRegistry()
+	tree := buildFileTree(src, fset, node, width, registry)
 	return printTree(tree), nil
 }

@@ -4,6 +4,7 @@
 package doctaxonomy
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"sort"
@@ -11,6 +12,22 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed schemas/go.yaml
+var defaultSchemaYAML []byte
+
+// DefaultRegistry returns a SchemaRegistry loaded with the built-in Go schemas.
+func DefaultRegistry() *SchemaRegistry {
+	schemas, err := ParseSchemas(defaultSchemaYAML)
+	if err != nil {
+		panic("doctaxonomy: bad embedded schema: " + err.Error())
+	}
+	reg := NewSchemaRegistry()
+	for _, s := range schemas {
+		reg.Register(s)
+	}
+	return reg
+}
 
 // SchemaElement defines one element slot in a comment schema.
 type SchemaElement struct {
