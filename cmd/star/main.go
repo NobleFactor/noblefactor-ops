@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra/doc"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/cli"
-	starruntime "github.com/NobleFactor/noblefactor-ops/internal/starlark"
 )
 
 var (
@@ -148,12 +147,12 @@ Generate shell completions with:
   star completion fish > ~/.config/fish/completions/star.fish`,
 	}
 
-	// Create runtime early so we can bind flags to it
-	runtime := starruntime.NewRuntime()
+	// Create application early so we can bind flags to it
+	app := NewApplication()
 
 	// Global flags
-	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
-	rootCmd.PersistentFlags().BoolVar(&runtime.UIProvider.Silent, "silent", false, "Suppress all status messages")
+	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Preview changes without executing side effects")
+	rootCmd.PersistentFlags().BoolVar(&app.uiProvider.Silent, "silent", false, "Suppress all status messages")
 
 	// Version command
 	rootCmd.AddCommand(&cobra.Command{
@@ -252,8 +251,8 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 	})
 	rootCmd.AddCommand(docsCmd)
 
-	// Wire CLI status output to runtime's UI provider
-	cli.SetUIProvider(runtime.UIProvider)
+	// Wire CLI status output to application's UI provider
+	cli.SetUIProvider(app.uiProvider)
 
 	// Self commands (install, upgrade, etc.)
 	rootCmd.AddCommand(cli.NewSelfCmd(rootCmd, cli.SelfInstallInfo{
@@ -267,7 +266,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 	}))
 
 	// Load Starlark commands from extensions
-	if err := loadStarlarkCommands(rootCmd, runtime); err != nil {
+	if err := loadStarlarkCommands(rootCmd, app); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
 	}
 
@@ -277,13 +276,13 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 }
 
 // loadStarlarkCommands loads extensions and registers their commands.
-func loadStarlarkCommands(rootCmd *cobra.Command, runtime *starruntime.Runtime) error {
-	if err := runtime.LoadAll(); err != nil {
+func loadStarlarkCommands(rootCmd *cobra.Command, app *Application) error {
+	if err := app.LoadAll(); err != nil {
 		return err
 	}
 
 	// Register each Starlark command
-	for _, cmd := range runtime.Commands() {
+	for _, cmd := range app.Commands() {
 		registerStarlarkCommand(rootCmd, cmd)
 	}
 
@@ -291,7 +290,7 @@ func loadStarlarkCommands(rootCmd *cobra.Command, runtime *starruntime.Runtime) 
 }
 
 // registerStarlarkCommand creates a cobra command from a Starlark command.
-func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
+func registerStarlarkCommand(rootCmd *cobra.Command, cmd *Command) {
 	// Parse command name (e.g., "registry.index-knowledge" -> registry subcommand with index-knowledge)
 	parts := strings.Split(cmd.Name, ".")
 

@@ -85,7 +85,7 @@ fi
 # Discover providers
 # =============================================================================
 
-mapfile -t PROVIDERS < <(find "$REPO_ROOT/internal/provider" -name gen -type d 2>/dev/null | while read -r gendir; do dirname "$gendir"; done)
+mapfile -t PROVIDERS < <(find "$REPO_ROOT/internal/starlark/provider" -name gen -type d 2>/dev/null | while read -r gendir; do dirname "$gendir"; done)
 
 if [[ ${#PROVIDERS[@]} -eq 0 ]]; then
     echo "No providers with gen/ directories found."
