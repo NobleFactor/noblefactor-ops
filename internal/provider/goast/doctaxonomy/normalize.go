@@ -80,14 +80,10 @@ func (h *Heading) Normalize() string {
 }
 
 // defaultFuncDocOrder is the hardcoded element order used when no schema is
-// provided. Matches the Go func_doc schema: summary=1, body=2, parameters=3,
-// returns=4, directives=5.
+// provided. Matches standard Go conventions: summary + body.
 var defaultFuncDocOrder = []SchemaElement{
 	{Name: "summary", Type: "paragraph", Order: 1},
 	{Name: "body", Type: "block", Cardinality: "*", Order: 2},
-	{Name: "parameters", Type: "param_section", Order: 3},
-	{Name: "returns", Type: "return_section", Order: 4},
-	{Name: "directives", Type: "directive", Cardinality: "*", Order: 5},
 }
 
 // Normalize assembles elements in default schema order with correct blank-line

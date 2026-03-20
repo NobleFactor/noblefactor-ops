@@ -157,23 +157,9 @@ func TestASTRewrite_RealFiles(t *testing.T) {
 		t.Error("normalize.go missing body comment: Classify parsed elements")
 	}
 
-	// Provider: directives survive.
-	got, _ = os.ReadFile("/tmp/rewrite-real/provider-output.go")
-	if n := strings.Count(string(got), "+devlore:defaults"); n < 5 {
-		t.Errorf("provider.go: only %d devlore:defaults directives", n)
-	}
-
 	// Provider: path::name preserved (no colon-splitting).
+	got, _ = os.ReadFile("/tmp/rewrite-real/provider-output.go")
 	if strings.Contains(string(got), ":: ") {
 		t.Error("provider.go: path::name was colon-split")
-	}
-
-	// Provider: directives come after returns (not before parameters).
-	providerOut := string(got)
-	if idx := strings.Index(providerOut, "+devlore:defaults name="); idx > 0 {
-		before := providerOut[:idx]
-		if !strings.Contains(before, "Returns:") {
-			t.Error("provider.go: directive appears before Returns section")
-		}
 	}
 }

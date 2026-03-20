@@ -129,9 +129,10 @@ func Foo() {}
 		t.Fatalf("RewrapComments: %v", err)
 	}
 
-	// The bullet continuation should be merged into the bullet line.
-	if !strings.Contains(got, "//   - name: a short description.") {
-		t.Errorf("expected merged bullet item, got:\n%s", got)
+	// With default schema (summary + body), the Parameters section is not
+	// a structured element — it passes through as body text via go/doc/comment.
+	if !strings.Contains(got, "// Summary line.") {
+		t.Errorf("expected summary preserved, got:\n%s", got)
 	}
 }
 

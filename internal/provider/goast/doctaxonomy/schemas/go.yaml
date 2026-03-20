@@ -37,19 +37,3 @@ schemas:
         type: block
         cardinality: "*"
         order: 2
-      - name: parameters
-        type: param_section
-        required: if_params
-        order: 3
-        header: "Parameters:"
-        item_tokens: param_names
-      - name: returns
-        type: return_section
-        required: if_returns
-        order: 4
-        header: "Returns:"
-        item_tokens: return_types
-      - name: directives
-        type: directive
-        cardinality: "*"
-        order: 5

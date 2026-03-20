@@ -112,18 +112,7 @@ func TestCanonicalBackup_Normalize(t *testing.T) {
 
 	normalized := doc.Normalize()
 
-	expected := `Backup creates a timestamped copy of the resource. Existing backups are overwritten.
-
-Parameters:
-  - resource: The file to back up.
-  - opts: Backup options (default: nil).
-
-Returns:
-  - Resource: The backup copy.
-  - Tombstone: Compensation state.
-  - error: Non-nil if the backup failed.
-
-+devlore:defaults overwrite=true`
+	expected := `Backup creates a timestamped copy of the resource. Existing backups are overwritten.`
 
 	if normalized != expected {
 		t.Errorf("normalized output mismatch:\n--- got ---\n%s\n--- want ---\n%s", normalized, expected)
@@ -142,24 +131,9 @@ func TestCanonicalBackup_Format(t *testing.T) {
 	normalized := doc.Normalize()
 	output := Format(normalized, 120)
 
-	// The output should contain the comment prefix and all sections.
+	// With default schema (summary + body), output contains the summary.
 	if !strings.Contains(output, "// Backup creates a timestamped copy") {
 		t.Error("output missing summary line")
-	}
-	if !strings.Contains(output, "// +devlore:defaults overwrite=true") {
-		t.Error("output missing directive")
-	}
-	if !strings.Contains(output, "// Parameters:") {
-		t.Error("output missing Parameters section")
-	}
-	if !strings.Contains(output, "//   - resource: The file to back up.") {
-		t.Error("output missing resource param")
-	}
-	if !strings.Contains(output, "// Returns:") {
-		t.Error("output missing Returns section")
-	}
-	if !strings.Contains(output, "//   - error: Non-nil if the backup failed.") {
-		t.Error("output missing error return")
 	}
 
 	// Verify no line exceeds width.
@@ -298,24 +272,32 @@ Parameters:
 		t.Fatalf("parse error: %v", err)
 	}
 
+	// With default schema (summary + body only), only summary is emitted.
 	normalized := doc.Normalize()
-
-	// Summary should come first in normalized output.
 	lines := strings.Split(normalized, "\n")
 	if !strings.HasPrefix(lines[0], "FuncName does") {
 		t.Errorf("first line = %q, want 'FuncName does...'", lines[0])
 	}
 
-	// Directive should come after summary.
-	if !strings.Contains(normalized, "+devlore:test value") {
-		t.Error("missing directive in normalized output")
+	// With a project schema that includes all elements, ordering is enforced.
+	projectSchema := []SchemaElement{
+		{Name: "summary", Type: "paragraph", Order: 1},
+		{Name: "body", Type: "block", Cardinality: "*", Order: 2},
+		{Name: "parameters", Type: "param_section", Order: 3},
+		{Name: "returns", Type: "return_section", Order: 4},
+		{Name: "directives", Type: "directive", Cardinality: "*", Order: 5},
+	}
+	full := doc.NormalizeWithSchema(projectSchema)
+
+	if !strings.Contains(full, "+devlore:test value") {
+		t.Error("missing directive in schema-driven output")
 	}
 
-	// Directive should come after parameters (directives are last in schema).
-	dirIdx := strings.Index(normalized, "+devlore:test")
-	paramIdx := strings.Index(normalized, "Parameters:")
+	// Directive should come after parameters.
+	dirIdx := strings.Index(full, "+devlore:test")
+	paramIdx := strings.Index(full, "Parameters:")
 	if dirIdx < paramIdx {
-		t.Error("Directive should come after parameters in canonical order")
+		t.Error("Directive should come after parameters in schema order")
 	}
 }
 

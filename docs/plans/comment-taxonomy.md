@@ -173,9 +173,44 @@ are unaffected — they don't deal with doc comment content.
 | `star/extensions/com.noblefactor.star.LintGoStyle/rules/doc-comments.star` | Rewrite | Element-based check and fix |
 | `star/extensions/com.noblefactor.star.LintGoStyle/rules/line-width.star`   | Rewrite | Taxonomy-backed reflow      |
 
-### Phase 5: Fix the codebase and CI (pending)
+### Phase 5: Fix the codebase and CI (in-progress)
 
 With correct fix mode, run across noblefactor-ops. Wire into CI and pre-commit.
+
+#### Phase 5a: AST rewrite of RewrapComments (complete)
+
+Build a parallel ordered tree from the Go AST. Walk the tree to print: comments are
+reformatted, code is copied from original source. Schema-driven formatting enforces
+doc comment structure: summary splitting, element ordering, TODO stub insertion for
+missing required sections.
+
+- [x] `buildFileTree` splits declarations into doc comment + code positioned items
+- [x] Body comments use source text to preserve indentation
+- [x] DoubleColon token, compound Word pattern, `\b` word boundaries in lexer
+- [x] Directive order changed to last (after returns)
+- [x] `rewriteFileFromSource` wired into `RewrapComments`
+- [x] Schema loaded from embedded `go.yaml` via `DefaultRegistry`
+- [x] `splitSummary` separates summary from body at first sentence boundary
+- [x] `NormalizeWithContext` inserts TODO stubs for missing required elements
+- [x] `type_doc` renamed to `gen_decl` for uniform GenDecl handling (type, var, const)
+- [x] `TypeDoc.NormalizeWithSchema` for schema-driven GenDecl formatting
+- [x] `doc-comments.star` fix reduced to rewrap-only (no line-based TODO insertion)
+
+#### Phase 5b: Config-driven schemas (pending)
+
+Move doc comment schemas from embedded `go.yaml` into the extension config system
+so they are user-configurable.
+
+- [ ] Add `comment_schemas` field to extension config with nested `CommentSchema` and
+      `SchemaElement` type definitions. Defaults match current `go.yaml`.
+- [ ] Starlark reads schemas from `config.get.lint.go_style.comment_schemas`
+- [ ] Pass schemas to `goast.rewrap_comments` (update provider method signature)
+- [ ] Go provider converts Starlark schema values to `[]CommentSchema`
+- [ ] Regenerate codegen for updated provider method
+- [ ] Embedded `go.yaml` remains as fallback for direct Go usage
+- [ ] `make build` and `make test` pass
+
+#### Phase 5c: Fix codebase and CI (pending)
 
 - [ ] Run `star lint go-style --fix=true --generated=false --tests=false` on noblefactor-ops
 - [ ] `make build` and `make test` pass after fix
@@ -189,11 +224,17 @@ With correct fix mode, run across noblefactor-ops. Wire into CI and pre-commit.
 
 **Files:**
 
-| File                                                                               | Action | Purpose               |
-| ---------------------------------------------------------------------------------- | ------ | --------------------- |
-| `Makefile`                                                                         | Modify | Add `go-style` target |
-| `.github/workflows/ci.yaml`                                                        | Modify | Add lint step         |
-| `star/extensions/com.noblefactor.star.HookPreCommit/commands/hook-pre-commit.star` | Modify | Pre-commit hook       |
+| File                                                                               | Action | Purpose                              |
+| ---------------------------------------------------------------------------------- | ------ | ------------------------------------ |
+| `star/extensions/com.noblefactor.star.LintGoStyle/extension.yaml`                  | Modify | Add comment_schemas config           |
+| `star/extensions/com.noblefactor.star.LintGoStyle/commands/lint-go-style.star`      | Modify | Pass schemas from config to provider |
+| `star/extensions/com.noblefactor.star.LintGoStyle/rules/doc-comments.star`          | Modify | Pass schemas to rewrap               |
+| `internal/provider/goast/provider.go`                                              | Modify | Accept schemas parameter             |
+| `internal/provider/goast/astrewrite.go`                                            | Modify | Accept schemas from caller           |
+| `internal/provider/goast/gen/*.go`                                                 | Regen  | Updated method signature             |
+| `Makefile`                                                                         | Modify | Add `go-style` target                |
+| `.github/workflows/ci.yaml`                                                        | Modify | Add lint step                        |
+| `star/extensions/com.noblefactor.star.HookPreCommit/commands/hook-pre-commit.star` | Modify | Pre-commit hook                      |
 
 ### Phase 6: Cleanup (pending)
 

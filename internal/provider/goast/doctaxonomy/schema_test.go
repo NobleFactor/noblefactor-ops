@@ -4,6 +4,7 @@
 package doctaxonomy
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -22,22 +23,6 @@ const testSchemaYAML = `schemas:
         type: block
         cardinality: "*"
         order: 2
-      - name: parameters
-        type: param_section
-        required: if_params
-        order: 3
-        header: "Parameters:"
-        item_tokens: param_names
-      - name: returns
-        type: return_section
-        required: if_returns
-        order: 4
-        header: "Returns:"
-        item_tokens: return_types
-      - name: directives
-        type: directive
-        cardinality: "*"
-        order: 5
 
   gen_decl:
     format: go
@@ -95,22 +80,14 @@ func TestParseSchemas(t *testing.T) {
 	if funcDoc.NodeType != "FuncDecl" {
 		t.Errorf("func_doc node_type = %q, want 'FuncDecl'", funcDoc.NodeType)
 	}
-	if len(funcDoc.Elements) != 5 {
-		t.Fatalf("func_doc elements = %d, want 5", len(funcDoc.Elements))
+	if len(funcDoc.Elements) != 2 {
+		t.Fatalf("func_doc elements = %d, want 2", len(funcDoc.Elements))
 	}
-
-	params := funcDoc.Elements[2]
-	if params.Name != "parameters" {
-		t.Errorf("element 3 name = %q, want 'parameters'", params.Name)
+	if funcDoc.Elements[0].Name != "summary" {
+		t.Errorf("element 0 name = %q, want 'summary'", funcDoc.Elements[0].Name)
 	}
-	if params.Required != "if_params" {
-		t.Errorf("parameters required = %q, want 'if_params'", params.Required)
-	}
-	if params.Header != "Parameters:" {
-		t.Errorf("parameters header = %q, want 'Parameters:'", params.Header)
-	}
-	if params.ItemTokens != "param_names" {
-		t.Errorf("parameters item_tokens = %q, want 'param_names'", params.ItemTokens)
+	if funcDoc.Elements[1].Name != "body" {
+		t.Errorf("element 1 name = %q, want 'body'", funcDoc.Elements[1].Name)
 	}
 }
 
@@ -221,8 +198,7 @@ func TestValidate_MissingSummary(t *testing.T) {
 
 // TestValidate_UndocumentedParam checks that an undocumented parameter is flagged.
 func TestValidate_UndocumentedParam(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
+	funcSchema := projectFuncDocSchema()
 
 	parser := NewFuncParser([]string{"resource", "opts"}, nil)
 	doc, _ := parser.ParseString("", `Summary line.
@@ -246,8 +222,7 @@ Parameters:
 // TestValidate_StaleParam checks that a documented parameter not in the
 // signature is flagged.
 func TestValidate_StaleParam(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
+	funcSchema := projectFuncDocSchema()
 
 	parser := NewFuncParser([]string{"resource"}, nil)
 	doc, _ := parser.ParseString("", `Summary line.
@@ -272,8 +247,7 @@ Parameters:
 // TestValidate_MissingReturns checks that a missing Returns section is flagged
 // when the function has return values.
 func TestValidate_MissingReturns(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
+	funcSchema := projectFuncDocSchema()
 
 	parser := NewFuncParser(nil, nil)
 	doc, _ := parser.ParseString("", "Summary line.")
@@ -293,8 +267,7 @@ func TestValidate_MissingReturns(t *testing.T) {
 
 // TestValidate_Clean checks that a fully documented function produces no diagnostics.
 func TestValidate_Clean(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
+	funcSchema := projectFuncDocSchema()
 
 	parser := NewFuncParser([]string{"resource", "opts"}, []string{"Resource", "error"})
 	doc, err := parser.ParseString("", `Summary line.
@@ -319,9 +292,6 @@ Returns:
 
 // TestNormalizeWithSchema verifies that schema-driven ordering works.
 func TestNormalizeWithSchema(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
-
 	parser := NewFuncParser([]string{"x"}, nil)
 	doc, err := parser.ParseString("", `+devlore:test value
 
@@ -333,18 +303,40 @@ Parameters:
 		t.Fatalf("parse error: %v", err)
 	}
 
-	// Default Normalize and NormalizeWithSchema should produce the same output
-	// since defaultFuncDocOrder matches the func_doc schema.
+	// Default schema (summary + body) emits only the summary.
 	defaultOut := doc.Normalize()
-	schemaOut := doc.NormalizeWithSchema(funcSchema.Elements)
-
-	if defaultOut != schemaOut {
-		t.Errorf("outputs differ:\n--- default ---\n%s\n--- schema ---\n%s", defaultOut, schemaOut)
+	if idx := findIndex(defaultOut, "Summary line."); idx != 0 {
+		t.Errorf("summary not at start of default output")
 	}
 
-	// Both should put summary first, params after body, directives last.
-	if idx := findIndex(defaultOut, "Summary line."); idx != 0 {
-		t.Errorf("summary not at start of output")
+	// Project schema with all elements emits everything in order.
+	projectSchema := projectFuncDocSchema()
+	fullOut := doc.NormalizeWithSchema(projectSchema.Elements)
+	if idx := findIndex(fullOut, "Summary line."); idx != 0 {
+		t.Errorf("summary not at start of schema output")
+	}
+	if !strings.Contains(fullOut, "Parameters:") {
+		t.Error("missing Parameters in schema output")
+	}
+	if !strings.Contains(fullOut, "+devlore:test value") {
+		t.Error("missing directive in schema output")
+	}
+}
+
+// projectFuncDocSchema returns a schema with all elements including
+// parameters, returns, and directives — for testing project-specific config.
+func projectFuncDocSchema() *CommentSchema {
+	return &CommentSchema{
+		Name:     "func_doc",
+		Format:   "go",
+		NodeType: "FuncDecl",
+		Elements: []SchemaElement{
+			{Name: "summary", Type: "paragraph", Required: "true", Order: 1},
+			{Name: "body", Type: "block", Cardinality: "*", Order: 2},
+			{Name: "parameters", Type: "param_section", Required: "if_params", Order: 3, Header: "Parameters:", ItemTokens: "param_names"},
+			{Name: "returns", Type: "return_section", Required: "if_returns", Order: 4, Header: "Returns:", ItemTokens: "return_types"},
+			{Name: "directives", Type: "directive", Cardinality: "*", Order: 5},
+		},
 	}
 }
 
