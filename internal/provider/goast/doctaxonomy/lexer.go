@@ -10,13 +10,12 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
-// neverMatch is a regex pattern that cannot match any input. Used to define
-// token rules that must exist for the grammar but have no values to match.
+// neverMatch is a regex pattern that cannot match any input. Used to define token rules that must exist for the grammar
+// but have no values to match.
 const neverMatch = `\x00`
 
-// NewDocLexer constructs a context-aware stateful lexer definition. Parameter
-// names and return types from the AST are injected as token rules before the
-// generic Word rule so they match first.
+// NewDocLexer constructs a context-aware stateful lexer definition. Parameter names and return types from the AST are
+// injected as token rules before the generic Word rule so they match first.
 func NewDocLexer(paramNames, returnTypes []string) *lexer.StatefulDefinition {
 	root := []lexer.Rule{
 		{Name: "BlankLine", Pattern: `\n[ \t]*\n`, Action: nil},
@@ -68,9 +67,8 @@ func NewDocLexer(paramNames, returnTypes []string) *lexer.StatefulDefinition {
 	})
 }
 
-// buildAlternation creates a regex alternation pattern from the given words,
-// escaping any regex metacharacters. Longer names are placed first so that
-// a prefix doesn't shadow a longer name (e.g., "err" vs "error").
+// buildAlternation creates a regex alternation pattern from the given words, escaping any regex metacharacters.
+// Longer names are placed first so that a prefix doesn't shadow a longer name (e.g., "err" vs "error").
 func buildAlternation(words []string) string {
 	sorted := make([]string, len(words))
 	copy(sorted, words)
@@ -86,7 +84,7 @@ func buildAlternation(words []string) string {
 
 	escaped := make([]string, len(sorted))
 	for i, w := range sorted {
-		escaped[i] = regexp.QuoteMeta(w)
+		escaped[i] = `\b` + regexp.QuoteMeta(w) + `\b`
 	}
 
 	return strings.Join(escaped, "|")
