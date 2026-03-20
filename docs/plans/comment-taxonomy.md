@@ -2,7 +2,7 @@
 title: "Comment Taxonomy Implementation"
 status: in-progress
 created: 2026-03-17
-updated: 2026-03-17
+updated: 2026-03-20
 tracking: TBD
 ---
 
@@ -196,19 +196,25 @@ missing required sections.
 - [x] `TypeDoc.NormalizeWithSchema` for schema-driven GenDecl formatting
 - [x] `doc-comments.star` fix reduced to rewrap-only (no line-based TODO insertion)
 
-#### Phase 5b: Config-driven schemas (pending)
+#### Phase 5b: Config-driven schemas (complete)
 
 Move doc comment schemas from embedded `go.yaml` into the extension config system
 so they are user-configurable.
 
-- [ ] Add `comment_schemas` field to extension config with nested `CommentSchema` and
+- [x] Add `comment_schemas` field to extension config with nested `CommentSchema` and
       `SchemaElement` type definitions. Defaults match current `go.yaml`.
-- [ ] Starlark reads schemas from `config.get.lint.go_style.comment_schemas`
-- [ ] Pass schemas to `goast.rewrap_comments` (update provider method signature)
-- [ ] Go provider converts Starlark schema values to `[]CommentSchema`
-- [ ] Regenerate codegen for updated provider method
-- [ ] Embedded `go.yaml` remains as fallback for direct Go usage
-- [ ] `make build` and `make test` pass
+- [x] Add `NestedTypeDef` to `ConfigDef` and wire through `ToConfigSpec` so nested
+      type definitions in extension.yaml flow to the config type generator.
+- [x] Fix sibling nested type resolution: `generateNestedType` now receives the full
+      parent nested map so types like `CommentSchema` can reference `SchemaElement`.
+- [x] Add `Config.Navigate()` forwarding method so provider can access config hierarchy.
+- [x] Add `Config.MergeYAML()` for loading config overrides from bytes.
+- [x] Provider reads schemas from config context internally via `schemaRegistry()` →
+      `configSchemas()`. No method signature change or codegen regen needed.
+- [x] `DefaultRegistry()` built programmatically (no embedded YAML dependency).
+      Embedded `go.yaml` can be deleted.
+- [x] Tests: defaults match `DefaultRegistry()`, project config overrides work.
+- [x] `make build` and `make test` pass
 
 #### Phase 5c: Fix codebase and CI (pending)
 
@@ -222,19 +228,26 @@ so they are user-configurable.
 - [ ] Add go-style to pre-commit hook (`hook-pre-commit.star`) in fix mode
 - [ ] Verify CI passes on a test PR
 
-**Files:**
+**Files (5b):**
 
-| File                                                                               | Action | Purpose                              |
-| ---------------------------------------------------------------------------------- | ------ | ------------------------------------ |
-| `star/extensions/com.noblefactor.star.LintGoStyle/extension.yaml`                  | Modify | Add comment_schemas config           |
-| `star/extensions/com.noblefactor.star.LintGoStyle/commands/lint-go-style.star`      | Modify | Pass schemas from config to provider |
-| `star/extensions/com.noblefactor.star.LintGoStyle/rules/doc-comments.star`          | Modify | Pass schemas to rewrap               |
-| `internal/provider/goast/provider.go`                                              | Modify | Accept schemas parameter             |
-| `internal/provider/goast/astrewrite.go`                                            | Modify | Accept schemas from caller           |
-| `internal/provider/goast/gen/*.go`                                                 | Regen  | Updated method signature             |
-| `Makefile`                                                                         | Modify | Add `go-style` target                |
-| `.github/workflows/ci.yaml`                                                        | Modify | Add lint step                        |
-| `star/extensions/com.noblefactor.star.HookPreCommit/commands/hook-pre-commit.star` | Modify | Pre-commit hook                      |
+| File                                                                              | Action | Purpose                                       |
+| --------------------------------------------------------------------------------- | ------ | --------------------------------------------- |
+| `star/extensions/com.noblefactor.star.LintGoStyle/extension.yaml`                 | Modify | Add comment_schemas config with defaults      |
+| `internal/extension/spec.go`                                                      | Modify | Add NestedTypeDef, wire through ToConfigSpec   |
+| `internal/config/types.go`                                                        | Modify | Fix sibling nested type resolution             |
+| `internal/config/unified.go`                                                      | Modify | Add Navigate and MergeYAML methods             |
+| `internal/provider/goast/astrewrite.go`                                           | Modify | Config-to-registry conversion, accept registry |
+| `internal/provider/goast/provider.go`                                             | Modify | schemaRegistry/configSchemas from context       |
+| `internal/provider/goast/doctaxonomy/schema.go`                                   | Modify | Programmatic DefaultRegistry, remove embed      |
+| `internal/provider/goast/config_schema_test.go`                                   | Create | Defaults and override tests                    |
+
+**Files (5c):**
+
+| File                                                                              | Action | Purpose       |
+| --------------------------------------------------------------------------------- | ------ | ------------- |
+| `Makefile`                                                                        | Modify | go-style target |
+| `.github/workflows/ci.yaml`                                                       | Modify | Add lint step   |
+| `star/extensions/com.noblefactor.star.HookPreCommit/commands/hook-pre-commit.star` | Modify | Pre-commit hook |
 
 ### Phase 6: Cleanup (pending)
 

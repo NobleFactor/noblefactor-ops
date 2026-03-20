@@ -799,12 +799,43 @@ func (p *Provider) RewrapComments(path string, width int) (string, error) {
 		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
 	}
 
-	result, err := rewriteFileFromSource(path, string(content), width)
+	registry := p.schemaRegistry()
+	result, err := rewriteFileFromSource(path, string(content), width, registry)
 	if err != nil {
 		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
 	}
 
 	return result, nil
+}
+
+// schemaRegistry builds a SchemaRegistry from config if available,
+// falling back to the embedded defaults.
+func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
+	if cfg := p.configSchemas(); cfg != nil {
+		return cfg
+	}
+	return doctaxonomy.DefaultRegistry()
+}
+
+// configSchemas attempts to build a SchemaRegistry from the config
+// stored in the provider's context data.
+func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
+	cfgVal, ok := p.Context().Data["config"]
+	if !ok || cfgVal == nil {
+		return nil
+	}
+
+	cfg, ok := cfgVal.(configNavigator)
+	if !ok {
+		return nil
+	}
+
+	schemasVal := cfg.Navigate("lint.go_style.comment_schemas")
+	if schemasVal == nil {
+		return nil
+	}
+
+	return schemasFromConfig(schemasVal)
 }
 
 // SortDeclarations reorders function/method declarations within a scope of a Go file. Preserves doc comments and blank

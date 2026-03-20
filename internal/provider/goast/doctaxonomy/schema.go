@@ -4,7 +4,6 @@
 package doctaxonomy
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 	"sort"
@@ -13,19 +12,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed schemas/go.yaml
-var defaultSchemaYAML []byte
-
-// DefaultRegistry returns a SchemaRegistry loaded with the built-in Go schemas.
+// DefaultRegistry returns a SchemaRegistry with the standard Go comment
+// schemas. These match the defaults in the LintGoStyle extension config.
 func DefaultRegistry() *SchemaRegistry {
-	schemas, err := ParseSchemas(defaultSchemaYAML)
-	if err != nil {
-		panic("doctaxonomy: bad embedded schema: " + err.Error())
-	}
 	reg := NewSchemaRegistry()
-	for _, s := range schemas {
-		reg.Register(s)
-	}
+	reg.Register(CommentSchema{
+		Name: "copyright", Format: "go", NodeType: "File",
+		Elements: []SchemaElement{
+			{Name: "spdx", Type: "verbatim", Required: "true", Order: 1},
+			{Name: "copyright", Type: "verbatim", Required: "true", Order: 2},
+		},
+	})
+	reg.Register(CommentSchema{
+		Name: "gen_decl", Format: "go", NodeType: "GenDecl",
+		Elements: []SchemaElement{
+			{Name: "summary", Type: "paragraph", Required: "true", Order: 1},
+			{Name: "body", Type: "block", Cardinality: "*", Order: 2},
+		},
+	})
+	reg.Register(CommentSchema{
+		Name: "func_doc", Format: "go", NodeType: "FuncDecl",
+		Elements: []SchemaElement{
+			{Name: "summary", Type: "paragraph", Required: "true", Order: 1},
+			{Name: "body", Type: "block", Cardinality: "*", Order: 2},
+		},
+	})
 	return reg
 }
 

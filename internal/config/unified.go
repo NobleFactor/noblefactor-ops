@@ -113,6 +113,22 @@ func (c *Config) loadFile(path string) error {
 	return nil
 }
 
+// MergeYAML parses YAML bytes and merges values into the extension hierarchy.
+func (c *Config) MergeYAML(data []byte) error {
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse yaml: %w", err)
+	}
+	c.extensions.mergeRaw(raw)
+	return nil
+}
+
+// Navigate traverses the config hierarchy by dotted path.
+// Returns the element or field value at the given path, or nil if not found.
+func (c *Config) Navigate(path string) interface{} {
+	return c.extensions.Navigate(path)
+}
+
 // RegisterExtension registers an extension's config at a dotted path.
 // Creates intermediate elements as needed.
 func (c *Config) RegisterExtension(path string, spec ConfigSpec) error {

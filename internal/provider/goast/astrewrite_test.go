@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/noblefactor-ops/internal/provider/goast/doctaxonomy"
 )
 
 func TestASTRewrite_Full(t *testing.T) {
@@ -47,7 +49,7 @@ func Gamma() {}
 	os.MkdirAll("/tmp/rewrite-real", 0755)
 	os.WriteFile("/tmp/rewrite-real/synthetic-input.go", []byte(src), 0644)
 
-	got, err := rewriteFileFromSource("test.go", src, 120)
+	got, err := rewriteFileFromSource("test.go", src, 120, doctaxonomy.DefaultRegistry())
 	if err != nil {
 		t.Fatalf("rewrite error: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestASTRewrite_RealFiles(t *testing.T) {
 		src, _ := os.ReadFile(f.in)
 		os.WriteFile(strings.Replace(f.out, "-output", "-input", 1), src, 0644)
 
-		got, err := rewriteFileFromSource(f.in, string(src), 120)
+		got, err := rewriteFileFromSource(f.in, string(src), 120, doctaxonomy.DefaultRegistry())
 		if err != nil {
 			t.Fatalf("rewrite %s: %v", f.in, err)
 		}
