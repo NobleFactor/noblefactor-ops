@@ -1,7 +1,7 @@
 ---
 title: "Star Application Restructure"
 issue: TBD
-status: draft
+status: complete
 created: 2026-03-19
 updated: 2026-03-19
 ---
@@ -19,7 +19,7 @@ a `provider/` subtree. This plan restructures noblefactor-ops so that:
 3. Code generation gets a proper `make generate` target following devlore-cli's
    Makefile pattern.
 4. Provider registration is auto-generated (not hand-written).
-5. The runtime uses `op.Providers()` discovery instead of enumerating receivers.
+5. The application uses `op.Receivers()` discovery instead of enumerating receivers.
 
 ## Goals
 
@@ -31,7 +31,7 @@ a `provider/` subtree. This plan restructures noblefactor-ops so that:
    with blank imports, same as devlore-cli. No hand-maintained import lists.
 3. **Codegen in Makefile**: `make generate` runs the code generator for all
    providers. `make build` and `make test` depend on it.
-4. **Provider discovery**: `NewApplication()` uses `op.Providers()` to discover
+4. **Provider discovery**: `NewApplication()` uses `op.Receivers()` to discover
    announced receivers instead of explicitly importing and passing each gen
    package's `Receiver` var.
 
@@ -58,24 +58,22 @@ The `STAR` variable points to the star binary (same repo, `bin/star`). The
 `star` prerequisite target builds it.
 
 `generate-register` produces `internal/starlark/provider/register.go` with
-blank imports for each local `gen/` directory under
-`internal/starlark/provider/`. It does NOT include devlore-cli providers —
-those are imported separately by the application entry point
-(`_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"` in
-`cmd/star/application.go`), matching how devlore-cli's own tools do it
-(see `internal/writ/commands.go`, `internal/lore/builder.go`).
+blank imports for the devlore-cli aggregate provider package
+(`_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"`) and each local
+`gen/` directory under `internal/starlark/provider/`. The application imports
+only `_ ".../internal/starlark/provider"` — one import triggers everything.
 
-- [ ] Add `STAR` variable and `star` order-only prerequisite target
-- [ ] Add `P := internal/starlark/provider` variable
-- [ ] Add per-provider grouped targets for all 6 local providers
-- [ ] Add `GEN_PROVIDERS` list
-- [ ] Add `generate-register` target
-- [ ] Add `generate` target depending on `generate-register`
-- [ ] Make `build` depend on `generate`
-- [ ] Make `test` depend on `generate`
-- [ ] Add `generate` and `generate-register` to `.PHONY`
-- [ ] Update `clean` to remove `register.go` and `gen/` directories
-- [ ] Update `help` target
+- [x] Add `STAR` variable and `star` order-only prerequisite target
+- [x] Add `P := internal/starlark/provider` variable
+- [x] Add per-provider grouped targets for all 6 local providers
+- [x] Add `GEN_PROVIDERS` list
+- [x] Add `generate-register` target
+- [x] Add `generate` target depending on `generate-register`
+- [x] Make `build` depend on `generate`
+- [x] Make `test` depend on `generate`
+- [x] Add `generate` and `generate-register` to `.PHONY`
+- [x] Update `clean` to remove `register.go` and `gen/` directories
+- [x] Update `help` target
 
 **Files**:
 
@@ -102,9 +100,9 @@ Files that import provider packages (non-generated):
 The gen/ directories move with their parents but their contents are stale after
 the move (wrong import paths in generated code). Phase 3 regenerates them.
 
-- [ ] `git mv internal/provider internal/starlark/provider`
-- [ ] Update import paths in `runtime.go` (`commandsprov`)
-- [ ] Verify non-generated source files compile with new paths
+- [x] `git mv internal/provider internal/starlark/provider`
+- [x] Update import paths in `runtime.go` (`commandsprov`)
+- [x] Verify non-generated source files compile with new paths
 
 **Files**:
 
@@ -118,10 +116,10 @@ the move (wrong import paths in generated code). Phase 3 regenerates them.
 Run `make generate` to regenerate all `gen/` files with correct import paths.
 This also produces `internal/starlark/provider/register.go`.
 
-- [ ] Run `make generate`
-- [ ] Verify `register.go` contains correct blank imports
-- [ ] Verify all gen files have updated import paths
-- [ ] `make test` passes
+- [x] Run `make generate`
+- [x] Verify `register.go` contains correct blank imports
+- [x] Verify all gen files have updated import paths
+- [x] `make test` passes
 
 ### Phase 4: Move application to `cmd/star/`
 
@@ -157,13 +155,13 @@ Files to move from `internal/starlark/` to `cmd/star/`:
 - `lint_copyright_test.go` → `lint_copyright_test.go`
 - `config_integration_test.go` → `config_integration_test.go`
 
-- [ ] `git mv` source files from `internal/starlark/` to `cmd/star/`
-- [ ] Rename `Runtime` → `Application` in all moved files
-- [ ] Rename `NewRuntime` → `NewApplication`
-- [ ] Update `main.go`: remove import alias, use `Application` directly
-- [ ] Update test functions: `TestRuntime_*` → `TestApplication_*`
-- [ ] Update test helpers: `setupLintRuntime` → `setupLintApplication`
-- [ ] Verify `make test` passes
+- [x] `git mv` source files from `internal/starlark/` to `cmd/star/`
+- [x] Rename `Runtime` → `Application` in all moved files
+- [x] Rename `NewRuntime` → `NewApplication`
+- [x] Update `main.go`: remove import alias, use `Application` directly
+- [x] Update test functions: `TestRuntime_*` → `TestApplication_*`
+- [x] Update test helpers: `setupLintRuntime` → `setupLintApplication`
+- [x] Verify `make test` passes
 
 **Files**:
 
@@ -181,22 +179,21 @@ Files to move from `internal/starlark/` to `cmd/star/`:
 ### Phase 5: Fix provider discovery in Application
 
 Remove all explicit gen imports from `application.go`. The application adds
-two blank imports for provider registration:
+one blank import for provider registration:
 
-- `_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"` — devlore-cli
-  providers (matching `internal/writ/commands.go` pattern)
 - `_ "github.com/NobleFactor/noblefactor-ops/internal/starlark/provider"` —
-  local providers (triggers generated `register.go`)
+  triggers generated `register.go`, which imports both devlore-cli providers
+  (via `_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"`) and all
+  local providers
 
-`NewApplication()` uses `op.Providers()...` in `WithReceivers()` to discover
+`NewApplication()` uses `op.Receivers()...` in `WithReceivers()` to discover
 all announced providers.
 
-- [ ] Add `_ "github.com/NobleFactor/devlore-cli/pkg/op/provider"` import
-- [ ] Add `_ "github.com/NobleFactor/noblefactor-ops/internal/starlark/provider"` import
-- [ ] Remove all gen package imports from application.go
-- [ ] Replace `WithReceivers(filegen.Receiver, jsongen.Receiver, ...)` with
-      `WithReceivers(op.Providers()...)`
-- [ ] Verify `make test` passes
+- [x] Add `_ "github.com/NobleFactor/noblefactor-ops/internal/starlark/provider"` import
+- [x] Remove all gen package imports from application.go
+- [x] Replace `WithReceivers(filegen.Receiver, jsongen.Receiver, ...)` with
+      `WithReceivers(op.Receivers()...)`
+- [x] Verify `make test` passes
 
 **Files**:
 
@@ -214,11 +211,11 @@ Verify `internal/starlark/` contains only:
 
 Delete anything else that remains.
 
-- [ ] Verify `internal/starlark/` contents
-- [ ] Delete any remaining orphaned files
-- [ ] `make build` succeeds
-- [ ] `make test` passes
-- [ ] Grep for `internal/provider/` (old path) — zero matches in `.go` files
+- [x] Verify `internal/starlark/` contents
+- [x] Delete any remaining orphaned files
+- [x] `make build` succeeds
+- [x] `make test` passes
+- [x] Grep for `internal/provider/` (old path) — zero matches in `.go` files
 
 ## Verification
 
