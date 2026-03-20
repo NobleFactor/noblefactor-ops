@@ -54,7 +54,7 @@ Follow devlore-cli's Makefile pattern: per-provider grouped targets with `&:`,
 `GEN_PROVIDERS` list, `generate-register` to auto-generate blank imports,
 `generate` as the top-level target. `build` and `test` depend on `generate`.
 
-The `STAR` variable points to the star binary (same repo, `bin/star`). The
+The `STAR` variable points to the star binary (same repo, `build/star`). The
 `star` prerequisite target builds it.
 
 `generate-register` produces `internal/starlark/provider/register.go` with
