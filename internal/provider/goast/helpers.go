@@ -442,25 +442,6 @@ func parseFuncDocSafe(rawDoc string, paramNames, returnTypes []string) *doctaxon
 	return doc
 }
 
-// extractIndent returns the leading whitespace from a line.
-func extractIndent(line string) string {
-	trimmed := strings.TrimLeft(line, " \t")
-	return line[:len(line)-len(trimmed)]
-}
-
-// slicesEqual returns true if two string slices have identical contents.
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 // =============================================================================
 // PARAMETER EXTRACTION
 // =============================================================================

@@ -14,25 +14,31 @@ import (
 // by a period).
 func (p *Paragraph) Normalize() string {
 	var b strings.Builder
+	var prev string
 	for i, w := range p.Words {
-		// CodeLine tokens have leading whitespace from 4-space indent;
-		// trim it so continuation lines join cleanly.
 		w = strings.TrimLeft(w, " \t")
-		if i > 0 && !isTrailingPunctuation(w) {
+		if i > 0 && !startsWithClosePunct(w) && !joinsToFollowing(prev) {
 			b.WriteByte(' ')
 		}
 		b.WriteString(w)
+		prev = w
 	}
 	return b.String()
 }
 
-// isTrailingPunctuation returns true for single-character tokens that should
-// be joined to the preceding word without a space.
-func isTrailingPunctuation(s string) bool {
-	if len(s) != 1 {
+// startsWithClosePunct returns true for tokens whose first character is
+// closing or trailing punctuation.
+func startsWithClosePunct(s string) bool {
+	if len(s) == 0 {
 		return false
 	}
-	return strings.ContainsAny(s, ".,;:!?)]}")
+	return strings.ContainsAny(s[:1], ".,;:!?)]}")
+}
+
+// joinsToFollowing returns true for tokens that join to the following word
+// without a space.
+func joinsToFollowing(s string) bool {
+	return s == "::"
 }
 
 // Normalize formats as "+key value" on a single line.
@@ -74,14 +80,14 @@ func (h *Heading) Normalize() string {
 }
 
 // defaultFuncDocOrder is the hardcoded element order used when no schema is
-// provided. Matches the Go func_doc schema: summary=1, body=2, directives=3,
-// parameters=4, returns=5.
+// provided. Matches the Go func_doc schema: summary=1, body=2, parameters=3,
+// returns=4, directives=5.
 var defaultFuncDocOrder = []SchemaElement{
 	{Name: "summary", Type: "paragraph", Order: 1},
 	{Name: "body", Type: "block", Cardinality: "*", Order: 2},
-	{Name: "directives", Type: "directive", Cardinality: "*", Order: 3},
-	{Name: "parameters", Type: "param_section", Order: 4},
-	{Name: "returns", Type: "return_section", Order: 5},
+	{Name: "parameters", Type: "param_section", Order: 3},
+	{Name: "returns", Type: "return_section", Order: 4},
+	{Name: "directives", Type: "directive", Cardinality: "*", Order: 5},
 }
 
 // Normalize assembles elements in default schema order with correct blank-line

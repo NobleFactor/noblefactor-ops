@@ -114,8 +114,6 @@ func TestCanonicalBackup_Normalize(t *testing.T) {
 
 	expected := `Backup creates a timestamped copy of the resource. Existing backups are overwritten.
 
-+devlore:defaults overwrite=true
-
 Parameters:
   - resource: The file to back up.
   - opts: Backup options (default: nil).
@@ -123,7 +121,9 @@ Parameters:
 Returns:
   - Resource: The backup copy.
   - Tombstone: Compensation state.
-  - error: Non-nil if the backup failed.`
+  - error: Non-nil if the backup failed.
+
++devlore:defaults overwrite=true`
 
 	if normalized != expected {
 		t.Errorf("normalized output mismatch:\n--- got ---\n%s\n--- want ---\n%s", normalized, expected)
@@ -311,11 +311,11 @@ Parameters:
 		t.Error("missing directive in normalized output")
 	}
 
-	// Parameters should come after directive.
+	// Directive should come after parameters (directives are last in schema).
 	dirIdx := strings.Index(normalized, "+devlore:test")
 	paramIdx := strings.Index(normalized, "Parameters:")
-	if paramIdx < dirIdx {
-		t.Error("Parameters should come after directive in canonical order")
+	if dirIdx < paramIdx {
+		t.Error("Directive should come after parameters in canonical order")
 	}
 }
 

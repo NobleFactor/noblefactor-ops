@@ -794,102 +794,17 @@ func (p *Provider) ReturnStrings(scope string) ([]string, error) {
 //   - string: the modified file content with rewrapped comments.
 //   - error: non-nil if the file cannot be read or parsed.
 func (p *Provider) RewrapComments(path string, width int) (string, error) {
-
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
 	}
 
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	result, err := rewriteFileFromSource(path, string(content), width)
 	if err != nil {
 		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
 	}
 
-	// Map comment groups to their associated declarations.
-	docOwner := make(map[*ast.CommentGroup]ast.Node)
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch d := n.(type) {
-		case *ast.FuncDecl:
-			if d.Doc != nil {
-				docOwner[d.Doc] = d
-			}
-		case *ast.GenDecl:
-			if d.Doc != nil {
-				docOwner[d.Doc] = d
-			}
-			for _, spec := range d.Specs {
-				if ts, ok := spec.(*ast.TypeSpec); ok && ts.Doc != nil {
-					docOwner[ts.Doc] = ts
-				}
-			}
-		}
-		return true
-	})
-
-	lines := strings.Split(string(content), "\n")
-
-	// Process comment groups in reverse order so line numbers remain valid.
-	for i := len(node.Comments) - 1; i >= 0; i-- {
-		cg := node.Comments[i]
-		startLine := fset.Position(cg.Pos()).Line - 1 // 0-indexed
-		endLine := fset.Position(cg.End()).Line        // exclusive
-
-		cgLines := make([]string, endLine-startLine)
-		copy(cgLines, lines[startLine:endLine])
-
-		raw := commentGroupRaw(cg)
-		if raw == "" {
-			continue
-		}
-
-		// Skip copyright headers.
-		if strings.HasPrefix(raw, "SPDX-License-Identifier") {
-			continue
-		}
-
-		// Extract the indentation prefix from the first line.
-		indent := extractIndent(cgLines[0])
-
-		var formatted string
-		if fn, ok := docOwner[cg].(*ast.FuncDecl); ok {
-			// FuncDecl doc: parse with taxonomy, normalize, format.
-			pNames := astParamNames(fn.Type.Params)
-			rTypes := astReturnTypes(fn.Type.Results)
-			funcDoc := parseFuncDocSafe(raw, pNames, rTypes)
-			normalized := funcDoc.Normalize()
-			formatted = doctaxonomy.Format(normalized, width-len(indent))
-		} else if _, ok := docOwner[cg].(*ast.TypeSpec); ok {
-			// TypeSpec doc: parse as TypeDoc, normalize, format.
-			tp := doctaxonomy.NewTypeParser()
-			typeDoc, err := tp.ParseString("", raw)
-			if err == nil {
-				normalized := typeDoc.Normalize()
-				formatted = doctaxonomy.Format(normalized, width-len(indent))
-			} else {
-				formatted = doctaxonomy.Format(raw, width-len(indent))
-			}
-		} else {
-			// Other comments: reflow with go/doc/comment.
-			formatted = doctaxonomy.Format(raw, width-len(indent))
-		}
-
-		// Split formatted output into lines and add indentation.
-		newLines := strings.Split(strings.TrimRight(formatted, "\n"), "\n")
-		for j := range newLines {
-			newLines[j] = indent + newLines[j]
-		}
-
-		if !slicesEqual(cgLines, newLines) {
-			result := make([]string, 0, len(lines)-len(cgLines)+len(newLines))
-			result = append(result, lines[:startLine]...)
-			result = append(result, newLines...)
-			result = append(result, lines[endLine:]...)
-			lines = result
-		}
-	}
-
-	return strings.Join(lines, "\n"), nil
+	return result, nil
 }
 
 // SortDeclarations reorders function/method declarations within a scope of a Go file. Preserves doc comments and blank

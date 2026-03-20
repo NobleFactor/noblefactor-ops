@@ -8,7 +8,7 @@ package doctaxonomy
 // list item continuation lines (4-space indent) are captured as part of
 // the description rather than creating spurious CodeBlock elements.
 type Paragraph struct {
-	Words []string `parser:"@(Word | ParamName | ReturnType | Colon | CodeLine)+" starlark:"words"`
+	Words []string `parser:"@(Word | ParamName | ReturnType | Colon | DoubleColon | CodeLine)+" starlark:"words"`
 }
 
 // String returns the normalized text of the paragraph.

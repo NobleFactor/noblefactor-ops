@@ -49,8 +49,9 @@ func NewDocLexer(paramNames, returnTypes []string) *lexer.StatefulDefinition {
 	})
 
 	root = append(root,
+		lexer.Rule{Name: "DoubleColon", Pattern: `::`, Action: nil},
 		lexer.Rule{Name: "Colon", Pattern: `:`, Action: nil},
-		lexer.Rule{Name: "Word", Pattern: `[^\s:]+`, Action: nil},
+		lexer.Rule{Name: "Word", Pattern: `[^\s:]+(?::[^\s:]+)*`, Action: nil},
 		lexer.Rule{Name: "whitespace", Pattern: `[ \t]+`, Action: nil},
 		lexer.Rule{Name: "Newline", Pattern: `\n`, Action: nil},
 	)

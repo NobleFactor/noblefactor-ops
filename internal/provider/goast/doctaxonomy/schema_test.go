@@ -22,22 +22,22 @@ const testSchemaYAML = `schemas:
         type: block
         cardinality: "*"
         order: 2
-      - name: directives
-        type: directive
-        cardinality: "*"
-        order: 3
       - name: parameters
         type: param_section
         required: if_params
-        order: 4
+        order: 3
         header: "Parameters:"
         item_tokens: param_names
       - name: returns
         type: return_section
         required: if_returns
-        order: 5
+        order: 4
         header: "Returns:"
         item_tokens: return_types
+      - name: directives
+        type: directive
+        cardinality: "*"
+        order: 5
 
   type_doc:
     format: go
@@ -99,7 +99,7 @@ func TestParseSchemas(t *testing.T) {
 		t.Fatalf("func_doc elements = %d, want 5", len(funcDoc.Elements))
 	}
 
-	params := funcDoc.Elements[3]
+	params := funcDoc.Elements[2]
 	if params.Name != "parameters" {
 		t.Errorf("element 3 name = %q, want 'parameters'", params.Name)
 	}
@@ -342,7 +342,7 @@ Parameters:
 		t.Errorf("outputs differ:\n--- default ---\n%s\n--- schema ---\n%s", defaultOut, schemaOut)
 	}
 
-	// Both should put summary first, directive after body, params last.
+	// Both should put summary first, params after body, directives last.
 	if idx := findIndex(defaultOut, "Summary line."); idx != 0 {
 		t.Errorf("summary not at start of output")
 	}
