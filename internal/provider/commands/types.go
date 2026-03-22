@@ -9,8 +9,9 @@ type CommandTree interface {
 	// CommandNames returns all registered command names (space-separated).
 	CommandNames() []string
 
-	// RunCommand executes a command by space-separated name with the given args.
-	RunCommand(name string, args map[string]string) error
+	// RunCommand executes a command by space-separated name with the given flags
+	// and optional positional arguments.
+	RunCommand(name string, flags map[string]string, positional ...string) error
 
 	// CommandHelp returns the help text for a command.
 	CommandHelp(name string) string

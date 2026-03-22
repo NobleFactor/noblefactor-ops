@@ -9,16 +9,21 @@ receivers:
     builtin: true
     type: LintReceiver
     description: Shell linting primitives
+  - name: file
+    builtin: true
+    type: FileReceiver
+    description: Filesystem operations
 
 commands:
   - name: lint.shell
     help: Run shellcheck and shfmt on shell scripts
     implementation: commands/lint-shell.star
-    flags:
+    args:
       - name: path
-        type: string
+        help: Paths to lint (files or directories)
         default: "."
-        help: Path to lint
+        variadic: true
+    flags:
       - name: severity
         type: string
         default: "warning"

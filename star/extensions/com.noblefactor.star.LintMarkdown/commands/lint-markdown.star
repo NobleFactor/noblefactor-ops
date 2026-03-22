@@ -4,6 +4,7 @@
 # lint-markdown.star - Markdown lint checks
 #
 # Run markdownlint and frontmatter validation on markdown files.
+# File discovery uses the file provider (respects .gitignore).
 
 def check_tool(name):
     """Check if a tool is installed and return its status."""
@@ -20,23 +21,39 @@ def ensure_tool_installed(name):
         ui.fail(name + " is not installed\n  Install: " + tool.install_cmd)
     return tool
 
+def collect_files(paths):
+    """Collect markdown files from the given paths."""
+    files = []
+    for p in paths:
+        if file.is_file(resource=p):
+            files.append(p)
+        elif file.is_dir(resource=p):
+            files.extend(sorted(file.find(p + "/**/*.md")))
+    return files
+
 def run(ctx):
     """Run markdownlint and frontmatter check on markdown files."""
-    path = ctx.args.get("path", ".")
-    fix = ctx.args.get("fix", "false") == "true"
+    paths = ctx.args.get("path", ["."])
+    fix = ctx.args.get("fix", False)
 
     # Check tool is installed
     ensure_tool_installed("markdownlint-cli2")
 
-    ui.note("Running markdown lint on " + path)
-
     # Sync config if needed
     config.sync()
 
-    # Run markdownlint
-    result = lint.markdown(path=path, fix=fix)
+    # Discover files (respects .gitignore)
+    md_files = collect_files(paths)
+    if not md_files:
+        ui.success("No markdown files found")
+        return
 
-    # Report markdownlint issues
+    ui.note("Found " + str(len(md_files)) + " markdown file(s)")
+
+    # Run markdownlint on discovered files
+    result = lint.markdown(files=md_files, fix=fix)
+
+    # Report issues
     for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + " " + issue.rule + ": " + issue.message
         if issue.severity == "error":
@@ -44,21 +61,16 @@ def run(ctx):
         else:
             ui.warn(msg)
 
-    # Report frontmatter issues
     for issue in result.frontmatter_issues:
-        msg = issue.file + ": " + issue.message
-        ui.error(msg)
+        ui.error(issue.file + ": " + issue.message)
 
     # Summary
-    lint_passed = result.lint_passed
-    frontmatter_passed = result.frontmatter_passed
-
-    if lint_passed and frontmatter_passed:
+    if result.lint_passed and result.frontmatter_passed:
         ui.success("Markdown lint passed (" + str(result.files_checked) + " files)")
     else:
         msg = "Markdown lint failed:"
-        if not lint_passed:
+        if result.issue_count > 0:
             msg = msg + " " + str(result.issue_count) + " lint issues"
-        if not frontmatter_passed:
+        if len(result.frontmatter_issues) > 0:
             msg = msg + " " + str(len(result.frontmatter_issues)) + " frontmatter issues"
         ui.fail(msg)

@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -318,27 +319,65 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 		}
 	}
 
-	// Create the leaf command
+	// Build Use string with arg placeholders (e.g., "go-style [path ...]").
 	leafName := parts[len(parts)-1]
+	useLine := leafName
+	for _, arg := range cmd.Args {
+		if arg.Variadic {
+			useLine += fmt.Sprintf(" [%s ...]", arg.Name)
+		} else {
+			useLine += fmt.Sprintf(" [%s]", arg.Name)
+		}
+	}
+
+	// Create the leaf command
 	cobraCmd := &cobra.Command{
-		Use:   leafName,
+		Use:   useLine,
 		Short: cmd.Help,
 		RunE: func(c *cobra.Command, args []string) error {
-			// Collect flag values
+			// Collect flag values as strings (Command.Run converts to native starlark types).
 			flagValues := make(map[string]string)
 			for _, flag := range cmd.Flags {
-				val, err := c.Flags().GetString(flag.Name)
-				if err == nil {
-					flagValues[flag.Name] = val
+				switch flag.Type {
+				case "bool":
+					val, err := c.Flags().GetBool(flag.Name)
+					if err == nil {
+						flagValues[flag.Name] = strconv.FormatBool(val)
+					}
+				case "int":
+					val, err := c.Flags().GetInt(flag.Name)
+					if err == nil {
+						flagValues[flag.Name] = strconv.Itoa(val)
+					}
+				default:
+					val, err := c.Flags().GetString(flag.Name)
+					if err == nil {
+						flagValues[flag.Name] = val
+					}
 				}
 			}
-			return cmd.Run(flagValues)
+			return cmd.Run(flagValues, args...)
 		},
 	}
 
-	// Add flags
+	// Set positional arg validation.
+	if len(cmd.Args) > 0 {
+		cobraCmd.Args = cobra.ArbitraryArgs
+	} else {
+		cobraCmd.Args = cobra.NoArgs
+	}
+
+	// Add flags with proper cobra types.
 	for _, flag := range cmd.Flags {
-		cobraCmd.Flags().String(flag.Name, flag.Default, flag.Help)
+		switch flag.Type {
+		case "bool":
+			cobraCmd.Flags().Bool(flag.Name, flag.Default == "true", flag.Help)
+		case "int":
+			n, _ := strconv.Atoi(flag.Default)
+			cobraCmd.Flags().Int(flag.Name, n, flag.Help)
+		default:
+			cobraCmd.Flags().String(flag.Name, flag.Default, flag.Help)
+		}
 		if flag.Required {
 			if err := cobraCmd.MarkFlagRequired(flag.Name); err != nil {
 				// Flag was just added, this can't fail

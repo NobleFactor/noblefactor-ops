@@ -22,15 +22,16 @@ commands:
   - name: lint.copyright
     help: Check or fix copyright headers in source files
     implementation: commands/lint-copyright.star
+    args:
+      - name: path
+        help: Paths to check (files or directories)
+        default: "."
+        variadic: true
     flags:
       - name: fix
         type: bool
         default: "false"
         help: Add missing headers and update old format
-      - name: path
-        type: string
-        default: "."
-        help: Path to check
 
 config:
   path: lint.copyright

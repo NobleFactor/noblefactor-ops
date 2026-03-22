@@ -14,11 +14,12 @@ commands:
   - name: lint.go
     help: Run Go lint checks (go mod tidy + golangci-lint)
     implementation: commands/lint-go.star
-    flags:
+    args:
       - name: path
-        type: string
+        help: Paths to lint (Go package patterns)
         default: "./..."
-        help: Path to lint
+        variadic: true
+    flags:
       - name: config
         type: string
         default: ""

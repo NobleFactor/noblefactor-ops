@@ -7,7 +7,8 @@
 
 def run(ctx):
     """Run all configured linters."""
-    fix = ctx.args.get("fix", "false") == "true"
+    fix = ctx.args.get("fix", False)
+    paths = ctx.args.get("path", ["."])
 
     # Get all sibling lint commands (lint.go, lint.shell, etc.)
     siblings = commands.siblings()
@@ -33,8 +34,11 @@ def run(ctx):
                 ui.note("Skipped (disabled in star.yaml)")
                 continue
 
-        # Run the command with the same fix flag
-        result = cmd.run(fix=fix)
+        # lint.tools doesn't take paths
+        if short_name == "tools":
+            result = cmd.run(fix=fix)
+        else:
+            result = cmd.run(fix=fix, path=paths)
 
         if result.passed:
             passed.append(cmd.name)

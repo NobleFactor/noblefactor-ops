@@ -73,13 +73,22 @@ func (r *CommandRef) flagsList() starlark.Value {
 }
 
 func (r *CommandRef) run(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	cmdArgs := make(map[string]string)
+	cmdFlags := make(map[string]string)
+	var positional []string
+
 	for _, kv := range kwargs {
 		key := string(kv[0].(starlark.String))
-		cmdArgs[key] = starlarkValueToString(kv[1])
+		// List kwargs are treated as positional args (e.g., path=["./internal"]).
+		if list, ok := kv[1].(*starlark.List); ok {
+			for i := 0; i < list.Len(); i++ {
+				positional = append(positional, starlarkValueToString(list.Index(i)))
+			}
+		} else {
+			cmdFlags[key] = starlarkValueToString(kv[1])
+		}
 	}
 
-	err := r.tree.RunCommand(r.name, cmdArgs)
+	err := r.tree.RunCommand(r.name, cmdFlags, positional...)
 
 	errStr := ""
 	if err != nil {

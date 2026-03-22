@@ -35,19 +35,19 @@ func NewProvider(ctx op.Context) *Provider {
 
 // Go runs golangci-lint on Go source files.
 //
-// +devlore:defaults path="./...",config="",skipModTidy=false
+// +devlore:defaults paths=nil,config="",skipModTidy=false
 //
 // Parameters:
-//   - path: Go package pattern to lint (default "./...")
+//   - paths: Go package patterns to lint (default ["./..."])
 //   - config: path to golangci-lint config file (default: auto-detect or create)
 //   - skipModTidy: if true, skip go mod tidy verification
 //
 // Returns:
 //   - GoResult: issues, counts, and pass/fail status
 //   - error: if golangci-lint is not installed
-func (p *Provider) Go(path, config string, skipModTidy bool) (GoResult, error) {
-	if path == "" {
-		path = "./..."
+func (p *Provider) Go(paths []string, config string, skipModTidy bool) (GoResult, error) {
+	if len(paths) == 0 {
+		paths = []string{"./..."}
 	}
 
 	modTidyPassed := true
@@ -78,7 +78,7 @@ func (p *Provider) Go(path, config string, skipModTidy bool) (GoResult, error) {
 		}
 		cmdArgs = append(cmdArgs, "--config="+config)
 	}
-	cmdArgs = append(cmdArgs, path)
+	cmdArgs = append(cmdArgs, paths...)
 
 	cmd := exec.CommandContext(context.Background(), "golangci-lint", cmdArgs...)
 	output, err := cmd.Output()
@@ -137,20 +137,17 @@ func (p *Provider) Go(path, config string, skipModTidy bool) (GoResult, error) {
 
 // Shell runs shellcheck and shfmt on shell scripts.
 //
-// +devlore:defaults path=".",severity="warning",indent=0
+// +devlore:defaults files=nil,severity="warning",indent=0
 //
 // Parameters:
-//   - path: file or directory to lint (default ".")
+//   - files: shell script files to lint
 //   - severity: minimum shellcheck severity (default "warning")
 //   - indent: shfmt indentation width (defaults to 4 when 0)
 //
 // Returns:
 //   - ShellResult: lint issues, format issues, and pass/fail status
 //   - error: if shellcheck or shfmt is not installed
-func (p *Provider) Shell(path, severity string, indent int) (ShellResult, error) {
-	if path == "" {
-		path = "."
-	}
+func (p *Provider) Shell(files []string, severity string, indent int) (ShellResult, error) {
 	if severity == "" {
 		severity = "warning"
 	}
@@ -158,20 +155,15 @@ func (p *Provider) Shell(path, severity string, indent int) (ShellResult, error)
 		indent = 4
 	}
 
+	if len(files) == 0 {
+		return ShellResult{LintPassed: true, FormatPassed: true, Passed: true}, nil
+	}
+
 	if checkTool("shellcheck") == "" {
 		return ShellResult{}, fmt.Errorf("shellcheck not installed\n  Install: %s", shellcheckInstallCmd())
 	}
 	if checkTool("shfmt") == "" {
 		return ShellResult{}, fmt.Errorf("shfmt not installed\n  Install: go install mvdan.cc/sh/v3/cmd/shfmt@latest")
-	}
-
-	files, err := shellcheckprov.CollectShellFiles(path)
-	if err != nil {
-		return ShellResult{}, err
-	}
-
-	if len(files) == 0 {
-		return ShellResult{LintPassed: true, FormatPassed: true, Passed: true}, nil
 	}
 
 	result := ShellResult{FilesChecked: len(files)}
@@ -214,45 +206,36 @@ func (p *Provider) Shell(path, severity string, indent int) (ShellResult, error)
 
 // Markdown runs markdownlint-cli2 and frontmatter validation on markdown files.
 //
-// +devlore:defaults path=".",fix=false
+// +devlore:defaults files=nil,fix=false
 //
 // Parameters:
-//   - path: file or directory to lint (default ".")
+//   - files: markdown files to lint
 //   - fix: if true, apply automatic fixes
 //
 // Returns:
 //   - MarkdownResult: lint issues, frontmatter issues, and pass/fail status
 //   - error: if markdownlint-cli2 is not installed
-func (p *Provider) Markdown(path string, fix bool) (MarkdownResult, error) {
-	if path == "" {
-		path = "."
+func (p *Provider) Markdown(files []string, fix bool) (MarkdownResult, error) {
+	if len(files) == 0 {
+		return MarkdownResult{LintPassed: true, FrontmatterPassed: true, Passed: true}, nil
 	}
 
 	if checkTool("markdownlint-cli2") == "" {
 		return MarkdownResult{}, fmt.Errorf("markdownlint-cli2 not installed\n  Install: %s", markdownlintInstallCmd())
 	}
 
-	mdFiles, err := findMarkdownFiles(path)
-	if err != nil {
-		return MarkdownResult{}, fmt.Errorf("finding files: %w", err)
-	}
-
-	if len(mdFiles) == 0 {
-		return MarkdownResult{LintPassed: true, FrontmatterPassed: true, Passed: true}, nil
-	}
-
-	lintIssues, err := runMarkdownLint(path, fix)
+	lintIssues, err := runMarkdownLint(files, fix)
 	if err != nil {
 		return MarkdownResult{}, err
 	}
 
-	fmIssues, err := checkFrontmatter(mdFiles)
+	fmIssues, err := checkFrontmatter(files)
 	if err != nil {
 		return MarkdownResult{}, fmt.Errorf("checking frontmatter: %w", err)
 	}
 
 	result := MarkdownResult{
-		FilesChecked:      len(mdFiles),
+		FilesChecked:      len(files),
 		IssueCount:        len(lintIssues),
 		LintPassed:        len(lintIssues) == 0,
 		FrontmatterPassed: len(fmIssues) == 0,
@@ -515,26 +498,8 @@ type fmIssue struct {
 	file, message string
 }
 
-func findMarkdownFiles(path string) ([]string, error) {
-	var files []string
-	excludeDirs := map[string]bool{"node_modules": true, "vendor": true, ".git": true}
-	err := filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() && excludeDirs[d.Name()] {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
-			files = append(files, p)
-		}
-		return nil
-	})
-	return files, err
-}
-
-func runMarkdownLint(path string, fix bool) ([]mdIssue, error) {
-	cmdArgs := []string{path}
+func runMarkdownLint(files []string, fix bool) ([]mdIssue, error) {
+	cmdArgs := append([]string{}, files...)
 	if fix {
 		cmdArgs = append(cmdArgs, "--fix")
 	}

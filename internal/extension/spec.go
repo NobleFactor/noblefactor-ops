@@ -82,8 +82,27 @@ type CommandSpec struct {
 	// Example: "commands/lint-copyright.star"
 	Implementation string `yaml:"implementation"`
 
+	// Args are positional arguments for this command.
+	Args []ArgSpec `yaml:"args"`
+
 	// Flags are command-line flags for this command.
 	Flags []FlagSpec `yaml:"flags"`
+}
+
+// ArgSpec describes a positional argument.
+type ArgSpec struct {
+	// Name identifies the argument in starlark (e.g., "path").
+	Name string `yaml:"name"`
+
+	// Help is the help text for this argument.
+	Help string `yaml:"help"`
+
+	// Default is the default value when no arguments are provided.
+	Default string `yaml:"default"`
+
+	// Variadic allows zero or more values. At most one arg may be variadic,
+	// and it must be last.
+	Variadic bool `yaml:"variadic"`
 }
 
 // FlagSpec describes a command flag.
@@ -234,6 +253,16 @@ func (s *ExtensionSpec) Validate() error {
 		if !strings.HasPrefix(c.Implementation, "commands/") {
 			return fmt.Errorf("command %q: implementation must be in commands/ subdirectory", c.Name)
 		}
+		// Validate command args
+		for j, a := range c.Args {
+			if a.Name == "" {
+				return fmt.Errorf("command %q arg[%d]: name is required", c.Name, j)
+			}
+			if a.Variadic && j != len(c.Args)-1 {
+				return fmt.Errorf("command %q arg %q: variadic arg must be last", c.Name, a.Name)
+			}
+		}
+
 		// Validate command flags
 		for j, f := range c.Flags {
 			if f.Name == "" {
