@@ -25,6 +25,44 @@ lint:
       MD029: false  # Ordered list prefix - we use explicit numbers for reference
       MD033: false  # Inline HTML - needed for badges and advanced formatting
       MD041: false  # First line h1 - conflicts with frontmatter
+  go_style:
+    comment_schemas:
+      func_doc:
+        format: go
+        node_type: FuncDecl
+        elements:
+          - name: summary
+            production: item
+            consumes: "Paragraph / Heading"
+            prefix: "{name}"
+            split: sentence
+            required: "true"
+            order: 1
+          - name: body
+            production: item
+            consumes: "*(Paragraph / Code / Heading)"
+            order: 2
+          - name: parameters
+            production: list
+            header: "Parameters:"
+            condition: params
+            required: if_condition
+            slots: params
+            slot_prefix: "{slot}"
+            order: 3
+          - name: returns
+            production: list
+            header: "Returns:"
+            condition: returns
+            required: if_condition
+            slots: returns
+            slot_prefix: "{slot}"
+            order: 4
+          - name: directives
+            production: item
+            consumes: "*Paragraph"
+            prefix: "+"
+            order: 5
   copyright:
     enabled: true
     license: MIT

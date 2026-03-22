@@ -16,7 +16,6 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/NobleFactor/noblefactor-ops/internal/provider/goast/doctaxonomy"
 )
 
 // =============================================================================
@@ -30,14 +29,6 @@ type parsedFile struct {
 }
 
 // parseFile parses a Go file with caching.
-//
-// Parameters:
-//   - path: the file path to parse.
-//
-// Returns:
-//   - *token.FileSet: the file set.
-//   - *ast.File: the parsed AST.
-//   - error: non-nil if parsing fails.
 func (p *Provider) parseFile(path string) (*token.FileSet, *ast.File, error) {
 	if cached, ok := p.fileCache.Load(path); ok {
 		pf := cached.(*parsedFile)
@@ -60,26 +51,11 @@ func (p *Provider) parseFile(path string) (*token.FileSet, *ast.File, error) {
 // =============================================================================
 
 // encodeScope creates an opaque scope string from a file path and function name.
-//
-// Parameters:
-//   - filePath: the absolute file path.
-//   - name: the function or method name (e.g., "Foo" or "Provider.Foo").
-//
-// Returns:
-//   - string: the encoded scope.
 func encodeScope(filePath, name string) string {
 	return filePath + "::" + name
 }
 
 // decodeScope splits a scope string into file path and function name.
-//
-// Parameters:
-//   - scope: the encoded scope string.
-//
-// Returns:
-//   - string: the file path.
-//   - string: the function or method name.
-//   - error: non-nil if the scope format is invalid.
 func decodeScope(scope string) (string, string, error) {
 	parts := strings.SplitN(scope, "::", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -90,14 +66,6 @@ func decodeScope(scope string) (string, string, error) {
 }
 
 // findScopeBody resolves a scope string to the function/method body AST node.
-//
-// Parameters:
-//   - scope: the encoded scope string.
-//
-// Returns:
-//   - *token.FileSet: the file set.
-//   - *ast.BlockStmt: the function body.
-//   - error: non-nil if the scope cannot be resolved.
 func (p *Provider) findScopeBody(scope string) (*token.FileSet, *ast.BlockStmt, error) {
 	filePath, name, err := decodeScope(scope)
 	if err != nil {
@@ -139,16 +107,10 @@ func (p *Provider) findScopeBody(scope string) (*token.FileSet, *ast.BlockStmt, 
 // FILE COLLECTION
 // =============================================================================
 
-// collectGoFiles returns Go source files for a path. If path is a file, returns
-// it directly. If a directory, walks it recursively, skipping vendor, testdata,
-// .git, and _test.go files.
+// collectGoFiles returns Go source files for a path.
 //
-// Parameters:
-//   - path: the file or directory path.
-//
-// Returns:
-//   - []string: the collected file paths.
-//   - error: non-nil if the path cannot be accessed.
+// If path is a file, returns it directly. If a directory, walks it recursively, skipping vendor, testdata,.git,
+// and _test.go files.
 func collectGoFiles(path string) ([]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -184,12 +146,6 @@ func collectGoFiles(path string) ([]string, error) {
 // =============================================================================
 
 // detectModulePath finds the Go module path by walking up from startPath looking for go.mod.
-//
-// Parameters:
-//   - startPath: the file or directory to start searching from.
-//
-// Returns:
-//   - string: the module path, or empty string if not found.
 func detectModulePath(startPath string) string {
 	dir := startPath
 
@@ -222,12 +178,6 @@ func detectModulePath(startPath string) string {
 }
 
 // isStdlib returns true if the import path belongs to the Go standard library.
-//
-// Parameters:
-//   - importPath: the import path to check.
-//
-// Returns:
-//   - bool: true if stdlib.
 func isStdlib(importPath string) bool {
 	if !strings.Contains(importPath, ".") {
 		return true
@@ -245,12 +195,6 @@ func isStdlib(importPath string) bool {
 // =============================================================================
 
 // typeToString formats any Go AST type expression as a string.
-//
-// Parameters:
-//   - expr: the AST expression to format.
-//
-// Returns:
-//   - string: the formatted type string.
 func typeToString(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -314,12 +258,6 @@ func typeToString(expr ast.Expr) string {
 }
 
 // receiverTypeName extracts the type name from a receiver expression.
-//
-// Parameters:
-//   - expr: the receiver type expression.
-//
-// Returns:
-//   - string: the type name, with "*" prefix for pointer receivers.
 func receiverTypeName(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
@@ -334,12 +272,6 @@ func receiverTypeName(expr ast.Expr) string {
 }
 
 // returnTypeString formats a function's return type list as a string.
-//
-// Parameters:
-//   - results: the return field list.
-//
-// Returns:
-//   - string: the formatted return type, or empty for void.
 func returnTypeString(results *ast.FieldList) string {
 	if results == nil || len(results.List) == 0 {
 		return ""
@@ -361,14 +293,8 @@ func returnTypeString(results *ast.FieldList) string {
 // COMMENT HELPERS
 // =============================================================================
 
-// commentGroupRaw returns the full text of a comment group, preserving directive
-// lines (//tool:directive) that ast.CommentGroup.Text() strips since Go 1.21.
-//
-// Parameters:
-//   - cg: the comment group to extract text from.
-//
-// Returns:
-//   - string: the trimmed comment text.
+// commentGroupRaw returns the full text of a comment group, preserving directive lines (//tool:directive) that
+// ast.CommentGroup.Text() strips since Go 1.21.
 func commentGroupRaw(cg *ast.CommentGroup) string {
 	if cg == nil {
 		return ""
@@ -428,32 +354,11 @@ func astReturnTypes(results *ast.FieldList) []string {
 	return types
 }
 
-// parseFuncDocSafe parses a raw doc comment into a FuncDoc. Returns a
-// non-nil (possibly empty) FuncDoc even if parsing fails.
-func parseFuncDocSafe(rawDoc string, paramNames, returnTypes []string) *doctaxonomy.FuncDoc {
-	if rawDoc == "" {
-		return &doctaxonomy.FuncDoc{}
-	}
-	p := doctaxonomy.NewFuncParser(paramNames, returnTypes)
-	doc, err := p.ParseString("", rawDoc)
-	if err != nil {
-		return &doctaxonomy.FuncDoc{}
-	}
-	return doc
-}
-
 // =============================================================================
 // PARAMETER EXTRACTION
 // =============================================================================
 
 // extractParams converts a function's parameter list to a slice of ParamDetail structs.
-//
-// Parameters:
-//   - params: the AST parameter field list.
-//   - paramDocs: optional map of parameter name to doc string.
-//
-// Returns:
-//   - []ParamDetail: the extracted parameter details.
 func extractParams(params *ast.FieldList, paramDocs map[string]string) []ParamDetail {
 	var result []ParamDetail
 	if params == nil {
@@ -500,12 +405,6 @@ func extractParams(params *ast.FieldList, paramDocs map[string]string) []ParamDe
 // =============================================================================
 
 // extractReturnString extracts the first string literal from a return statement.
-//
-// Parameters:
-//   - body: the function body block.
-//
-// Returns:
-//   - string: the extracted string, or empty if not found.
 func extractReturnString(body *ast.BlockStmt) string {
 	if body == nil || len(body.List) == 0 {
 		return ""
@@ -529,12 +428,6 @@ func extractReturnString(body *ast.BlockStmt) string {
 }
 
 // extractReturnStrings extracts string elements from a []string{...} return statement.
-//
-// Parameters:
-//   - body: the function body block.
-//
-// Returns:
-//   - []string: the extracted strings, or nil if not found.
 func extractReturnStrings(body *ast.BlockStmt) []string {
 	if body == nil || len(body.List) == 0 {
 		return nil
@@ -582,13 +475,6 @@ func extractReturnStrings(body *ast.BlockStmt) []string {
 // =============================================================================
 
 // parseJSONTag extracts the JSON field name and required status from a struct tag.
-//
-// Parameters:
-//   - tag: the raw struct tag string.
-//
-// Returns:
-//   - string: the JSON field name.
-//   - bool: true if the field is required (no omitempty).
 func parseJSONTag(tag string) (string, bool) {
 	jsonRe := regexp.MustCompile(`json:"([^"]*)"`)
 	match := jsonRe.FindStringSubmatch(tag)
@@ -614,13 +500,6 @@ func parseJSONTag(tag string) (string, bool) {
 // =============================================================================
 
 // analyzeFileMetrics computes code metrics for a single Go file.
-//
-// Parameters:
-//   - path: the file path to analyze.
-//
-// Returns:
-//   - FileMetric: the computed metrics.
-//   - error: non-nil if the file cannot be read or parsed.
 func analyzeFileMetrics(path string) (FileMetric, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -710,14 +589,6 @@ func analyzeFileMetrics(path string) (FileMetric, error) {
 // =============================================================================
 
 // analyzeFileDeps analyzes import dependencies for a single Go file.
-//
-// Parameters:
-//   - path: the file path to analyze.
-//   - modulePath: the Go module path for classifying internal deps.
-//
-// Returns:
-//   - FileDep: the dependency analysis result.
-//   - error: non-nil if the file cannot be parsed.
 func analyzeFileDeps(path, modulePath string) (FileDep, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
@@ -770,12 +641,6 @@ var renderFuncs = template.FuncMap{
 }
 
 // renderCamelToSnake converts CamelCase Go names to snake_case.
-//
-// Parameters:
-//   - s: the CamelCase string.
-//
-// Returns:
-//   - string: the snake_case equivalent.
 func renderCamelToSnake(s string) string {
 	runes := []rune(s)
 	var result []rune
@@ -800,12 +665,6 @@ func renderCamelToSnake(s string) string {
 }
 
 // renderLCFirst lowercases the first character of a string.
-//
-// Parameters:
-//   - s: the input string.
-//
-// Returns:
-//   - string: the string with its first character lowercased.
 func renderLCFirst(s string) string {
 	if s == "" {
 		return s
@@ -818,17 +677,9 @@ func renderLCFirst(s string) string {
 // SCOPE RANGE PARSING
 // =============================================================================
 
-// parseScopeRange parses a scope string into a line range. Supports "file" for the entire file and "lines:START-END"
-// for a specific line range (1-indexed, inclusive).
+// parseScopeRange parses a scope string into a line range.
 //
-// Parameters:
-//   - scope: the scope string to parse.
-//   - totalLines: the total number of lines in the file.
-//
-// Returns:
-//   - int: the start line (1-indexed, inclusive).
-//   - int: the end line (1-indexed, inclusive).
-//   - error: non-nil if the scope format is invalid.
+// Supports "file" for the entire file and "lines:START-END" for a specific line range (1-indexed, inclusive).
 func parseScopeRange(scope string, totalLines int) (int, int, error) {
 
 	if scope == "file" || scope == "" {
@@ -860,4 +711,174 @@ func parseScopeRange(scope string, totalLines int) (int, int, error) {
 	}
 
 	return 0, 0, fmt.Errorf("invalid scope: %s (expected \"file\" or \"lines:START-END\")", scope)
+}
+
+// =============================================================================
+// SOURCE RESOLUTION
+// =============================================================================
+
+// goSource pairs a filename with its content.
+type goSource struct {
+	name    string
+	content string
+}
+
+// resolveGoSource resolves a path-or-content string to a single goSource.
+//
+// If the string contains a newline it is treated as Go source content. Otherwise it is treated as a file path and read
+// from disk.
+func resolveGoSource(pathOrContent string) (goSource, error) {
+	if strings.Contains(pathOrContent, "\n") {
+		return goSource{name: "", content: pathOrContent}, nil
+	}
+
+	data, err := os.ReadFile(pathOrContent)
+	if err != nil {
+		return goSource{}, err
+	}
+
+	return goSource{name: pathOrContent, content: string(data)}, nil
+}
+
+// resolveGoSources resolves a path-or-content string to one or more goSource entries.
+//
+// Content strings produce a single entry. File paths produce one entry. Directory paths produce one entry per.go file.
+func resolveGoSources(pathOrContent string) ([]goSource, error) {
+	if strings.Contains(pathOrContent, "\n") {
+		return []goSource{{name: "", content: pathOrContent}}, nil
+	}
+
+	files, err := collectGoFiles(pathOrContent)
+	if err != nil {
+		return nil, err
+	}
+
+	sources := make([]goSource, 0, len(files))
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		sources = append(sources, goSource{name: f, content: string(data)})
+	}
+
+	return sources, nil
+}
+
+// =============================================================================
+// LINE WIDTH CHECKS
+// =============================================================================
+
+// checkLineWidth checks content for line-width violations.
+//
+// Reports over-long lines and under-filled comment lines where the next word would fit on the current line without
+// exceeding width.
+func checkLineWidth(content string, width int) []LineViolation {
+	lines := strings.Split(content, "\n")
+	var violations []LineViolation
+
+	for i, line := range lines {
+		if len(line) > width {
+			violations = append(violations, LineViolation{
+				Line:    i + 1,
+				Message: fmt.Sprintf("line is %d columns (max %d)", len(line), width),
+			})
+		}
+	}
+
+	// Under-filled comment lines.
+	for i := 0; i < len(lines)-1; i++ {
+		curr := lines[i]
+		next := lines[i+1]
+
+		currBody, currOK := commentBodyText(curr)
+		nextBody, nextOK := commentBodyText(next)
+		if !currOK || !nextOK {
+			continue
+		}
+
+		// Skip blank separator lines.
+		if strings.TrimSpace(currBody) == "" || strings.TrimSpace(nextBody) == "" {
+			continue
+		}
+
+		// Skip delineators.
+		if isDelineatorLine(currBody) || isDelineatorLine(nextBody) {
+			continue
+		}
+
+		// Skip SPDX/copyright.
+		if strings.HasPrefix(currBody, "SPDX-") || strings.HasPrefix(currBody, "Copyright") {
+			continue
+		}
+
+		// Skip indented code blocks (4+ spaces after //).
+		if strings.HasPrefix(currBody, "    ") || strings.HasPrefix(nextBody, "    ") {
+			continue
+		}
+
+		// Skip bullet items.
+		ct := strings.TrimSpace(currBody)
+		nt := strings.TrimSpace(nextBody)
+		if strings.HasPrefix(ct, "- ") || strings.HasPrefix(nt, "- ") {
+			continue
+		}
+
+		// Skip section headers and directives.
+		if strings.HasSuffix(ct, ":") || strings.HasPrefix(ct, "+") {
+			continue
+		}
+		if strings.HasSuffix(nt, ":") || strings.HasPrefix(nt, "+") || strings.HasPrefix(nt, "- ") {
+			continue
+		}
+
+		// Check if first word of next line fits on current line.
+		words := strings.Fields(nt)
+		if len(words) == 0 {
+			continue
+		}
+		firstWord := words[0]
+		if len(curr)+1+len(firstWord) <= width {
+			violations = append(violations, LineViolation{
+				Line: i + 1,
+				Message: fmt.Sprintf("under-filled comment ('%s' fits on previous line, %d columns available)",
+					firstWord, width-len(curr)),
+			})
+		}
+	}
+
+	return violations
+}
+
+// commentBodyText extracts the text after // from a comment line.
+func commentBodyText(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "// ") {
+		return trimmed[3:], true
+	}
+	if trimmed == "//" {
+		return "", true
+	}
+	if strings.HasPrefix(trimmed, "//") {
+		return trimmed[2:], true
+	}
+	return "", false
+}
+
+// isDelineatorLine returns true if text is a delineator (3+ repeated =, -, ~, or *).
+func isDelineatorLine(text string) bool {
+	s := strings.TrimSpace(text)
+	if len(s) < 3 {
+		return false
+	}
+	first := s[0]
+	if first != '=' && first != '-' && first != '~' && first != '*' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] != first {
+			return false
+		}
+	}
+	return true
 }

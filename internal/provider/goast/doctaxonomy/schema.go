@@ -12,8 +12,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultRegistry returns a SchemaRegistry with the standard Go comment
-// schemas. These match the defaults in the LintGoStyle extension config.
+// DefaultRegistry returns a SchemaRegistry with the standard Go comment schemas.
+//
+// These match the defaults in the LintGoStyle extension config.
 func DefaultRegistry() *SchemaRegistry {
 	reg := NewSchemaRegistry()
 	reg.Register(CommentSchema{
@@ -24,17 +25,27 @@ func DefaultRegistry() *SchemaRegistry {
 		},
 	})
 	reg.Register(CommentSchema{
-		Name: "gen_decl", Format: "go", NodeType: "GenDecl",
+		Name: "package_doc", Format: "go", NodeType: "Package",
+		SummaryPrefix: `Package {name}\b`,
 		Elements: []SchemaElement{
-			{Name: "summary", Type: "paragraph", Required: "true", Order: 1},
-			{Name: "body", Type: "block", Cardinality: "*", Order: 2},
+			{Name: "summary", Production: "item", Consumes: "Paragraph / Heading", Prefix: "Package {name}", Required: "true", Order: 1},
+			{Name: "body", Production: "item", Consumes: "*(Paragraph / Code / Heading)", Order: 2},
+		},
+	})
+	reg.Register(CommentSchema{
+		Name: "gen_decl", Format: "go", NodeType: "GenDecl",
+		SummaryPrefix: `{name}\b`,
+		Elements: []SchemaElement{
+			{Name: "summary", Production: "item", Consumes: "Paragraph / Heading", Prefix: "{name}", Required: "true", Order: 1},
+			{Name: "body", Production: "item", Consumes: "*(Paragraph / Code / Heading)", Order: 2},
 		},
 	})
 	reg.Register(CommentSchema{
 		Name: "func_doc", Format: "go", NodeType: "FuncDecl",
+		SummaryPrefix: `{name}\b`,
 		Elements: []SchemaElement{
-			{Name: "summary", Type: "paragraph", Required: "true", Order: 1},
-			{Name: "body", Type: "block", Cardinality: "*", Order: 2},
+			{Name: "summary", Production: "item", Consumes: "Paragraph / Heading", Prefix: "{name}", Required: "true", Order: 1},
+			{Name: "body", Production: "item", Consumes: "*(Paragraph / Code / Heading)", Order: 2},
 		},
 	})
 	return reg
@@ -49,15 +60,24 @@ type SchemaElement struct {
 	Order       int    `yaml:"order"`
 	Header      string `yaml:"header,omitempty"`
 	ItemTokens  string `yaml:"item_tokens,omitempty"`
+
+	// Production model fields.
+	Production string `yaml:"production,omitempty"` // "item" or "list"
+	Consumes   string `yaml:"consumes,omitempty"`   // ABNF: "Paragraph / Heading", "*(Paragraph / Code)", etc.
+	Condition  string `yaml:"condition,omitempty"`   // "params", "returns", "exported", "receiver"
+	Prefix     string `yaml:"prefix,omitempty"`      // fuzzy prefix pattern: "{name}", "Parameters:", "+"
+	Split      string `yaml:"split,omitempty"`       // "sentence" — extract first sentence, remainder flows to next
+	Slots      string `yaml:"slots,omitempty"`       // "params" or "returns" — slot names from declaration context
+	SlotPrefix string `yaml:"slot_prefix,omitempty"` // fuzzy slot prefix: "{slot}"
 }
 
-// CommentSchema defines the structure of a doc comment for a given node type
-// and format.
+// CommentSchema defines the structure of a doc comment for a given node type and format.
 type CommentSchema struct {
-	Name     string          `yaml:"-"`
-	Format   string          `yaml:"format"`
-	NodeType string          `yaml:"node_type"`
-	Elements []SchemaElement `yaml:"elements"`
+	Name          string          `yaml:"-"`
+	Format        string          `yaml:"format"`
+	NodeType      string          `yaml:"node_type"`
+	SummaryPrefix string          `yaml:"summary_prefix,omitempty"`
+	Elements      []SchemaElement `yaml:"elements"`
 }
 
 // schemaFile is the top-level YAML structure.
@@ -117,210 +137,13 @@ func (r *SchemaRegistry) Register(schema CommentSchema) {
 	r.schemas[key] = &s
 }
 
-// Lookup finds a schema by node type and format. Returns nil if not found.
+// Lookup finds a schema by node type and format.
+//
+// Returns nil if not found.
 func (r *SchemaRegistry) Lookup(nodeType, format string) *CommentSchema {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.schemas[nodeType+":"+format]
 }
 
-// Diagnostic represents a validation issue found in a parsed doc comment.
-type Diagnostic struct {
-	Element string // schema element name (e.g., "summary", "parameters")
-	Message string // human-readable description
-}
 
-// Validate checks a parsed FuncDoc against a schema and the actual function
-// signature. Returns diagnostics for missing required elements, cardinality
-// violations, and parameter/return sync issues.
-func Validate(doc *FuncDoc, schema *CommentSchema, paramNames, returnTypes []string) []Diagnostic {
-	var diags []Diagnostic
-
-	// Classify parsed elements.
-	var paragraphs []*Paragraph
-	var directives []*Directive
-	var paramSections []*ParamSection
-	var returnSections []*ReturnSection
-	var headings []*Heading
-	var codeBlocks []*CodeBlock
-
-	for _, el := range doc.Elements {
-		switch {
-		case el.Paragraph != nil:
-			paragraphs = append(paragraphs, el.Paragraph)
-		case el.Directive != nil:
-			directives = append(directives, el.Directive)
-		case el.ParamSection != nil:
-			paramSections = append(paramSections, el.ParamSection)
-		case el.ReturnSection != nil:
-			returnSections = append(returnSections, el.ReturnSection)
-		case el.Heading != nil:
-			headings = append(headings, el.Heading)
-		case el.CodeBlock != nil:
-			codeBlocks = append(codeBlocks, el.CodeBlock)
-		}
-	}
-
-	for _, se := range schema.Elements {
-		switch se.Type {
-		case "paragraph":
-			diags = validateParagraph(diags, se, paragraphs)
-		case "directive":
-			diags = validateCardinality(diags, se, len(directives))
-		case "block":
-			bodyCount := len(headings) + len(codeBlocks)
-			if len(paragraphs) > 1 {
-				bodyCount += len(paragraphs) - 1
-			}
-			diags = validateCardinality(diags, se, bodyCount)
-		case "param_section":
-			diags = validateParamSection(diags, se, paramSections, paramNames)
-		case "return_section":
-			diags = validateReturnSection(diags, se, returnSections, returnTypes)
-		}
-	}
-
-	return diags
-}
-
-// validateParagraph checks summary (first paragraph) presence.
-func validateParagraph(diags []Diagnostic, se SchemaElement, paragraphs []*Paragraph) []Diagnostic {
-	if se.Required == "true" && len(paragraphs) == 0 {
-		diags = append(diags, Diagnostic{
-			Element: se.Name,
-			Message: "missing required summary",
-		})
-	}
-	return diags
-}
-
-// validateCardinality checks that element count is within bounds.
-func validateCardinality(diags []Diagnostic, se SchemaElement, count int) []Diagnostic {
-	if se.Required == "true" && count == 0 {
-		diags = append(diags, Diagnostic{
-			Element: se.Name,
-			Message: fmt.Sprintf("missing required %s", se.Name),
-		})
-	}
-	if se.Cardinality == "" && count > 1 {
-		diags = append(diags, Diagnostic{
-			Element: se.Name,
-			Message: fmt.Sprintf("expected at most 1 %s, found %d", se.Name, count),
-		})
-	}
-	return diags
-}
-
-// validateParamSection checks parameter sync: documented vs. actual.
-func validateParamSection(diags []Diagnostic, se SchemaElement, sections []*ParamSection, paramNames []string) []Diagnostic {
-	// Cardinality: at most one ParamSection.
-	if len(sections) > 1 {
-		diags = append(diags, Diagnostic{
-			Element: se.Name,
-			Message: fmt.Sprintf("expected at most 1 Parameters section, found %d", len(sections)),
-		})
-	}
-
-	// Required: if_params means required when params exist.
-	if se.Required == "if_params" && len(paramNames) > 0 && len(sections) == 0 {
-		diags = append(diags, Diagnostic{
-			Element: se.Name,
-			Message: "missing Parameters section (function has parameters)",
-		})
-		return diags
-	}
-
-	if len(sections) == 0 {
-		return diags
-	}
-
-	section := sections[0]
-	documented := make(map[string]bool)
-	for _, item := range section.Items {
-		documented[item.Name] = true
-	}
-
-	actual := make(map[string]bool)
-	for _, name := range paramNames {
-		actual[name] = true
-	}
-
-	// Undocumented parameters.
-	for _, name := range paramNames {
-		if !documented[name] {
-			diags = append(diags, Diagnostic{
-				Element: se.Name,
-				Message: fmt.Sprintf("parameter '%s' not documented", name),
-			})
-		}
-	}
-
-	// Stale documented parameters.
-	for _, item := range section.Items {
-		if !actual[item.Name] {
-			diags = append(diags, Diagnostic{
-				Element: se.Name,
-				Message: fmt.Sprintf("documented parameter '%s' not in signature", item.Name),
-			})
-		}
-	}
-
-	return diags
-}
-
-// validateReturnSection checks return sync: documented vs. actual.
-func validateReturnSection(diags []Diagnostic, se SchemaElement, sections []*ReturnSection, returnTypes []string) []Diagnostic {
-	// Cardinality: at most one ReturnSection.
-	if len(sections) > 1 {
-		diags = append(diags, Diagnostic{
-			Element: se.Name,
-			Message: fmt.Sprintf("expected at most 1 Returns section, found %d", len(sections)),
-		})
-	}
-
-	// Required: if_returns means required when returns exist.
-	if se.Required == "if_returns" && len(returnTypes) > 0 && len(sections) == 0 {
-		diags = append(diags, Diagnostic{
-			Element: se.Name,
-			Message: "missing Returns section (function has return values)",
-		})
-		return diags
-	}
-
-	if len(sections) == 0 {
-		return diags
-	}
-
-	section := sections[0]
-	documented := make(map[string]bool)
-	for _, item := range section.Items {
-		documented[item.Type] = true
-	}
-
-	actual := make(map[string]bool)
-	for _, t := range returnTypes {
-		actual[t] = true
-	}
-
-	// Undocumented return values.
-	for _, t := range returnTypes {
-		if !documented[t] {
-			diags = append(diags, Diagnostic{
-				Element: se.Name,
-				Message: fmt.Sprintf("return value '%s' not documented", t),
-			})
-		}
-	}
-
-	// Stale documented return values.
-	for _, item := range section.Items {
-		if !actual[item.Type] {
-			diags = append(diags, Diagnostic{
-				Element: se.Name,
-				Message: fmt.Sprintf("documented return value '%s' not in signature", item.Type),
-			})
-		}
-	}
-
-	return diags
-}

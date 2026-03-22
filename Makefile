@@ -121,7 +121,7 @@ $(P)/config/gen/receiver_gen_test.go &: $(P)/config/provider.go | star
 
 $(P)/goast/gen/params.gen.go \
 $(P)/goast/gen/receiver.gen.go \
-$(P)/goast/gen/receiver_gen_test.go &: $(P)/goast/provider.go | star
+$(P)/goast/gen/receiver_gen_test.go &: $(P)/goast/provider.go $(P)/goast/sourcefile.go | star
 	cd $(DEVLORE_CLI) && $(CURDIR)/build/star devlore actions generate \
 		--source=$(CURDIR)/$(P)/goast --gen=true --write=true --output=$(CURDIR)/$(P)/goast
 
