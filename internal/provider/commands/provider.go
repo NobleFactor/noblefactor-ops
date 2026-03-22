@@ -180,19 +180,19 @@ func (p *Provider) Get(name string) (*CommandRef, error) {
 //
 // Parameters:
 //   - name: dot-separated command name
-//   - args: keyword arguments passed to the command
+//   - flags: keyword arguments passed to the command
 //
 // Returns:
 //   - RunResult: pass/fail and error message
 //   - error: if command not found
-func (p *Provider) Run(name string, args map[string]string) (RunResult, error) {
+func (p *Provider) Run(name string, flags map[string]string) (RunResult, error) {
 	tree := p.tree()
 	if tree == nil {
 		return RunResult{}, fmt.Errorf("no command tree available")
 	}
 
 	spaceName := strings.ReplaceAll(name, ".", " ")
-	err := tree.RunCommand(spaceName, args)
+	err := tree.RunCommand(spaceName, flags)
 
 	errStr := ""
 	if err != nil {

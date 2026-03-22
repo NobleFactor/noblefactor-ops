@@ -334,10 +334,21 @@ func (r *Runtime) loadExtensionCommand(spec *extension.ExtensionSpec, cmdSpec *e
 		runtime:       r,
 	}
 
+	// Build args from command spec
+	for _, argSpec := range cmdSpec.Args {
+		cmd.Args = append(cmd.Args, Arg{
+			Name:     argSpec.Name,
+			Help:     argSpec.Help,
+			Default:  argSpec.Default,
+			Variadic: argSpec.Variadic,
+		})
+	}
+
 	// Build flags from command spec
 	for _, flagSpec := range cmdSpec.Flags {
 		cmd.Flags = append(cmd.Flags, Flag{
 			Name:    flagSpec.Name,
+			Type:    flagSpec.Type,
 			Help:    flagSpec.Help,
 			Default: flagSpec.Default,
 		})
@@ -388,12 +399,12 @@ func (r *Runtime) CommandNames() []string {
 }
 
 // RunCommand implements commands.CommandTree.
-func (r *Runtime) RunCommand(name string, args map[string]string) error {
+func (r *Runtime) RunCommand(name string, flags map[string]string, positional ...string) error {
 	cmd, ok := r.commands[name]
 	if !ok {
 		return fmt.Errorf("command %q not found", name)
 	}
-	return cmd.Run(args)
+	return cmd.Run(flags, positional...)
 }
 
 // CommandHelp implements commands.CommandTree.

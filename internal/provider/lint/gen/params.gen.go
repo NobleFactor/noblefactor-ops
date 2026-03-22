@@ -9,8 +9,8 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 
 // Params maps Go method names to Starlark parameter name lists.
 var Params = op.MethodParams{
-	"Go":          {"path?", "config?", "skip_mod_tidy?"},
-	"Shell":       {"path?", "severity?", "indent?"},
-	"Markdown":    {"path?", "fix?"},
+	"Go":          {"paths?", "config?", "skip_mod_tidy?"},
+	"Shell":       {"files?", "severity?", "indent?"},
+	"Markdown":    {"files?", "fix?"},
 	"EnsureTools": {},
 }

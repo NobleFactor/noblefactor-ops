@@ -22,23 +22,16 @@ commands:
   - name: lint.go-style
     help: Enforce Go style guidelines
     implementation: commands/lint-go-style.star
+    args:
+      - name: path
+        help: Paths to scan (files or directories)
+        default: "."
+        variadic: true
     flags:
       - name: fix
         type: bool
         default: "false"
         help: Rewrite files to fix violations
-      - name: path
-        type: string
-        default: "."
-        help: Root directory to scan
-      - name: tests
-        type: bool
-        default: "true"
-        help: Include test files (_test.go)
-      - name: verbose
-        type: bool
-        default: "false"
-        help: Print each file as it is checked
 
 config:
   path: lint.go_style

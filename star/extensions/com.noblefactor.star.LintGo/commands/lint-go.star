@@ -22,20 +22,20 @@ def ensure_tool_installed(name):
 
 def run(ctx):
     """Run golangci-lint on Go code."""
-    path = ctx.args.get("path", "./...")
+    paths = ctx.args.get("path", ["./..."])
     config = ctx.args.get("config", "")
-    skip_mod_tidy = ctx.args.get("skip_mod_tidy", "false") == "true"
+    skip_mod_tidy = ctx.args.get("skip_mod_tidy", False)
 
     # Check tool is installed
     ensure_tool_installed("golangci-lint")
 
-    ui.note("Running Go lint checks on " + path)
+    ui.note("Running Go lint checks on " + " ".join(paths))
 
     # Run go mod tidy check first (unless skipped)
     if not skip_mod_tidy:
         ui.note("Checking go.mod tidy...")
 
-    result = lint.go(path=path, config=config, skip_mod_tidy=skip_mod_tidy)
+    result = lint.go(paths=paths, config=config, skip_mod_tidy=skip_mod_tidy)
 
     # Report mod tidy status
     if not skip_mod_tidy:

@@ -15,5 +15,5 @@ var Params = op.MethodParams{
 	"Children": {"parent?"},
 	"Query":    {"pattern"},
 	"Get":      {"name"},
-	"Run":      {"name", "args"},
+	"Run":      {"name", "flags"},
 }

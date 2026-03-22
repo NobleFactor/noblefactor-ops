@@ -18,6 +18,11 @@ commands:
   - name: lint.all
     help: Run all configured linters
     implementation: commands/lint-all.star
+    args:
+      - name: path
+        help: Paths to lint (files or directories)
+        default: "."
+        variadic: true
     flags:
       - name: fix
         type: bool

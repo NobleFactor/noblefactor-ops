@@ -273,19 +273,20 @@ def is_excluded(path, exclude_patterns):
 # File Collection
 # =============================================================================
 
-def collect_source_files(path, exclude_patterns):
-    """Collect source files from path, respecting .gitignore and exclude patterns."""
+def collect_source_files(paths, exclude_patterns):
+    """Collect source files from paths, respecting .gitignore and exclude patterns."""
     all_files = []
 
-    # Collect files by extension
-    # file.find supports ** recursive patterns and respects .gitignore by default
-    for ext in COMMENT_STYLES.keys():
-        pattern = path + "/**/*" + ext
-        files = file.find(pattern)
-        for f in files:
-            # Apply explicit exclude patterns from config
-            if not is_excluded(f, exclude_patterns):
-                all_files.append(f)
+    for path in paths:
+        # Collect files by extension
+        # file.find supports ** recursive patterns and respects .gitignore by default
+        for ext in COMMENT_STYLES.keys():
+            pattern = path + "/**/*" + ext
+            files = file.find(pattern)
+            for f in files:
+                # Apply explicit exclude patterns from config
+                if not is_excluded(f, exclude_patterns):
+                    all_files.append(f)
 
     return all_files
 
@@ -295,8 +296,8 @@ def collect_source_files(path, exclude_patterns):
 
 def run(ctx):
     """Check or fix copyright headers in source files."""
-    fix_mode = ctx.args.get("fix", "false") == "true"
-    path = ctx.args.get("path", ".")
+    fix_mode = ctx.args.get("fix", False)
+    paths = ctx.args.get("path", ["."])
 
     # Load config
     cfg = config.get
@@ -325,7 +326,7 @@ def run(ctx):
     exclude_patterns = list(copyright_cfg.exclude)
 
     # Collect files (respects .gitignore automatically + config excludes)
-    files = collect_source_files(path, exclude_patterns)
+    files = collect_source_files(paths, exclude_patterns)
 
     if len(files) == 0:
         ui.note("No source files found")

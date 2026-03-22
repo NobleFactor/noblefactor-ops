@@ -520,6 +520,7 @@ func (sf *SourceFile) SaveAs(path string) error {
 	width := sf.lineWidth()
 
 	packageEmitted := false
+	hasPackageDoc := false
 	prevKind := ""
 	for _, decl := range sf.allDecls {
 		kind := decl.DeclKind()
@@ -532,11 +533,18 @@ func (sf *SourceFile) SaveAs(path string) error {
 						b.WriteString("\n\n")
 					}
 					b.WriteString(renderDoc(cd.doc, width))
+					if cd.style == StylePackageDoc {
+						hasPackageDoc = true
+					}
 					prevKind = kind
 					continue
 				}
 			}
-			if prevKind != "" {
+			// Package doc comment must be directly above the package keyword
+			// (no blank line). Copyright gets a blank line separator.
+			if hasPackageDoc {
+				b.WriteString("\n")
+			} else if prevKind != "" {
 				b.WriteString("\n\n")
 			}
 			b.WriteString("package ")
