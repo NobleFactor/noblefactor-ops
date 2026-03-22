@@ -11,6 +11,7 @@ import "github.com/NobleFactor/devlore-cli/pkg/op"
 var Params = op.MethodParams{
 	"Callable":         {"path", "name"},
 	"Calls":            {"scope", "name?"},
+	"CheckLineWidth":   {"content", "width"},
 	"Composites":       {"scope", "type_name?"},
 	"ConstGroups":      {"path", "type_name?"},
 	"Deps":             {"path"},
@@ -22,7 +23,7 @@ var Params = op.MethodParams{
 	"Render":           {"template", "data"},
 	"ReturnString":     {"scope"},
 	"ReturnStrings":    {"scope"},
-	"RewrapComments":   {"path", "width"},
+	"LoadSourceFile":   {"path"},
 	"SortDeclarations": {"path", "scope", "order"},
 	"Structs":          {"path"},
 	"TypeDoc":          {"path", "name?"},

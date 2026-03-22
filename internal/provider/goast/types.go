@@ -3,7 +3,6 @@
 
 package goast
 
-import "github.com/NobleFactor/noblefactor-ops/internal/provider/goast/doctaxonomy"
 
 // =============================================================================
 // METRICS RESULT TYPES
@@ -110,7 +109,6 @@ type StructResult struct {
 	File    string                 `starlark:"file"`
 	Line    int                    `starlark:"line"`
 	Fields  []FieldDetail          `starlark:"fields"`
-	Comment *doctaxonomy.TypeDoc   `starlark:"comment"`
 }
 
 // FieldDetail holds information about a struct field.
@@ -154,7 +152,6 @@ type MethodResult struct {
 	File         string                 `starlark:"file"`
 	Line         int                    `starlark:"line"`
 	Doc          string                 `starlark:"doc"`
-	Comment      *doctaxonomy.FuncDoc   `starlark:"comment"`
 	Scope        string                 `starlark:"scope"`
 }
 
@@ -166,7 +163,6 @@ type FuncResult struct {
 	File    string                 `starlark:"file"`
 	Line    int                    `starlark:"line"`
 	Doc     string                 `starlark:"doc"`
-	Comment *doctaxonomy.FuncDoc   `starlark:"comment"`
 	Scope   string                 `starlark:"scope"`
 }
 
@@ -199,4 +195,14 @@ type CompositeResult struct {
 	TypeName string         `starlark:"type_name"`
 	Line     int            `starlark:"line"`
 	Fields   map[string]any `starlark:"fields"`
+}
+
+// =============================================================================
+// LINE WIDTH VIOLATIONS
+// =============================================================================
+
+// LineViolation holds a single line-width check result.
+type LineViolation struct {
+	Line    int    `starlark:"line"`
+	Message string `starlark:"message"`
 }

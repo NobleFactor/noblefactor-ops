@@ -209,7 +209,7 @@ if [[ $FAILED -gt 0 ]]; then
     echo "FAILED: $FAILED provider(s) have stale or incorrect gen/ files"
     echo ""
     echo "To fix: rebuild star (make build) and re-run codegen:"
-    echo "  cd $DEVLORE_CLI && $REPO_ROOT/bin/star devlore actions generate \\"
+    echo "  cd $DEVLORE_CLI && $REPO_ROOT/build/star devlore actions generate \\"
     echo "    --source=\$REPO/<provider> --gen=true --write=true --output=\$REPO/<provider>"
     exit 1
 else

@@ -13,10 +13,6 @@ receivers:
     builtin: true
     type: FileReceiver
     description: Filesystem operations
-  - name: regexp
-    builtin: true
-    type: RegexpReceiver
-    description: Regular expression operations
   - name: config
     builtin: true
     type: ConfigReceiver
@@ -24,7 +20,7 @@ receivers:
 
 commands:
   - name: lint.go-style
-    help: Enforce Go style guidelines (pluggable rule engine)
+    help: Enforce Go style guidelines
     implementation: commands/lint-go-style.star
     flags:
       - name: fix
@@ -35,22 +31,10 @@ commands:
         type: string
         default: "."
         help: Root directory to scan
-      - name: exclude
-        type: string
-        default: ""
-        help: Comma-separated glob patterns to exclude
-      - name: generated
-        type: bool
-        default: "true"
-        help: Include generated files (DO NOT EDIT)
       - name: tests
         type: bool
         default: "true"
         help: Include test files (_test.go)
-      - name: rule
-        type: string
-        default: ""
-        help: Run only this rule
       - name: verbose
         type: bool
         default: "false"
@@ -62,12 +46,106 @@ config:
   fields:
     enabled: bool
     line_width: int
-    exclude: "[]string"
-    disabled_rules: "[]string"
+    comment_schemas: "map[string]CommentSchema"
+    spacing_rules: SpacingRules
+  nested:
+    CommentSchema:
+      fields:
+        format: string
+        node_type: string
+        summary_prefix: string
+        elements: "[]SchemaElement"
+    SchemaElement:
+      fields:
+        name: string
+        type: string
+        required: string
+        cardinality: string
+        order: int
+        header: string
+        item_tokens: string
+        production: string
+        consumes: string
+        condition: string
+        prefix: string
+        split: string
+        slots: string
+        slot_prefix: string
+    SpacingRules:
+      fields:
+        after_package: int
+        after_imports: int
+        between_functions: int
+        between_methods: int
+        before_type_methods: int
+        around_region_markers: int
+        around_delineators: int
   defaults:
     enabled: true
     line_width: 120
-    exclude:
-      - "**/vendor/**"
-      - "**/testdata/**"
-    disabled_rules: []
+    spacing_rules:
+      after_package: 1
+      after_imports: 1
+      between_functions: 1
+      between_methods: 1
+      before_type_methods: 1
+      around_region_markers: 1
+      around_delineators: 1
+    comment_schemas:
+      copyright:
+        format: go
+        node_type: File
+        elements:
+          - name: spdx
+            type: verbatim
+            required: "true"
+            order: 1
+          - name: copyright
+            type: verbatim
+            required: "true"
+            order: 2
+      package_doc:
+        format: go
+        node_type: Package
+        summary_prefix: "Package {name}\\b"
+        elements:
+          - name: summary
+            production: item
+            consumes: "Paragraph / Heading"
+            prefix: "Package {name}"
+            required: "true"
+            order: 1
+          - name: body
+            production: item
+            consumes: "*(Paragraph / Code / Heading)"
+            order: 2
+      gen_decl:
+        format: go
+        node_type: GenDecl
+        summary_prefix: "{name}\\b"
+        elements:
+          - name: summary
+            production: item
+            consumes: "Paragraph / Heading"
+            prefix: "{name}"
+            required: "true"
+            order: 1
+          - name: body
+            production: item
+            consumes: "*(Paragraph / Code / Heading)"
+            order: 2
+      func_doc:
+        format: go
+        node_type: FuncDecl
+        summary_prefix: "{name}\\b"
+        elements:
+          - name: summary
+            production: item
+            consumes: "Paragraph / Heading"
+            prefix: "{name}"
+            required: "true"
+            order: 1
+          - name: body
+            production: item
+            consumes: "*(Paragraph / Code / Heading)"
+            order: 2

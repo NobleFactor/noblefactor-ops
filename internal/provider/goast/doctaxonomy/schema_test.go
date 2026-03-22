@@ -22,26 +22,10 @@ const testSchemaYAML = `schemas:
         type: block
         cardinality: "*"
         order: 2
-      - name: directives
-        type: directive
-        cardinality: "*"
-        order: 3
-      - name: parameters
-        type: param_section
-        required: if_params
-        order: 4
-        header: "Parameters:"
-        item_tokens: param_names
-      - name: returns
-        type: return_section
-        required: if_returns
-        order: 5
-        header: "Returns:"
-        item_tokens: return_types
 
-  type_doc:
+  gen_decl:
     format: go
-    node_type: TypeSpec
+    node_type: GenDecl
     elements:
       - name: summary
         type: paragraph
@@ -77,15 +61,15 @@ func TestParseSchemas(t *testing.T) {
 		t.Fatalf("expected 3 schemas, got %d", len(schemas))
 	}
 
-	// Sorted by name: copyright, func_doc, type_doc.
+	// Sorted by name: copyright, func_doc, gen_decl.
 	if schemas[0].Name != "copyright" {
 		t.Errorf("schema 0 name = %q, want 'copyright'", schemas[0].Name)
 	}
 	if schemas[1].Name != "func_doc" {
 		t.Errorf("schema 1 name = %q, want 'func_doc'", schemas[1].Name)
 	}
-	if schemas[2].Name != "type_doc" {
-		t.Errorf("schema 2 name = %q, want 'type_doc'", schemas[2].Name)
+	if schemas[2].Name != "gen_decl" {
+		t.Errorf("schema 2 name = %q, want 'gen_decl'", schemas[2].Name)
 	}
 
 	funcDoc := schemas[1]
@@ -95,22 +79,14 @@ func TestParseSchemas(t *testing.T) {
 	if funcDoc.NodeType != "FuncDecl" {
 		t.Errorf("func_doc node_type = %q, want 'FuncDecl'", funcDoc.NodeType)
 	}
-	if len(funcDoc.Elements) != 5 {
-		t.Fatalf("func_doc elements = %d, want 5", len(funcDoc.Elements))
+	if len(funcDoc.Elements) != 2 {
+		t.Fatalf("func_doc elements = %d, want 2", len(funcDoc.Elements))
 	}
-
-	params := funcDoc.Elements[3]
-	if params.Name != "parameters" {
-		t.Errorf("element 3 name = %q, want 'parameters'", params.Name)
+	if funcDoc.Elements[0].Name != "summary" {
+		t.Errorf("element 0 name = %q, want 'summary'", funcDoc.Elements[0].Name)
 	}
-	if params.Required != "if_params" {
-		t.Errorf("parameters required = %q, want 'if_params'", params.Required)
-	}
-	if params.Header != "Parameters:" {
-		t.Errorf("parameters header = %q, want 'Parameters:'", params.Header)
-	}
-	if params.ItemTokens != "param_names" {
-		t.Errorf("parameters item_tokens = %q, want 'param_names'", params.ItemTokens)
+	if funcDoc.Elements[1].Name != "body" {
+		t.Errorf("element 1 name = %q, want 'body'", funcDoc.Elements[1].Name)
 	}
 }
 
@@ -177,9 +153,9 @@ func TestSchemaRegistry(t *testing.T) {
 		t.Errorf("name = %q, want 'func_doc'", funcDoc.Name)
 	}
 
-	typeDoc := reg.Lookup("TypeSpec", "go")
+	typeDoc := reg.Lookup("GenDecl", "go")
 	if typeDoc == nil {
-		t.Fatal("Lookup(TypeSpec, go) returned nil")
+		t.Fatal("Lookup(GenDecl, go) returned nil")
 	}
 
 	missing := reg.Lookup("InterfaceDecl", "go")
@@ -188,182 +164,22 @@ func TestSchemaRegistry(t *testing.T) {
 	}
 }
 
-// TestLoadSchemas verifies loading from the actual go.yaml file.
-func TestLoadSchemas(t *testing.T) {
-	schemas, err := LoadSchemas("schemas/go.yaml")
-	if err != nil {
-		t.Fatalf("load error: %v", err)
-	}
+// TestDefaultRegistry verifies that the programmatic default registry has the expected schemas.
+func TestDefaultRegistry(t *testing.T) {
+	reg := DefaultRegistry()
 
-	if len(schemas) != 3 {
-		t.Fatalf("expected 3 schemas, got %d", len(schemas))
-	}
-}
-
-// TestValidate_MissingSummary checks that a missing summary produces a diagnostic.
-func TestValidate_MissingSummary(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
-
-	doc := &FuncDoc{Elements: nil} // empty doc
-	diags := Validate(doc, funcSchema, nil, nil)
-
-	found := false
-	for _, d := range diags {
-		if d.Element == "summary" && d.Message == "missing required summary" {
-			found = true
+	for _, tc := range []struct {
+		nodeType string
+		format   string
+	}{
+		{"File", "go"},
+		{"GenDecl", "go"},
+		{"FuncDecl", "go"},
+	} {
+		s := reg.Lookup(tc.nodeType, tc.format)
+		if s == nil {
+			t.Errorf("missing schema for %s:%s", tc.nodeType, tc.format)
 		}
 	}
-	if !found {
-		t.Errorf("expected 'missing required summary' diagnostic, got %v", diags)
-	}
 }
 
-// TestValidate_UndocumentedParam checks that an undocumented parameter is flagged.
-func TestValidate_UndocumentedParam(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
-
-	parser := NewFuncParser([]string{"resource", "opts"}, nil)
-	doc, _ := parser.ParseString("", `Summary line.
-
-Parameters:
-  - resource: The file.`)
-
-	diags := Validate(doc, funcSchema, []string{"resource", "opts"}, nil)
-
-	found := false
-	for _, d := range diags {
-		if d.Element == "parameters" && d.Message == "parameter 'opts' not documented" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected undocumented parameter diagnostic for 'opts', got %v", diags)
-	}
-}
-
-// TestValidate_StaleParam checks that a documented parameter not in the
-// signature is flagged.
-func TestValidate_StaleParam(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
-
-	parser := NewFuncParser([]string{"resource"}, nil)
-	doc, _ := parser.ParseString("", `Summary line.
-
-Parameters:
-  - resource: The file.
-  - path: Old name.`)
-
-	diags := Validate(doc, funcSchema, []string{"resource"}, nil)
-
-	found := false
-	for _, d := range diags {
-		if d.Element == "parameters" && d.Message == "documented parameter 'path' not in signature" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected stale parameter diagnostic for 'path', got %v", diags)
-	}
-}
-
-// TestValidate_MissingReturns checks that a missing Returns section is flagged
-// when the function has return values.
-func TestValidate_MissingReturns(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
-
-	parser := NewFuncParser(nil, nil)
-	doc, _ := parser.ParseString("", "Summary line.")
-
-	diags := Validate(doc, funcSchema, nil, []string{"error"})
-
-	found := false
-	for _, d := range diags {
-		if d.Element == "returns" && d.Message == "missing Returns section (function has return values)" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected missing Returns diagnostic, got %v", diags)
-	}
-}
-
-// TestValidate_Clean checks that a fully documented function produces no diagnostics.
-func TestValidate_Clean(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
-
-	parser := NewFuncParser([]string{"resource", "opts"}, []string{"Resource", "error"})
-	doc, err := parser.ParseString("", `Summary line.
-
-Parameters:
-  - resource: The file.
-  - opts: Options.
-
-Returns:
-  - Resource: The result.
-  - error: Any error.`)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	diags := Validate(doc, funcSchema, []string{"resource", "opts"}, []string{"Resource", "error"})
-
-	if len(diags) != 0 {
-		t.Errorf("expected 0 diagnostics, got %v", diags)
-	}
-}
-
-// TestNormalizeWithSchema verifies that schema-driven ordering works.
-func TestNormalizeWithSchema(t *testing.T) {
-	schemas, _ := ParseSchemas([]byte(testSchemaYAML))
-	funcSchema := findSchema(schemas, "func_doc")
-
-	parser := NewFuncParser([]string{"x"}, nil)
-	doc, err := parser.ParseString("", `+devlore:test value
-
-Summary line.
-
-Parameters:
-  - x: Input.`)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	// Default Normalize and NormalizeWithSchema should produce the same output
-	// since defaultFuncDocOrder matches the func_doc schema.
-	defaultOut := doc.Normalize()
-	schemaOut := doc.NormalizeWithSchema(funcSchema.Elements)
-
-	if defaultOut != schemaOut {
-		t.Errorf("outputs differ:\n--- default ---\n%s\n--- schema ---\n%s", defaultOut, schemaOut)
-	}
-
-	// Both should put summary first, directive after body, params last.
-	if idx := findIndex(defaultOut, "Summary line."); idx != 0 {
-		t.Errorf("summary not at start of output")
-	}
-}
-
-// findSchema returns the schema with the given name from a slice.
-func findSchema(schemas []CommentSchema, name string) *CommentSchema {
-	for i := range schemas {
-		if schemas[i].Name == name {
-			return &schemas[i]
-		}
-	}
-	return nil
-}
-
-// findIndex returns the byte offset of substr in s, or -1.
-func findIndex(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}

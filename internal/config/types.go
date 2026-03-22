@@ -65,6 +65,8 @@ func generateConfigType(spec ConfigSpec) reflect.Type {
 
 // resolveType converts a type name string to reflect.Type.
 // Handles primitives, slices, maps, and nested struct types.
+// The nested parameter contains all type definitions available for resolution,
+// including sibling types at the same level.
 func resolveType(typeName string, nested map[string]ConfigSpec) reflect.Type {
 	switch {
 	case typeName == "bool":
@@ -86,7 +88,7 @@ func resolveType(typeName string, nested map[string]ConfigSpec) reflect.Type {
 	default:
 		// Check if it's a nested type definition
 		if nestedSpec, ok := nested[typeName]; ok {
-			return generateNestedType(nestedSpec)
+			return generateNestedType(nestedSpec, nested)
 		}
 		// Unknown type - fall back to interface{}
 		return reflect.TypeOf((*interface{})(nil)).Elem()
@@ -112,11 +114,27 @@ func parseMapType(typeName string, nested map[string]ConfigSpec) reflect.Type {
 
 // generateNestedType generates a struct type from a nested ConfigSpec.
 // Unlike generateConfigType, this does not embed ConfigElement.
-func generateNestedType(spec ConfigSpec) reflect.Type {
+// The allNested parameter provides sibling type definitions so that a nested
+// type can reference other nested types at the same level (e.g., CommentSchema
+// referencing SchemaElement).
+func generateNestedType(spec ConfigSpec, allNested map[string]ConfigSpec) reflect.Type {
 	var fields []reflect.StructField
 
+	// Merge the type's own nested definitions with the parent scope so
+	// sibling types are resolvable.
+	merged := allNested
+	if len(spec.Nested) > 0 {
+		merged = make(map[string]ConfigSpec, len(allNested)+len(spec.Nested))
+		for k, v := range allNested {
+			merged[k] = v
+		}
+		for k, v := range spec.Nested {
+			merged[k] = v
+		}
+	}
+
 	for name, typeName := range spec.Fields {
-		fieldType := resolveType(typeName, spec.Nested)
+		fieldType := resolveType(typeName, merged)
 		fields = append(fields, reflect.StructField{
 			Name: toPascalCase(name),
 			Type: fieldType,

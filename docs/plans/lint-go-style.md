@@ -262,7 +262,7 @@ Starlark names. The params.gen.go was manually fixed — this must not happen ag
       - `Funcs`: `+devlore:defaults name=`
       - `Methods`: `+devlore:defaults name=,receiverType=,returns=`
       - `TypeDoc`: `+devlore:defaults name=`
-- [x] Run codegen from devlore-cli: `cd ~/Workspace/NobleFactor/devlore-cli && ../noblefactor-ops/bin/star devlore actions generate --source=../noblefactor-ops/internal/provider/goast --gen=true --write=true --output=../noblefactor-ops/internal/provider/goast`
+- [x] Run codegen from devlore-cli: `cd ~/Workspace/NobleFactor/devlore-cli && ../noblefactor-ops/build/star devlore actions generate --source=../noblefactor-ops/internal/provider/goast --gen=true --write=true --output=../noblefactor-ops/internal/provider/goast`
 - [x] Verify generated params.gen.go has correct `?` suffixes and parameter names
 - [x] `make build` passes
 

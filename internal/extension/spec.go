@@ -116,8 +116,17 @@ type ConfigDef struct {
 	// Supported: bool, string, int, []string, map[K]V, and nested types.
 	Fields map[string]string `yaml:"fields"`
 
+	// Nested defines struct types referenced by Fields (e.g., CommentSchema, SchemaElement).
+	Nested map[string]NestedTypeDef `yaml:"nested"`
+
 	// Defaults provides default values for fields.
 	Defaults map[string]interface{} `yaml:"defaults"`
+}
+
+// NestedTypeDef describes a struct type used within an extension's config fields.
+type NestedTypeDef struct {
+	Fields map[string]string        `yaml:"fields"`
+	Nested map[string]NestedTypeDef `yaml:"nested,omitempty"`
 }
 
 // Capabilities describes sandboxing rules for Wasm extensions.
@@ -347,8 +356,24 @@ func (s *ExtensionSpec) ToConfigSpec() config.ConfigSpec {
 	return config.ConfigSpec{
 		Type:     s.Config.Type,
 		Fields:   copyStringMap(s.Config.Fields),
+		Nested:   convertNested(s.Config.Nested),
 		Defaults: copyDefaults(s.Config.Defaults),
 	}
+}
+
+// convertNested converts extension NestedTypeDefs to config.ConfigSpec nested types.
+func convertNested(defs map[string]NestedTypeDef) map[string]config.ConfigSpec {
+	if len(defs) == 0 {
+		return nil
+	}
+	result := make(map[string]config.ConfigSpec, len(defs))
+	for name, def := range defs {
+		result[name] = config.ConfigSpec{
+			Fields: copyStringMap(def.Fields),
+			Nested: convertNested(def.Nested),
+		}
+	}
+	return result
 }
 
 // GetFlag returns the FlagSpec for the given command and flag name, or nil if not found.

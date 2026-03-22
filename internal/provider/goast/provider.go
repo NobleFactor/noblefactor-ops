@@ -9,12 +9,14 @@ package goast
 import (
 	"bytes"
 	"fmt"
+
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -32,15 +34,11 @@ type Provider struct {
 	fileCache sync.Map // path → *parsedFile (AST cache)
 }
 
-// NewProvider creates a new Provider.
-//
-// Parameters:
-//   - ctx: the provider context.
-//
-// Returns:
-//   - *Provider: the new provider.
+// NewProvider creates a new Provider. Validates that all six comment styles have handlers in the merged config. Missing
+// styles are repaired from defaults with a warning.
 func NewProvider(ctx op.Context) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	return p
 }
 
 // region EXPORTED METHODS
@@ -51,14 +49,6 @@ func NewProvider(ctx op.Context) *Provider {
 
 // Callable introspects a named function type declaration and returns its parameter list, return type, and doc comment
 // (including directives).
-//
-// Parameters:
-//   - path: the file or directory path.
-//   - name: the function type name to find.
-//
-// Returns:
-//   - CallableResult: the function type information.
-//   - error: non-nil if the type is not found or cannot be parsed.
 func (p *Provider) Callable(path, name string) (CallableResult, error) {
 	files, err := collectGoFiles(path)
 	if err != nil {
@@ -134,14 +124,6 @@ func (p *Provider) Callable(path, name string) (CallableResult, error) {
 
 // Calls returns function/method calls within a scope.
 //
-// Parameters:
-//   - scope: the encoded scope string (path::name).
-//   - name: optional filter — only return calls to this function name.
-//
-// Returns:
-//   - []CallResult: the discovered calls.
-//   - error: non-nil if the scope cannot be resolved.
-//
 // +devlore:defaults name=
 func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 	fset, body, err := p.findScopeBody(scope)
@@ -213,15 +195,15 @@ func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 	return result, nil
 }
 
+// CheckLineWidth checks content for line-width violations.
+//
+// Reports over-long lines and under-filled comment lines (where the next word would fit on the current line without
+// exceeding width).
+func (p *Provider) CheckLineWidth(content string, width int) ([]LineViolation, error) {
+	return checkLineWidth(content, width), nil
+}
+
 // Composites returns composite literals within a scope.
-//
-// Parameters:
-//   - scope: the encoded scope string (path::name).
-//   - typeName: optional filter — only return composites of this type.
-//
-// Returns:
-//   - []CompositeResult: the discovered composite literals.
-//   - error: non-nil if the scope cannot be resolved.
 //
 // +devlore:defaults typeName=
 func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error) {
@@ -293,14 +275,6 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 }
 
 // ConstGroups returns typed const groups from Go source files.
-//
-// Parameters:
-//   - path: the file or directory path.
-//   - typeName: optional filter — only return groups of this type.
-//
-// Returns:
-//   - []ConstGroupResult: the discovered constant groups.
-//   - error: non-nil if the path cannot be accessed.
 //
 // +devlore:defaults typeName=
 func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error) {
@@ -406,13 +380,6 @@ func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error
 }
 
 // Deps analyzes import dependencies for Go source files at the given path.
-//
-// Parameters:
-//   - path: the file or directory path.
-//
-// Returns:
-//   - DepsResult: the aggregated dependency information.
-//   - error: non-nil if the path cannot be accessed.
 func (p *Provider) Deps(path string) (DepsResult, error) {
 	files, err := collectGoFiles(path)
 	if err != nil {
@@ -466,13 +433,6 @@ func (p *Provider) Deps(path string) (DepsResult, error) {
 }
 
 // Format formats Go source code via go/format.
-//
-// Parameters:
-//   - code: the Go source code to format.
-//
-// Returns:
-//   - string: the formatted source code.
-//   - error: non-nil if the code cannot be formatted.
 func (p *Provider) Format(code string) (string, error) {
 	formatted, err := format.Source([]byte(code))
 	if err != nil {
@@ -482,26 +442,21 @@ func (p *Provider) Format(code string) (string, error) {
 	return string(formatted), nil
 }
 
-// Funcs returns function declarations (non-method) from Go source files.
+// Funcs returns function declarations (non-method) from Go source.
 //
-// Parameters:
-//   - path: the file or directory path.
-//   - name: optional filter — only return functions with this name.
-//
-// Returns:
-//   - []FuncResult: the discovered functions.
-//   - error: non-nil if the path cannot be accessed.
+// The path parameter accepts either a file/directory path or Go source content directly.
 //
 // +devlore:defaults name=
 func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
-	files, err := collectGoFiles(path)
+	sources, err := resolveGoSources(path)
 	if err != nil {
 		return nil, fmt.Errorf("goast.funcs: %w", err)
 	}
 
 	var result []FuncResult
-	for _, file := range files {
-		fset, node, err := p.parseFile(file)
+	for _, src := range sources {
+		fset := token.NewFileSet()
+		node, err := parser.ParseFile(fset, src.name, src.content, parser.ParseComments)
 		if err != nil {
 			continue
 		}
@@ -522,21 +477,13 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 				rawDoc = commentGroupRaw(fn.Doc)
 			}
 
-			pNames := astParamNames(fn.Type.Params)
-			rTypes := astReturnTypes(fn.Type.Results)
-			funcDoc := parseFuncDocSafe(rawDoc, pNames, rTypes)
-
-			scope := encodeScope(file, fn.Name.Name)
-
 			result = append(result, FuncResult{
 				Name:    fn.Name.Name,
 				Returns: returns,
-				Params:  extractParams(fn.Type.Params, funcDoc.ParamDocs()),
-				File:    filepath.Base(file),
+				Params:  extractParams(fn.Type.Params, nil),
+				File:    src.name,
 				Line:    fset.Position(fn.Pos()).Line,
 				Doc:     rawDoc,
-				Comment: funcDoc,
-				Scope:   scope,
 			})
 		}
 	}
@@ -544,28 +491,21 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 	return result, nil
 }
 
-// Methods returns method declarations from Go source files.
+// Methods returns method declarations from Go source.
 //
-// Parameters:
-//   - path: the file or directory path.
-//   - name: optional filter — only return methods with this name.
-//   - receiverType: optional filter — only return methods on this receiver type.
-//   - returns: optional filter — only return methods with this return type string.
-//
-// Returns:
-//   - []MethodResult: the discovered methods.
-//   - error: non-nil if the path cannot be accessed.
+// The path parameter accepts either a file/directory path or Go source content directly.
 //
 // +devlore:defaults name=,receiverType=,returns=
 func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodResult, error) {
-	files, err := collectGoFiles(path)
+	sources, err := resolveGoSources(path)
 	if err != nil {
 		return nil, fmt.Errorf("goast.methods: %w", err)
 	}
 
 	var result []MethodResult
-	for _, file := range files {
-		fset, node, err := p.parseFile(file)
+	for _, src := range sources {
+		fset := token.NewFileSet()
+		node, err := parser.ParseFile(fset, src.name, src.content, parser.ParseComments)
 		if err != nil {
 			continue
 		}
@@ -603,22 +543,14 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				rawDoc = commentGroupRaw(fn.Doc)
 			}
 
-			pNames := astParamNames(fn.Type.Params)
-			rTypes := astReturnTypes(fn.Type.Results)
-			funcDoc := parseFuncDocSafe(rawDoc, pNames, rTypes)
-
-			scope := encodeScope(file, strings.TrimPrefix(recvType, "*")+"."+fn.Name.Name)
-
 			result = append(result, MethodResult{
 				Name:         fn.Name.Name,
 				ReceiverType: recvType,
 				Returns:      retStr,
-				Params:       extractParams(fn.Type.Params, funcDoc.ParamDocs()),
-				File:         filepath.Base(file),
+				Params:       extractParams(fn.Type.Params, nil),
+				File:         src.name,
 				Line:         fset.Position(fn.Pos()).Line,
 				Doc:          rawDoc,
-				Comment:      funcDoc,
-				Scope:        scope,
 			})
 		}
 	}
@@ -627,13 +559,6 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 }
 
 // Metrics computes code metrics for Go source files at the given path.
-//
-// Parameters:
-//   - path: the file or directory path.
-//
-// Returns:
-//   - MetricsResult: the aggregated metrics.
-//   - error: non-nil if the path cannot be accessed.
 func (p *Provider) Metrics(path string) (MetricsResult, error) {
 	files, err := collectGoFiles(path)
 	if err != nil {
@@ -686,13 +611,6 @@ func (p *Provider) Metrics(path string) (MetricsResult, error) {
 }
 
 // RawString extracts the first backtick string literal from a scope.
-//
-// Parameters:
-//   - scope: the encoded scope string (path::name).
-//
-// Returns:
-//   - string: the raw string content.
-//   - error: non-nil if the scope cannot be resolved.
 func (p *Provider) RawString(scope string) (string, error) {
 	_, body, err := p.findScopeBody(scope)
 	if err != nil {
@@ -722,14 +640,6 @@ func (p *Provider) RawString(scope string) (string, error) {
 }
 
 // Render executes a Go text/template against data and returns go/format-formatted Go source code.
-//
-// Parameters:
-//   - template: the Go template string.
-//   - data: the template data (any type — dict, list, string, etc.).
-//
-// Returns:
-//   - string: the formatted Go source code.
-//   - error: non-nil if template parsing, execution, or formatting fails.
 func (p *Provider) Render(template string, data any) (string, error) {
 	t, err := tmpl.New("render").Funcs(renderFuncs).Parse(template)
 	if err != nil {
@@ -750,13 +660,6 @@ func (p *Provider) Render(template string, data any) (string, error) {
 }
 
 // ReturnString extracts the string literal from a return statement in a scope.
-//
-// Parameters:
-//   - scope: the encoded scope string (path::name).
-//
-// Returns:
-//   - string: the extracted string.
-//   - error: non-nil if the scope cannot be resolved.
 func (p *Provider) ReturnString(scope string) (string, error) {
 	_, body, err := p.findScopeBody(scope)
 	if err != nil {
@@ -767,13 +670,6 @@ func (p *Provider) ReturnString(scope string) (string, error) {
 }
 
 // ReturnStrings extracts string elements from a []string{...} return statement in a scope.
-//
-// Parameters:
-//   - scope: the encoded scope string (path::name).
-//
-// Returns:
-//   - []string: the extracted strings.
-//   - error: non-nil if the scope cannot be resolved.
 func (p *Provider) ReturnStrings(scope string) ([]string, error) {
 	_, body, err := p.findScopeBody(scope)
 	if err != nil {
@@ -783,126 +679,141 @@ func (p *Provider) ReturnStrings(scope string) ([]string, error) {
 	return extractReturnStrings(body), nil
 }
 
-// RewrapComments rewraps all doc comment paragraphs in a Go file to fill to the specified column width. Indented code
-// blocks (4+ spaces after "//") are preserved unchanged. Returns the modified file content.
+// LoadSourceFile reads a Go source file from disk and parses it into a semantic tree organized by declaration kind.
+// The returned SourceFile supports iteration, name-based lookup, and style operations (Reformat, Save, CheckStyle).
+// Styling config (schemas, spacing rules, line width) is read from context.
 //
 // Parameters:
-//   - path: the Go source file path.
-//   - width: the target line width in columns (e.g., 120).
+//   - path: the file path to read.
 //
 // Returns:
-//   - string: the modified file content with rewrapped comments.
+//   - *SourceFile: the semantic tree.
 //   - error: non-nil if the file cannot be read or parsed.
-func (p *Provider) RewrapComments(path string, width int) (string, error) {
-
+func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
+		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
-
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	sf, err := LoadSourceFile(string(content))
 	if err != nil {
-		return "", fmt.Errorf("goast.rewrap_comments: %w", err)
+		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
-
-	// Map comment groups to their associated declarations.
-	docOwner := make(map[*ast.CommentGroup]ast.Node)
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch d := n.(type) {
-		case *ast.FuncDecl:
-			if d.Doc != nil {
-				docOwner[d.Doc] = d
-			}
-		case *ast.GenDecl:
-			if d.Doc != nil {
-				docOwner[d.Doc] = d
-			}
-			for _, spec := range d.Specs {
-				if ts, ok := spec.(*ast.TypeSpec); ok && ts.Doc != nil {
-					docOwner[ts.Doc] = ts
-				}
-			}
-		}
-		return true
-	})
-
-	lines := strings.Split(string(content), "\n")
-
-	// Process comment groups in reverse order so line numbers remain valid.
-	for i := len(node.Comments) - 1; i >= 0; i-- {
-		cg := node.Comments[i]
-		startLine := fset.Position(cg.Pos()).Line - 1 // 0-indexed
-		endLine := fset.Position(cg.End()).Line        // exclusive
-
-		cgLines := make([]string, endLine-startLine)
-		copy(cgLines, lines[startLine:endLine])
-
-		raw := commentGroupRaw(cg)
-		if raw == "" {
-			continue
-		}
-
-		// Skip copyright headers.
-		if strings.HasPrefix(raw, "SPDX-License-Identifier") {
-			continue
-		}
-
-		// Extract the indentation prefix from the first line.
-		indent := extractIndent(cgLines[0])
-
-		var formatted string
-		if fn, ok := docOwner[cg].(*ast.FuncDecl); ok {
-			// FuncDecl doc: parse with taxonomy, normalize, format.
-			pNames := astParamNames(fn.Type.Params)
-			rTypes := astReturnTypes(fn.Type.Results)
-			funcDoc := parseFuncDocSafe(raw, pNames, rTypes)
-			normalized := funcDoc.Normalize()
-			formatted = doctaxonomy.Format(normalized, width-len(indent))
-		} else if _, ok := docOwner[cg].(*ast.TypeSpec); ok {
-			// TypeSpec doc: parse as TypeDoc, normalize, format.
-			tp := doctaxonomy.NewTypeParser()
-			typeDoc, err := tp.ParseString("", raw)
-			if err == nil {
-				normalized := typeDoc.Normalize()
-				formatted = doctaxonomy.Format(normalized, width-len(indent))
-			} else {
-				formatted = doctaxonomy.Format(raw, width-len(indent))
-			}
-		} else {
-			// Other comments: reflow with go/doc/comment.
-			formatted = doctaxonomy.Format(raw, width-len(indent))
-		}
-
-		// Split formatted output into lines and add indentation.
-		newLines := strings.Split(strings.TrimRight(formatted, "\n"), "\n")
-		for j := range newLines {
-			newLines[j] = indent + newLines[j]
-		}
-
-		if !slicesEqual(cgLines, newLines) {
-			result := make([]string, 0, len(lines)-len(cgLines)+len(newLines))
-			result = append(result, lines[:startLine]...)
-			result = append(result, newLines...)
-			result = append(result, lines[endLine:]...)
-			lines = result
-		}
-	}
-
-	return strings.Join(lines, "\n"), nil
+	sf.filename = path
+	ctx := p.Context()
+	ctx.Data["schema_registry"] = p.schemaRegistry()
+	ctx.Data["spacing_rules"] = p.spacingRules()
+	ctx.Data["line_width"] = p.configLineWidth()
+	sf.ctx = ctx
+	return sf, nil
 }
 
-// SortDeclarations reorders function/method declarations within a scope of a Go file. Preserves doc comments and blank
-// lines attached to each declaration. Returns the modified file content.
+// schemaRegistry builds a SchemaRegistry from config if available, falling back to the embedded defaults.
+func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
+	if cfg := p.configSchemas(); cfg != nil {
+		return cfg
+	}
+	return doctaxonomy.DefaultRegistry()
+}
+
+// configSchemas attempts to build a SchemaRegistry from the config stored in the provider's context data.
+func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
+	cfgVal, ok := p.Context().Data["config"]
+	if !ok || cfgVal == nil {
+		return nil
+	}
+
+	cfg, ok := cfgVal.(configNavigator)
+	if !ok {
+		return nil
+	}
+
+	schemasVal := cfg.Navigate("lint.go_style.comment_schemas")
+	if schemasVal == nil {
+		return nil
+	}
+
+	return schemasFromConfig(schemasVal)
+}
+
+// spacingRules reads SpacingRules from config, falling back to defaults.
+func (p *Provider) spacingRules() SpacingRules {
+	cfgVal, ok := p.Context().Data["config"]
+	if !ok || cfgVal == nil {
+		return DefaultSpacingRules()
+	}
+
+	cfg, ok := cfgVal.(configNavigator)
+	if !ok {
+		return DefaultSpacingRules()
+	}
+
+	val := cfg.Navigate("lint.go_style.spacing_rules")
+	if val == nil {
+		return DefaultSpacingRules()
+	}
+
+	return spacingRulesFromConfig(val)
+}
+
+// spacingRulesFromConfig extracts SpacingRules from a config value using reflection.
+func spacingRulesFromConfig(val interface{}) SpacingRules {
+	rv := reflect.ValueOf(val)
+	if rv.Kind() == reflect.Ptr {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return DefaultSpacingRules()
+	}
+
+	rules := DefaultSpacingRules()
+	if f := rv.FieldByName("AfterPackage"); f.IsValid() && f.CanInt() {
+		rules.AfterPackage = int(f.Int())
+	}
+	if f := rv.FieldByName("AfterImports"); f.IsValid() && f.CanInt() {
+		rules.AfterImports = int(f.Int())
+	}
+	if f := rv.FieldByName("BetweenFunctions"); f.IsValid() && f.CanInt() {
+		rules.BetweenFunctions = int(f.Int())
+	}
+	if f := rv.FieldByName("BetweenMethods"); f.IsValid() && f.CanInt() {
+		rules.BetweenMethods = int(f.Int())
+	}
+	if f := rv.FieldByName("BeforeTypeMethods"); f.IsValid() && f.CanInt() {
+		rules.BeforeTypeMethods = int(f.Int())
+	}
+	if f := rv.FieldByName("AroundRegionMarkers"); f.IsValid() && f.CanInt() {
+		rules.AroundRegionMarkers = int(f.Int())
+	}
+	if f := rv.FieldByName("AroundDelineators"); f.IsValid() && f.CanInt() {
+		rules.AroundDelineators = int(f.Int())
+	}
+	return rules
+}
+
+// configLineWidth reads the line width from config, defaulting to 120.
+func (p *Provider) configLineWidth() int {
+	cfgVal, ok := p.Context().Data["config"]
+	if !ok || cfgVal == nil {
+		return 120
+	}
+	cfg, ok := cfgVal.(configNavigator)
+	if !ok {
+		return 120
+	}
+	val := cfg.Navigate("lint.go_style.line_width")
+	if val == nil {
+		return 120
+	}
+	rv := reflect.ValueOf(val)
+	if rv.CanInt() {
+		return int(rv.Int())
+	}
+	return 120
+}
+
+// SortDeclarations reorders function/method declarations within a scope of a Go file.
 //
-// Parameters:
-//   - path: the Go source file path.
-//   - scope: the scope to sort within — "file" for all top-level declarations, or "lines:START-END" for a line range.
-//   - order: the sort order — "alphabetical" sorts by declaration name.
-//
-// Returns:
-//   - string: the modified file content with sorted declarations.
-//   - error: non-nil if the file cannot be read, parsed, or the scope is invalid.
+// Preserves doc comments and blank lines attached to each declaration. Returns the modified file content.
 func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
 
 	content, err := os.ReadFile(path)
@@ -1013,13 +924,6 @@ func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
 }
 
 // Structs returns struct definitions from Go source files.
-//
-// Parameters:
-//   - path: the file or directory path.
-//
-// Returns:
-//   - []StructResult: the discovered struct definitions.
-//   - error: non-nil if the path cannot be accessed.
 func (p *Provider) Structs(path string) ([]StructResult, error) {
 	files, err := collectGoFiles(path)
 	if err != nil {
@@ -1094,27 +998,11 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 				}
 
 				// Parse type doc with taxonomy.
-				var typeDoc *doctaxonomy.TypeDoc
-				if ts.Doc != nil {
-					raw := commentGroupRaw(ts.Doc)
-					if raw != "" {
-						tp := doctaxonomy.NewTypeParser()
-						typeDoc, _ = tp.ParseString("", raw)
-					}
-				} else if genDecl.Doc != nil && len(genDecl.Specs) == 1 {
-					raw := commentGroupRaw(genDecl.Doc)
-					if raw != "" {
-						tp := doctaxonomy.NewTypeParser()
-						typeDoc, _ = tp.ParseString("", raw)
-					}
-				}
-
 				result = append(result, StructResult{
-					Name:    ts.Name.Name,
-					File:    filepath.Base(file),
-					Line:    fset.Position(ts.Pos()).Line,
-					Fields:  fields,
-					Comment: typeDoc,
+					Name:   ts.Name.Name,
+					File:   filepath.Base(file),
+					Line:   fset.Position(ts.Pos()).Line,
+					Fields: fields,
 				})
 			}
 
@@ -1126,14 +1014,6 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 }
 
 // TypeDoc returns the doc comment for a named type declaration.
-//
-// Parameters:
-//   - path: the file or directory path.
-//   - name: optional type name (defaults to "Provider" if empty).
-//
-// Returns:
-//   - string: the doc comment text.
-//   - error: non-nil if the path cannot be accessed.
 //
 // +devlore:defaults name=
 func (p *Provider) TypeDoc(path, name string) (string, error) {
