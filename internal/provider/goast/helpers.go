@@ -865,20 +865,3 @@ func commentBodyText(line string) (string, bool) {
 	return "", false
 }
 
-// isDelineatorLine returns true if text is a delineator (3+ repeated =, -, ~, or *).
-func isDelineatorLine(text string) bool {
-	s := strings.TrimSpace(text)
-	if len(s) < 3 {
-		return false
-	}
-	first := s[0]
-	if first != '=' && first != '-' && first != '~' && first != '*' {
-		return false
-	}
-	for i := 1; i < len(s); i++ {
-		if s[i] != first {
-			return false
-		}
-	}
-	return true
-}

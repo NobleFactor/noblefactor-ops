@@ -3,7 +3,7 @@ title: "Doc Comment Styling: Block-Based Slot Filling"
 description: "Architecture for styling doc comments using go/doc/comment blocks, schema-driven primitives, and fuzzy slot filling"
 status: draft
 created: 2026-03-21
-updated: 2026-03-21
+updated: 2026-03-22
 supersedes: star-goast-linter.md (comment taxonomy sections)
 ---
 
@@ -81,9 +81,10 @@ have a schema for a given node type, this is a configuration error. The styler r
 
 ### Principle: one styler, one schema lookup, one code path
 
-There is no `CommentStyle` enum. There is no verbatim vs taxonomy distinction in code. The
-styler checks: does a schema exist for this declaration's node type? If yes, style it using
-the schema's elements. If no, repair from defaults with a warning, then style.
+`CommentStyle` classifies comments (copyright, delineator, region marker, func doc, etc.)
+but does not control how styling works. The styler checks: does a schema exist for this
+declaration's node type? If yes, style it using the schema's elements. If no, repair from
+defaults with a warning, then style.
 
 The schema IS the style. A func_doc schema with five elements (summary, body, parameters,
 returns, directives) and a gen_decl schema with two elements (summary, body) are different
@@ -124,22 +125,31 @@ type DocComment struct {
 
 One parse. One render. Blocks in between.
 
-### Styling: cursor-based primitive execution
+### Styling: SAX-like cursor-based production execution
 
-A **primitive** is a match function. It takes:
+The styling pipeline is a **SAX-like** architecture. Like a SAX parser, it processes a
+stream of blocks in a single forward pass — no backtracking, no tree construction. Each
+production consumes blocks from a cursor position, emits output, and advances the cursor.
+The schema defines the production sequence; the block stream is the input events.
+
+This contrasts with a DOM-like approach where you'd build a semantic tree from the comment
+and then query/transform it. The SAX-like model is simpler, faster, and composable: adding
+a new element type means adding a schema entry, not modifying a tree walker.
+
+A **production** is a match-and-emit function. It takes:
 
 1. A cursor position in the `[]go/doc/comment.Block` stream
-2. A schema element definition (name, type, header, item_tokens, required)
-3. A declaration context (function name, param names, return types)
+2. A schema element definition (name, consumes, prefix, condition, style, etc.)
+3. A declaration context (function name, param names, return types, line width)
 
 It returns:
 
-1. Whether it matched (and optionally edited)
+1. Output blocks (possibly empty for nil production, transformed for resize)
 2. The new cursor position
 
-The dispatcher iterates schema elements in order, passing the cursor through each primitive.
-There is no switch on type names. No hardcoded knowledge of what Parameters or Returns look
-like. The schema element carries everything the primitive needs.
+The dispatcher iterates schema elements in order, passing the cursor through each
+production. There is no switch on type names. No hardcoded knowledge of what Parameters
+or Returns look like. The schema element carries everything the production needs.
 
 ```text
 Schema elements (ordered):     Block stream (from go/doc/comment):
@@ -152,7 +162,8 @@ Schema elements (ordered):     Block stream (from go/doc/comment):
   5. directives (directive)→     Paragraph: "+devlore:defaults overwrite=true"
 ```
 
-Each primitive advances the cursor past the blocks it consumes.
+Each production advances the cursor past the blocks it consumes. Unclaimed blocks at
+the end of the stream are appended to the output — nothing is silently lost.
 
 ### Primitives
 
@@ -179,14 +190,61 @@ Each schema element defines a **production** — a rule that says what block typ
 consumes from the input stream, what prefix it expects, and what it emits. Productions
 execute in schema order. Each consumes from the input and emits to the output.
 
-There are two kinds of productions:
+There are four built-in production types:
 
 - **`itemProduction`** — consumes zero or more blocks of specified types. May consume
   one (summary), zero-or-one (section heading), or zero-or-more (description body).
 - **`listProduction`** — consumes a List block and does slot filling on its items.
+- **`nilProduction`** — consumes matching blocks and emits nothing. Used for comment
+  removal (e.g., removing delineator comments).
+- **`resizeProduction`** — consumes delineator blocks, detects form (line/banner/box),
+  applies a target character style, and resizes to the configured line width.
 
 Unmatched input is never lost. Anything the productions don't claim gets emitted with
 a TODO flag.
+
+### Production registry
+
+Productions are an extension point. The `production` field in a schema element names a
+production type. Today `NewProduction` resolves the name via a switch statement — adding
+a new type requires a code change. The target design is a **production registry**: a map
+from name to factory function.
+
+```go
+// ProductionFactory creates a Production from a parsed Consumes spec and the full SchemaElement.
+// The SchemaElement gives the factory access to all element fields (Style, Prefix, Condition,
+// etc.) for reflection at construction time rather than deferring to Execute.
+type ProductionFactory func(consumes Consumes, elem SchemaElement) Production
+
+// RegisterProduction adds a named production type to the registry.
+func RegisterProduction(name string, factory ProductionFactory)
+```
+
+Built-in productions register themselves at init time:
+
+```go
+func init() {
+    RegisterProduction("item",   func(c Consumes, _ SchemaElement) Production { return &itemProduction{consumes: c} })
+    RegisterProduction("list",   func(c Consumes, _ SchemaElement) Production { return &listProduction{consumes: c} })
+    RegisterProduction("nil",    func(c Consumes, _ SchemaElement) Production { return &nilProduction{consumes: c} })
+    RegisterProduction("resize", func(c Consumes, _ SchemaElement) Production { return &resizeProduction{consumes: c} })
+}
+```
+
+`NewProduction` becomes a registry lookup — no switch, no code change when adding a type.
+External packages can register custom productions by calling `RegisterProduction` before
+`Cleanup` runs.
+
+**Why a registry, not just an interface:** The `Production` interface already exists.
+The registry adds *discoverability by name* — schema YAML says `production: resize` and
+the runtime resolves it without a hardcoded dispatch table. This is the difference between
+"the code knows about resize" and "resize registered itself."
+
+**Why the factory receives SchemaElement:** The factory gets the full `SchemaElement` so
+productions can pre-parse config at construction time. For example, a resize production
+could parse the `Style` field into resolved `BoxStyle` pointers once, rather than parsing
+the style string on every `Execute` call. Productions that don't need element config
+ignore it with `_`.
 
 ### Consumes notation (ABNF-like)
 
@@ -534,8 +592,275 @@ for section list items. Remove participle dependency.
 
 ## What changes
 
-- `CommentStyle` enum — removed. Schema presence determines styling behavior.
-- `classifyFloatingComment` — simplified. Only needs to determine node type for
-  schema lookup, not classify into nine styles.
+- `CommentStyle` enum — retained for comment classification (copyright, delineator,
+  region marker, section header, etc.). No longer controls styling logic; schema
+  presence determines styling behavior.
 - `Cleanup` dispatch — replaced by single `styleDoc` call per declaration.
   Schema lookup by node type; missing schema repaired from defaults with warning.
+  Floating comment styles (delineator, section header, region marker, prose) are
+  routed through `styleDoc` when a matching schema is registered. No schema =
+  preserve verbatim (backward compatible).
+- `styleDoc` returns `[]DocComment` — most calls return a single element. Productions
+  that generate new comments (e.g., region markers) return multiple. The first replaces
+  the original; additional elements are inserted as new `CommentDecl` entries.
+- `CommentDecl` has a `removed` flag — set when all productions emit nothing (nil
+  production). `SaveAs` skips removed decls to avoid orphan blank lines.
+- `isDelineatorBlock` widened — recognizes 11 ASCII filler characters (`=`, `-`, `~`,
+  `*`, `#`, `+`, `^`, `/`, `@`, `%`, `_`), 9 Unicode box-drawing characters, and
+  centered-text banners (3+ filler, text, 3+ same filler).
+
+## Future: delineator transformations
+
+Three productions target the `Delineator` node type. A project picks one in config:
+
+```yaml
+# Remove delineators
+production: nil
+
+# Resize delineators to line width (with optional style conversion)
+production: resize
+
+# Convert delineators to region markers
+production: region
+```
+
+### Resize production
+
+The resize production detects three input forms and applies an independent target style
+per form:
+
+1. **Line** — pure repeated characters: `// ====`
+2. **Banner** — text centered between filler: `// === foo bar ===`
+3. **Box** — multi-line with border lines and content between them
+
+`go/doc/comment` preserves newlines within a paragraph (verified empirically), so the
+resize production splits on `\n` and processes each line independently — pure repeated
+lines get resized, banner lines get recentered, content lines pass through.
+
+Config specifies styles per form. Omit a form to preserve its original characters:
+
+```yaml
+style:
+  line: ascii-=
+  banner: heavy
+  box: double
+```
+
+Or a bare name applies to all forms: `style: double`.
+
+#### Style catalog
+
+**Box styles** (have corners — usable for all three forms):
+
+| Name | H | V | TL | TR | BL | BR |
+|---|---|---|---|---|---|---|
+| `light` | `─` | `│` | `┌` | `┐` | `└` | `┘` |
+| `heavy` | `━` | `┃` | `┏` | `┓` | `┗` | `┛` |
+| `double` | `═` | `║` | `╔` | `╗` | `╚` | `╝` |
+| `rounded` | `─` | `│` | `╭` | `╮` | `╰` | `╯` |
+
+**Line-only styles** (no corners — lines and banners only):
+
+| Name | H | V |
+|---|---|---|
+| `light-triple-dash` | `┄` | `┆` |
+| `heavy-triple-dash` | `┅` | `┇` |
+| `light-quad-dash` | `┈` | `┊` |
+| `heavy-quad-dash` | `┉` | `┋` |
+| `light-double-dash` | `╌` | `╎` |
+| `heavy-double-dash` | `╍` | `╏` |
+
+**ASCII styles** (single repeated character):
+`ascii` (`-`), `ascii-=`, `ascii-*`, `ascii-#`, `ascii-~`, `ascii-+`, `ascii-_`
+
+4 box + 6 line-only + 7 ASCII = 17 named styles. Defined in `BoxStyle` struct with
+horizontal, vertical, and four corner runes. Line-only and ASCII styles have zero-value
+corners/verticals.
+
+### Region production
+
+Converts a delineator to `// region Name` / `// endregion Name` pairs. Since a
+delineator is a single comment that visually groups code, but region markers are two
+comments that bracket a section, we cannot determine where the region ends. The
+endregion gets a TODO.
+
+Section name extraction:
+- **Banner** (`// === Section Name ===`): extract "Section Name"
+- **Box**: extract content line(s) between border lines
+- **Pure line** (no text): `TODO(go-style): add section name`
+
+`styleDoc` returns `[]DocComment` with two elements:
+1. `// region Name` (replaces the delineator)
+2. `// endregion Name  TODO(go-style): move to end of section` (inserted after)
+
+The `Cleanup` insertion machinery handles splicing the new decl into `allDecls`.
+
+Editor support for region markers:
+
+| Editor | Syntax | Status |
+|---|---|---|
+| **GoLand** | `// region Name` / `// endregion` | Native support |
+| **VS Code** | `// region Name` or `// #region Name` | Built-in folding; breaks under gopls |
+| **Neovim** | Tree-sitter based | Requires plugin |
+| **Zed** | Tree-sitter / LSP based | No native region markers |
+
+Use `// region` / `// endregion` (without `#`) for maximum compatibility.
+
+## Porting to devlore-cli
+
+Star is moving from `noblefactor-ops` to `devlore-cli/cmd/star/`. The goast provider
+moves to `cmd/star/provider/goast/`. All doc comment styling work (phases 1–3, production
+registry) was developed on the `noblefactor-ops.go-styling` worktree and needs to be
+ported after the move-star PR lands.
+
+### What ports as-is
+
+- All production implementations (`itemProduction`, `listProduction`, `nilProduction`,
+  `resizeProduction`, `regionProduction`)
+- Production registry (`RegisterProduction`, `ProductionFactory`, `init()` registrations)
+- `MultiCommentProduction` interface
+- `BoxStyle` struct and catalog (17 named styles)
+- Widened `isDelineatorBlock` / `isDelineatorLine` detection
+- `[]DocComment` return from `styleDoc`, insertion machinery in `Cleanup`
+- `removed` flag on `CommentDecl`, skip logic in `SaveAs`
+- `floatingNodeType` mapping, `spliceDecls` helper
+- All tests
+
+### What changes during the port
+
+**Config deserialization.** The goast extension schemas will deserialize directly into
+Go structs via standard YAML unmarshaling, replacing the reflection-based extraction in
+`astrewrite.go`. The reflection code (`schemasFromConfig`, `schemasFromMap`,
+`schemaFromConfigVal` — ~90 lines of `reflect.ValueOf` / `FieldByName`) is deleted.
+`CommentSchema` and `SchemaElement` already have `yaml:` tags and unmarshal directly.
+
+**`Style` field becomes `FormStyles` struct.** Currently `SchemaElement.Style` is a
+`string` parsed at runtime by `parseFormStyles`. In the new system, `Style` becomes a
+`FormStyles` struct with a custom `UnmarshalYAML` that handles both YAML forms:
+
+```go
+// FormStyles holds per-form style selections for the resize production.
+type FormStyles struct {
+    Line   string `yaml:"line,omitempty"`
+    Banner string `yaml:"banner,omitempty"`
+    Box    string `yaml:"box,omitempty"`
+}
+
+// UnmarshalYAML handles both bare string and map forms:
+//   style: "double"                     → all forms set to "double"
+//   style: {line: ascii-=, box: double} → per-form
+func (f *FormStyles) UnmarshalYAML(unmarshal func(interface{}) error) error {
+    // Try string first.
+    var bare string
+    if err := unmarshal(&bare); err == nil {
+        f.Line = bare
+        f.Banner = bare
+        f.Box = bare
+        return nil
+    }
+    // Fall back to map.
+    type plain FormStyles
+    return unmarshal((*plain)(f))
+}
+```
+
+This eliminates `parseFormStyles`. The resize production factory receives the resolved
+`FormStyles` directly from `SchemaElement` at construction time — no runtime parsing.
+
+**`SchemaElement.Style` type change:**
+
+```go
+// Before (noblefactor-ops):
+Style string `yaml:"style,omitempty"`
+
+// After (devlore-cli):
+Style FormStyles `yaml:"style,omitempty"`
+```
+
+## Future: styles as execution graphs
+
+The current system uses schemas (`CommentSchema` + `[]SchemaElement`) as a flat ordered
+list of productions. The SAX-like cursor iterates them sequentially. This works but has
+limits: element ordering is implicit via `Order` fields, composability requires struct
+changes, and project overrides require config merges.
+
+The next evolution replaces schemas with **execution graphs**. Each schema element becomes
+a graph node. Ordering becomes edges. The matcher is a node. Each production is an action.
+
+### How the current func_doc rule maps to a graph
+
+Current flow:
+
+1. **Match:** `styleContext{nodeType: "FuncDecl"}` — hardcoded in `Cleanup()`
+2. **Lookup:** `schemaRegistry().Lookup("FuncDecl", "go")` — finds the func_doc schema
+3. **Execute:** iterate schema elements in order, each creates a `Production`
+4. **Output:** reassembled doc comment
+
+As a graph:
+
+```yaml
+tool: star
+nodes:
+  - id: match-func-decl
+    action: goast.match
+    slots:
+      node_type: FuncDecl
+      format: go
+
+  - id: check-summary
+    action: goast.check-element
+    slots:
+      name: summary
+      production: item
+      consumes: "Paragraph / Heading"
+      prefix: "{name}"
+      required: "true"
+
+  - id: check-body
+    action: goast.check-element
+    slots:
+      name: body
+      production: item
+      consumes: "*(Paragraph / Code / Heading)"
+
+edges:
+  - from: match-func-decl
+    to: check-summary
+  - from: check-summary
+    to: check-body
+```
+
+Schema elements become nodes. Ordering becomes edges. The matcher is a node.
+Each production is an action.
+
+### What this buys
+
+- **Composable rules** — add a check-parameters node by adding a node and edge, no
+  struct change
+- **Native serialization** — rules serialize/deserialize with Graph.Serialize / graph
+  YAML, using the existing graph infrastructure
+- **Execution engine** — ordering, failure, retry handled by the graph executor, not
+  custom element iteration
+- **Extensible actions** — new rule types are new actions, not new SchemaElement fields
+- **Project overrides** — graph overlays instead of config struct merges
+
+### What changes
+
+- `doctaxonomy.CommentSchema` and `SchemaElement` go away — replaced by graph nodes
+- `schemasFromConfig` goes away — the graph deserializes directly
+- `styleDoc` becomes a graph executor instead of a schema iterator
+- The extension.yaml config section for LintGoStyle shrinks — style graphs live as
+  their own YAML files or as embedded subgraphs
+- The production registry maps to an action registry — `RegisterProduction` becomes
+  `RegisterAction` with the same factory pattern
+
+### Migration path
+
+The current schema-based system is a stepping stone. The production registry and
+`Production` interface map directly to graph actions. The `Consumes` notation, prefix
+matching, slot filling, and style catalog all carry over — they become action parameters
+on graph nodes instead of struct fields on schema elements. The SAX-like cursor model
+becomes the graph executor's traversal order.
+
+This is a significant redesign. The current system should stabilize and prove the
+production model before migrating to graphs.

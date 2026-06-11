@@ -62,13 +62,14 @@ type SchemaElement struct {
 	ItemTokens  string `yaml:"item_tokens,omitempty"`
 
 	// Production model fields.
-	Production string `yaml:"production,omitempty"` // "item" or "list"
+	Production string `yaml:"production,omitempty"` // "item", "list", "nil", or "resize"
 	Consumes   string `yaml:"consumes,omitempty"`   // ABNF: "Paragraph / Heading", "*(Paragraph / Code)", etc.
 	Condition  string `yaml:"condition,omitempty"`   // "params", "returns", "exported", "receiver"
 	Prefix     string `yaml:"prefix,omitempty"`      // fuzzy prefix pattern: "{name}", "Parameters:", "+"
 	Split      string `yaml:"split,omitempty"`       // "sentence" — extract first sentence, remainder flows to next
 	Slots      string `yaml:"slots,omitempty"`       // "params" or "returns" — slot names from declaration context
 	SlotPrefix string `yaml:"slot_prefix,omitempty"` // fuzzy slot prefix: "{slot}"
+	Style      string `yaml:"style,omitempty"`       // target style: "double", or "line:ascii-=,banner:heavy,box:double"
 }
 
 // CommentSchema defines the structure of a doc comment for a given node type and format.

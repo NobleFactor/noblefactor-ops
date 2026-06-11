@@ -5,6 +5,7 @@ package goast
 
 import (
 	"go/doc/comment"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/noblefactor-ops/internal/provider/goast/doctaxonomy"
@@ -381,6 +382,399 @@ func TestListProduction_SingleParamStub(t *testing.T) {
 	}
 	if len(list.Items) != 1 {
 		t.Fatalf("expected 1 list item, got %d", len(list.Items))
+	}
+}
+
+// --- nilProduction tests ---
+
+func TestNilProduction_ConsumesAll(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("============================================================================="),
+		makeParagraph("Section Name"),
+		makeParagraph("============================================================================="),
+	}
+
+	elem := doctaxonomy.SchemaElement{
+		Name:       "content",
+		Production: "nil",
+		Consumes:   "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+	if _, ok := prod.(*nilProduction); !ok {
+		t.Fatal("expected nilProduction")
+	}
+
+	output, next := prod.Execute(blocks, 0, elem, styleContext{})
+	if len(output) != 0 {
+		t.Errorf("expected empty output, got %d blocks", len(output))
+	}
+	if next != 3 {
+		t.Errorf("expected cursor at 3 (all consumed), got %d", next)
+	}
+}
+
+func TestNilProduction_EmptyInput(t *testing.T) {
+	var blocks []comment.Block
+
+	elem := doctaxonomy.SchemaElement{
+		Name:       "content",
+		Production: "nil",
+		Consumes:   "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, next := prod.Execute(blocks, 0, elem, styleContext{})
+	if len(output) != 0 {
+		t.Errorf("expected empty output, got %d blocks", len(output))
+	}
+	if next != 0 {
+		t.Errorf("expected cursor at 0, got %d", next)
+	}
+}
+
+func TestNilProduction_StopsAtNonMatching(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("first"),
+		makeParagraph("second"),
+		makeCode("code block"),
+	}
+
+	// Only consumes Paragraphs, not Code.
+	elem := doctaxonomy.SchemaElement{
+		Name:       "content",
+		Production: "nil",
+		Consumes:   "*Paragraph",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, next := prod.Execute(blocks, 0, elem, styleContext{})
+	if len(output) != 0 {
+		t.Errorf("expected empty output, got %d blocks", len(output))
+	}
+	if next != 2 {
+		t.Errorf("expected cursor at 2 (stopped at Code), got %d", next)
+	}
+}
+
+func TestNilProduction_FromCursor(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("first"),
+		makeParagraph("second"),
+		makeParagraph("third"),
+	}
+
+	elem := doctaxonomy.SchemaElement{
+		Name:       "content",
+		Production: "nil",
+		Consumes:   "*Paragraph",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, next := prod.Execute(blocks, 1, elem, styleContext{})
+	if len(output) != 0 {
+		t.Errorf("expected empty output, got %d blocks", len(output))
+	}
+	if next != 3 {
+		t.Errorf("expected cursor at 3, got %d", next)
+	}
+}
+
+// --- resizeProduction tests ---
+
+func TestResizeProduction_PureLine_PreserveChar(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("====="),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "resize",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, next := prod.Execute(blocks, 0, elem, styleContext{lineWidth: 80})
+	if next != 1 {
+		t.Fatalf("expected cursor at 1, got %d", next)
+	}
+	if len(output) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(output))
+	}
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	// 80 - 3 = 77 characters of '='
+	if len(text) != 77 {
+		t.Errorf("expected 77 chars, got %d: %q", len(text), text)
+	}
+	for _, r := range text {
+		if r != '=' {
+			t.Errorf("expected all '=', got %q", text)
+			break
+		}
+	}
+}
+
+func TestResizeProduction_PureLine_WithStyle(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("-----"),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "resize",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+		Style:    "double",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, _ := prod.Execute(blocks, 0, elem, styleContext{lineWidth: 20})
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	// 20 - 3 = 17 chars of '═'
+	expected := "═════════════════"
+	if text != expected {
+		t.Errorf("expected %q, got %q", expected, text)
+	}
+}
+
+func TestResizeProduction_Banner_PreserveChar(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("=== Section Name ==="),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "resize",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, _ := prod.Execute(blocks, 0, elem, styleContext{lineWidth: 80})
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	// Should contain "Section Name" centered in '=' chars, total 77 chars.
+	if len([]rune(text)) != 77 {
+		t.Errorf("expected 77 runes, got %d: %q", len([]rune(text)), text)
+	}
+	if !strings.Contains(text, "Section Name") {
+		t.Errorf("expected 'Section Name' in output: %q", text)
+	}
+	if text[0] != '=' {
+		t.Errorf("expected leading '=', got %q", text)
+	}
+}
+
+func TestResizeProduction_Banner_WithStyle(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("--- Helpers ---"),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "resize",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+		Style:    "banner:heavy",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, _ := prod.Execute(blocks, 0, elem, styleContext{lineWidth: 40})
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	// Should contain "Helpers" centered in '━' chars, total 37 chars.
+	if !strings.Contains(text, "Helpers") {
+		t.Errorf("expected 'Helpers' in output: %q", text)
+	}
+	if []rune(text)[0] != '━' {
+		t.Errorf("expected leading '━', got %c in %q", []rune(text)[0], text)
+	}
+}
+
+func TestResizeProduction_BoxComment(t *testing.T) {
+	// go/doc/comment preserves newlines in merged paragraph.
+	blocks := []comment.Block{
+		makeParagraph("=============\nSection Name\n============="),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "resize",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, _ := prod.Execute(blocks, 0, elem, styleContext{lineWidth: 40})
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	lines := strings.Split(text, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %q", len(lines), text)
+	}
+	// First and last lines should be 37 '=' chars.
+	if len(lines[0]) != 37 {
+		t.Errorf("border line length: expected 37, got %d: %q", len(lines[0]), lines[0])
+	}
+	// Content line preserved.
+	if lines[1] != "Section Name" {
+		t.Errorf("content line: expected 'Section Name', got %q", lines[1])
+	}
+}
+
+func TestResizeProduction_PerFormStyle(t *testing.T) {
+	// Line with '=' and banner with '-' in same comment won't happen in practice,
+	// but test per-form style parsing.
+	elem := doctaxonomy.SchemaElement{
+		Style: "line:double,banner:heavy,box:light",
+	}
+	lineS, bannerS, boxS := parseFormStyles(elem.Style)
+	if lineS == nil || lineS.Name != "double" {
+		t.Errorf("line style: expected 'double', got %v", lineS)
+	}
+	if bannerS == nil || bannerS.Name != "heavy" {
+		t.Errorf("banner style: expected 'heavy', got %v", bannerS)
+	}
+	if boxS == nil || boxS.Name != "light" {
+		t.Errorf("box style: expected 'light', got %v", boxS)
+	}
+}
+
+func TestResizeProduction_BareStyle(t *testing.T) {
+	lineS, bannerS, boxS := parseFormStyles("rounded")
+	if lineS == nil || lineS.Name != "rounded" {
+		t.Errorf("line style: expected 'rounded', got %v", lineS)
+	}
+	if bannerS == nil || bannerS.Name != "rounded" {
+		t.Errorf("banner style: expected 'rounded', got %v", bannerS)
+	}
+	if boxS == nil || boxS.Name != "rounded" {
+		t.Errorf("box style: expected 'rounded', got %v", boxS)
+	}
+}
+
+func TestResizeProduction_EmptyStyle(t *testing.T) {
+	lineS, bannerS, boxS := parseFormStyles("")
+	if lineS != nil || bannerS != nil || boxS != nil {
+		t.Error("empty style should return all nil")
+	}
+}
+
+// --- regionProduction tests ---
+
+func TestRegionProduction_Banner(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("=== Public API ==="),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "region",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, next := prod.Execute(blocks, 0, elem, styleContext{})
+	if next != 1 {
+		t.Fatalf("expected cursor at 1, got %d", next)
+	}
+	if len(output) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(output))
+	}
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	if text != "region Public API" {
+		t.Errorf("expected 'region Public API', got %q", text)
+	}
+
+	// Check extra comments.
+	mcp, ok := prod.(MultiCommentProduction)
+	if !ok {
+		t.Fatal("expected MultiCommentProduction interface")
+	}
+	extras := mcp.ExtraComments()
+	if len(extras) != 1 {
+		t.Fatalf("expected 1 extra comment, got %d", len(extras))
+	}
+	endText := paragraphPlainText(extras[0].doc.Content[0].(*comment.Paragraph))
+	if !strings.Contains(endText, "endregion Public API") {
+		t.Errorf("expected endregion with section name, got %q", endText)
+	}
+	if !strings.Contains(endText, "TODO(go-style)") {
+		t.Errorf("expected TODO marker, got %q", endText)
+	}
+}
+
+func TestRegionProduction_BoxComment(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("=============\nSection Name\n============="),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "region",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, _ := prod.Execute(blocks, 0, elem, styleContext{})
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	if text != "region Section Name" {
+		t.Errorf("expected 'region Section Name', got %q", text)
+	}
+}
+
+func TestRegionProduction_PureLine(t *testing.T) {
+	blocks := []comment.Block{
+		makeParagraph("============================================================================="),
+	}
+	elem := doctaxonomy.SchemaElement{
+		Name: "content", Production: "region",
+		Consumes: "*(Paragraph / Code / Heading / List)",
+	}
+	prod, err := NewProduction(elem)
+	if err != nil {
+		t.Fatalf("NewProduction: %v", err)
+	}
+
+	output, _ := prod.Execute(blocks, 0, elem, styleContext{})
+	text := paragraphPlainText(output[0].(*comment.Paragraph))
+	if !strings.Contains(text, "region TODO(go-style)") {
+		t.Errorf("expected TODO placeholder name, got %q", text)
+	}
+}
+
+func TestExtractSectionName(t *testing.T) {
+	tests := []struct {
+		name  string
+		texts []string
+		want  string
+	}{
+		{"banner", []string{"=== Public API ==="}, "Public API"},
+		{"box", []string{"=============\nSection Name\n============="}, "Section Name"},
+		{"pure line", []string{"============="}, "TODO(go-style): add section name"},
+		{"multiple paragraphs", []string{"=====", "Content Here"}, "Content Here"},
+		{"empty", []string{}, "TODO(go-style): add section name"},
+		{"dashes banner", []string{"--- Helpers ---"}, "Helpers"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractSectionName(tt.texts)
+			if got != tt.want {
+				t.Errorf("extractSectionName(%v) = %q, want %q", tt.texts, got, tt.want)
+			}
+		})
 	}
 }
 

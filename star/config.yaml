@@ -63,6 +63,14 @@ lint:
             consumes: "*Paragraph"
             prefix: "+"
             order: 5
+      delineator:
+        format: go
+        node_type: Delineator
+        elements:
+          - name: content
+            production: nil
+            consumes: "*(Paragraph / Code / Heading / List)"
+            order: 1
   copyright:
     enabled: true
     license: MIT

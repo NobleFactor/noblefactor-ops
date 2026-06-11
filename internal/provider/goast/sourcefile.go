@@ -145,9 +145,10 @@ type FuncDecl struct {
 
 // CommentDecl represents a floating comment not attached to any declaration.
 type CommentDecl struct {
-	cg    *ast.CommentGroup
-	doc   *comment.Doc
-	style CommentStyle
+	cg      *ast.CommentGroup
+	doc     *comment.Doc
+	style   CommentStyle
+	removed bool
 }
 
 // =============================================================================
@@ -397,14 +398,16 @@ type styleContext struct {
 	name        string
 	paramNames  []string
 	returnTypes []string
+	lineWidth   int
 }
 
-// styleDoc is the single styler. Takes a DocComment and style data, returns a new DocComment.
-// Iterates schema elements in order, executes productions, assembles the output block list.
-func (sf *SourceFile) styleDoc(dc DocComment, ctx styleContext) DocComment {
+// styleDoc is the single styler. Takes a DocComment and style data, returns styled DocComments.
+// Most calls return a single element. Productions that generate new comments (e.g., region)
+// may return multiple — the first replaces the original, additional elements are inserted after.
+func (sf *SourceFile) styleDoc(dc DocComment, ctx styleContext) []DocComment {
 	schema := sf.schemaRegistry().Lookup(ctx.nodeType, "go")
 	if schema == nil {
-		return dc
+		return []DocComment{dc}
 	}
 
 	// Get input blocks. Empty doc for absent comments.
@@ -429,6 +432,7 @@ func (sf *SourceFile) styleDoc(dc DocComment, ctx styleContext) DocComment {
 
 	// Execute productions in schema order.
 	var output []comment.Block
+	var extras []DocComment
 	cursor := 0
 	for _, elem := range elems {
 		prod, err := NewProduction(elem)
@@ -438,6 +442,11 @@ func (sf *SourceFile) styleDoc(dc DocComment, ctx styleContext) DocComment {
 		out, next := prod.Execute(blocks, cursor, elem, ctx)
 		output = append(output, out...)
 		cursor = next
+
+		// Collect extra comments from multi-comment productions.
+		if mcp, ok := prod.(MultiCommentProduction); ok {
+			extras = append(extras, mcp.ExtraComments()...)
+		}
 	}
 
 	// Append unclaimed blocks at the end.
@@ -445,16 +454,27 @@ func (sf *SourceFile) styleDoc(dc DocComment, ctx styleContext) DocComment {
 		output = append(output, blocks[cursor:]...)
 	}
 
-	return DocComment{
+	results := []DocComment{{
 		doc:     &comment.Doc{Content: output},
 		present: true,
 		style:   dc.style,
-	}
+	}}
+	results = append(results, extras...)
+	return results
+}
+
+// insertion records new CommentDecls to splice into allDecls after a given index.
+type insertion struct {
+	afterIndex int
+	decls      []*CommentDecl
 }
 
 // Cleanup dispatches the single styler for each declaration based on its node type.
 func (sf *SourceFile) Cleanup() {
-	for _, decl := range sf.allDecls {
+	var inserts []insertion
+	width := sf.lineWidth()
+
+	for i, decl := range sf.allDecls {
 		switch decl.DeclStyle() {
 		case StyleFuncDoc:
 			fd, ok := decl.(*FuncDecl)
@@ -466,7 +486,8 @@ func (sf *SourceFile) Cleanup() {
 				name:        fd.node.Name.Name,
 				paramNames:  astParamNames(fd.node.Type.Params),
 				returnTypes: astReturnTypes(fd.node.Type.Results),
-			})
+				lineWidth:   width,
+			})[0]
 
 		case StyleGenDeclDoc:
 			gd, ok := decl.(*GenDeclNode)
@@ -474,23 +495,87 @@ func (sf *SourceFile) Cleanup() {
 				continue
 			}
 			gd.comment = sf.styleDoc(gd.comment, styleContext{
-				nodeType: genDeclNodeType(gd.genDecl.Tok),
-				name:     genDeclName(gd.genDecl),
-			})
+				nodeType:  genDeclNodeType(gd.genDecl.Tok),
+				name:      genDeclName(gd.genDecl),
+				lineWidth: width,
+			})[0]
 
 		case StylePackageDoc:
 			if cd, ok := decl.(*CommentDecl); ok {
-				dc := sf.styleDoc(
+				results := sf.styleDoc(
 					DocComment{doc: cd.doc, present: true, style: StylePackageDoc},
-					styleContext{nodeType: "Package", name: sf.file.Name.Name},
+					styleContext{nodeType: "Package", name: sf.file.Name.Name, lineWidth: width},
 				)
-				cd.doc = dc.doc
+				cd.doc = results[0].doc
 			}
 
-		case StyleImportDoc, StyleCopyright, StyleDelineator, StyleRegionMarker, StyleSectionHeader, StyleProse:
+		case StyleDelineator, StyleSectionHeader, StyleRegionMarker, StyleProse:
+			cd, ok := decl.(*CommentDecl)
+			if !ok {
+				continue
+			}
+			nodeType := floatingNodeType(cd.style)
+			if sf.schemaRegistry().Lookup(nodeType, "go") == nil {
+				continue
+			}
+			results := sf.styleDoc(
+				DocComment{doc: cd.doc, present: true, style: cd.style},
+				styleContext{nodeType: nodeType, lineWidth: width},
+			)
+			if len(results) == 0 || len(results[0].doc.Content) == 0 {
+				cd.removed = true
+				continue
+			}
+			cd.doc = results[0].doc
+			if len(results) > 1 {
+				var newDecls []*CommentDecl
+				for _, r := range results[1:] {
+					newDecls = append(newDecls, &CommentDecl{
+						doc:   r.doc,
+						style: r.style,
+					})
+				}
+				inserts = append(inserts, insertion{afterIndex: i, decls: newDecls})
+			}
+
+		case StyleImportDoc, StyleCopyright:
 			// No styling.
 		}
 	}
+
+	// Splice insertions in reverse order to preserve indices.
+	for i := len(inserts) - 1; i >= 0; i-- {
+		ins := inserts[i]
+		sf.spliceDecls(ins.afterIndex, ins.decls)
+	}
+}
+
+// floatingNodeType maps a CommentStyle to the schema node type for registry lookup.
+func floatingNodeType(style CommentStyle) string {
+	switch style {
+	case StyleDelineator:
+		return "Delineator"
+	case StyleSectionHeader:
+		return "SectionHeader"
+	case StyleRegionMarker:
+		return "RegionMarker"
+	case StyleProse:
+		return "Floating"
+	default:
+		return ""
+	}
+}
+
+// spliceDecls inserts new declarations into allDecls after the given index.
+func (sf *SourceFile) spliceDecls(afterIndex int, decls []*CommentDecl) {
+	pos := afterIndex + 1
+	newAll := make([]Decl, 0, len(sf.allDecls)+len(decls))
+	newAll = append(newAll, sf.allDecls[:pos]...)
+	for _, cd := range decls {
+		newAll = append(newAll, cd)
+	}
+	newAll = append(newAll, sf.allDecls[pos:]...)
+	sf.allDecls = newAll
 }
 
 // genDeclNodeType returns the schema node type for a GenDecl token.
@@ -522,6 +607,11 @@ func (sf *SourceFile) SaveAs(path string) error {
 	packageEmitted := false
 	prevKind := ""
 	for _, decl := range sf.allDecls {
+		// Skip removed comments.
+		if cd, ok := decl.(*CommentDecl); ok && cd.removed {
+			continue
+		}
+
 		kind := decl.DeclKind()
 
 		// Preamble: copyright and package doc come before package clause.
