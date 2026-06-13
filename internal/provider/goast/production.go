@@ -17,6 +17,13 @@ type Production interface {
 	Execute(blocks []comment.Block, cursor int, elem doctaxonomy.SchemaElement, ctx styleContext) (output []comment.Block, next int)
 }
 
+// MultiCommentProduction is an optional interface for productions that emit additional
+// comments beyond the primary one. After Execute, styleDoc checks for this interface
+// and appends extra DocComments to its return slice.
+type MultiCommentProduction interface {
+	ExtraComments() []DocComment
+}
+
 // blockTypeName returns the type name of a comment.Block for matching against Consumes.Types.
 func blockTypeName(b comment.Block) string {
 	switch b.(type) {
@@ -94,6 +101,266 @@ func (p *itemProduction) Execute(blocks []comment.Block, cursor int, elem doctax
 	}
 
 	return output, pos
+}
+
+// nilProduction consumes matching blocks and emits nothing. Used for comment removal.
+type nilProduction struct {
+	consumes Consumes
+}
+
+// Execute advances past all matching blocks and returns empty output.
+func (p *nilProduction) Execute(blocks []comment.Block, cursor int, _ doctaxonomy.SchemaElement, _ styleContext) ([]comment.Block, int) {
+	i := cursor
+	for i < len(blocks) && p.consumes.Matches(blockTypeName(blocks[i])) {
+		i++
+	}
+	return nil, i
+}
+
+// resizeProduction consumes matching blocks, detects delineator form (line/banner),
+// applies a target style, and resizes to the configured line width.
+type resizeProduction struct {
+	consumes Consumes
+}
+
+// Execute processes delineator blocks: detects form, applies style, resizes.
+func (p *resizeProduction) Execute(blocks []comment.Block, cursor int, elem doctaxonomy.SchemaElement, ctx styleContext) ([]comment.Block, int) {
+	var output []comment.Block
+	pos := cursor
+
+	// Content width is lineWidth minus "// " prefix (3 chars).
+	contentWidth := ctx.lineWidth - 3
+	if contentWidth < 10 {
+		contentWidth = 77 // fallback
+	}
+
+	// Parse per-form styles from elem.Style.
+	lineStyle, bannerStyle, _ := parseFormStyles(elem.Style)
+
+	for pos < len(blocks) && p.consumes.Matches(blockTypeName(blocks[pos])) {
+		para, ok := blocks[pos].(*comment.Paragraph)
+		if !ok {
+			// Non-paragraph blocks pass through unchanged.
+			output = append(output, blocks[pos])
+			pos++
+			continue
+		}
+
+		text := paragraphPlainText(para)
+		resized := resizeDelineatorText(text, contentWidth, lineStyle, bannerStyle)
+		output = append(output, &comment.Paragraph{
+			Text: []comment.Text{comment.Plain(resized)},
+		})
+		pos++
+	}
+
+	return output, pos
+}
+
+// parseFormStyles parses the Style field into per-form BoxStyle pointers.
+// Formats:
+//
+//	"double"                                → all forms use "double"
+//	"line:ascii-=,banner:heavy,box:double"  → per-form styles
+//
+// Returns nil for any form not specified (preserve original).
+func parseFormStyles(style string) (line, banner, box *BoxStyle) {
+	if style == "" {
+		return nil, nil, nil
+	}
+
+	// Check for per-form syntax (contains ":").
+	if strings.Contains(style, ":") {
+		for _, part := range strings.Split(style, ",") {
+			part = strings.TrimSpace(part)
+			kv := strings.SplitN(part, ":", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			s := LookupBoxStyle(strings.TrimSpace(kv[1]))
+			switch strings.TrimSpace(kv[0]) {
+			case "line":
+				line = s
+			case "banner":
+				banner = s
+			case "box":
+				box = s
+			}
+		}
+		return
+	}
+
+	// Bare name: applies to all forms.
+	s := LookupBoxStyle(style)
+	return s, s, s
+}
+
+// resizeDelineatorText resizes delineator text to the target width.
+// Handles multi-line text (box comments) by processing each line independently.
+func resizeDelineatorText(text string, width int, lineStyle, bannerStyle *BoxStyle) string {
+	lines := strings.Split(text, "\n")
+	result := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			result = append(result, "")
+			continue
+		}
+
+		runes := []rune(trimmed)
+		first := runes[0]
+
+		if isDelineatorRune(first) && isPureRepeatedLine(runes, first) {
+			// Pure repeated line.
+			ch := first
+			if lineStyle != nil {
+				ch = lineStyle.Horizontal
+			}
+			result = append(result, string(repeatRune(ch, width)))
+		} else if isDelineatorRune(first) && isBannerLine(runes, first) {
+			// Centered-text banner.
+			content := extractBannerText(runes, first)
+			ch := first
+			if bannerStyle != nil {
+				ch = bannerStyle.Horizontal
+			}
+			result = append(result, buildBanner(content, ch, width))
+		} else {
+			// Non-delineator line (content in a box) — pass through.
+			result = append(result, trimmed)
+		}
+	}
+
+	return strings.Join(result, "\n")
+}
+
+// isPureRepeatedLine checks if all runes are the same.
+func isPureRepeatedLine(runes []rune, filler rune) bool {
+	for _, r := range runes {
+		if r != filler {
+			return false
+		}
+	}
+	return true
+}
+
+// isBannerLine checks if runes form a centered-text banner with the given filler.
+func isBannerLine(runes []rune, filler rune) bool {
+	return isCenteredBanner(runes, filler)
+}
+
+// extractBannerText extracts the text content from between leading and trailing filler runs.
+func extractBannerText(runes []rune, filler rune) string {
+	n := len(runes)
+	lead := 0
+	for lead < n && runes[lead] == filler {
+		lead++
+	}
+	trail := 0
+	for trail < n-lead && runes[n-1-trail] == filler {
+		trail++
+	}
+	return strings.TrimSpace(string(runes[lead : n-trail]))
+}
+
+// buildBanner constructs a centered-text banner with the given filler and width.
+func buildBanner(text string, filler rune, width int) string {
+	textLen := len([]rune(text))
+	// " text " takes textLen + 2 spaces.
+	remaining := width - textLen - 2
+	if remaining < 6 {
+		// Not enough room — just fill.
+		return string(repeatRune(filler, width))
+	}
+	left := remaining / 2
+	right := remaining - left
+	return string(repeatRune(filler, left)) + " " + text + " " + string(repeatRune(filler, right))
+}
+
+// repeatRune creates a slice of n copies of r.
+func repeatRune(r rune, n int) []rune {
+	if n <= 0 {
+		return nil
+	}
+	out := make([]rune, n)
+	for i := range out {
+		out[i] = r
+	}
+	return out
+}
+
+// regionProduction consumes delineator blocks, extracts the section name, and emits
+// a "region Name" paragraph. The endregion comment is returned via ExtraComments.
+type regionProduction struct {
+	consumes Consumes
+	extra    []DocComment
+}
+
+// Execute extracts the section name from delineator text and emits "region Name".
+func (p *regionProduction) Execute(blocks []comment.Block, cursor int, _ doctaxonomy.SchemaElement, _ styleContext) ([]comment.Block, int) {
+	// Consume all matching blocks, collecting text.
+	var allText []string
+	pos := cursor
+	for pos < len(blocks) && p.consumes.Matches(blockTypeName(blocks[pos])) {
+		if para, ok := blocks[pos].(*comment.Paragraph); ok {
+			allText = append(allText, paragraphPlainText(para))
+		}
+		pos++
+	}
+
+	name := extractSectionName(allText)
+
+	// Primary output: region comment.
+	regionText := "region " + name
+	output := []comment.Block{
+		&comment.Paragraph{Text: []comment.Text{comment.Plain(regionText)}},
+	}
+
+	// Extra output: endregion comment with TODO.
+	endregionText := "endregion " + name + "  TODO(go-style): move to end of section"
+	p.extra = []DocComment{{
+		doc:     &comment.Doc{Content: []comment.Block{&comment.Paragraph{Text: []comment.Text{comment.Plain(endregionText)}}}},
+		present: true,
+		style:   StyleRegionMarker,
+	}}
+
+	return output, pos
+}
+
+// ExtraComments returns the endregion DocComment for insertion after the primary comment.
+func (p *regionProduction) ExtraComments() []DocComment {
+	return p.extra
+}
+
+// extractSectionName extracts a human-readable section name from delineator text.
+func extractSectionName(texts []string) string {
+	for _, text := range texts {
+		for _, line := range strings.Split(text, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			runes := []rune(trimmed)
+			first := runes[0]
+
+			if isDelineatorRune(first) {
+				// Check for banner: extract text between filler runs.
+				if isCenteredBanner(runes, first) {
+					name := extractBannerText(runes, first)
+					if name != "" {
+						return name
+					}
+				}
+				// Pure repeated line — skip.
+				continue
+			}
+
+			// Non-delineator line — this is the content (box comment text).
+			return trimmed
+		}
+	}
+	return "TODO(go-style): add section name"
 }
 
 // listProduction consumes an optional heading paragraph followed by a list block.
@@ -287,7 +554,35 @@ func makeStubList(ctx styleContext, elem doctaxonomy.SchemaElement) *comment.Lis
 	return list
 }
 
-// NewProduction creates a Production from a schema element's production type and consumes string.
+// ProductionFactory creates a Production from a parsed Consumes spec and the full SchemaElement.
+type ProductionFactory func(consumes Consumes, elem doctaxonomy.SchemaElement) Production
+
+var productions = map[string]ProductionFactory{}
+
+// RegisterProduction adds a named production type to the registry.
+func RegisterProduction(name string, factory ProductionFactory) {
+	productions[name] = factory
+}
+
+func init() {
+	RegisterProduction("item", func(c Consumes, _ doctaxonomy.SchemaElement) Production {
+		return &itemProduction{consumes: c}
+	})
+	RegisterProduction("list", func(c Consumes, _ doctaxonomy.SchemaElement) Production {
+		return &listProduction{consumes: c}
+	})
+	RegisterProduction("nil", func(c Consumes, _ doctaxonomy.SchemaElement) Production {
+		return &nilProduction{consumes: c}
+	})
+	RegisterProduction("resize", func(c Consumes, _ doctaxonomy.SchemaElement) Production {
+		return &resizeProduction{consumes: c}
+	})
+	RegisterProduction("region", func(c Consumes, _ doctaxonomy.SchemaElement) Production {
+		return &regionProduction{consumes: c}
+	})
+}
+
+// NewProduction creates a Production from a schema element via the production registry.
 func NewProduction(elem doctaxonomy.SchemaElement) (Production, error) {
 	consumesStr := elem.Consumes
 	if consumesStr == "" {
@@ -322,12 +617,9 @@ func NewProduction(elem doctaxonomy.SchemaElement) (Production, error) {
 		}
 	}
 
-	switch prod {
-	case "item":
-		return &itemProduction{consumes: c}, nil
-	case "list":
-		return &listProduction{consumes: c}, nil
-	default:
-		return &itemProduction{consumes: c}, nil
+	factory, ok := productions[prod]
+	if !ok {
+		factory = productions["item"]
 	}
+	return factory(c, elem), nil
 }

@@ -141,6 +141,9 @@ func schemaFromConfigVal(name string, val interface{}) *doctaxonomy.CommentSchem
 		if f := ev.FieldByName("SlotPrefix"); f.IsValid() {
 			se.SlotPrefix = f.String()
 		}
+		if f := ev.FieldByName("Style"); f.IsValid() {
+			se.Style = f.String()
+		}
 		schema.Elements = append(schema.Elements, se)
 	}
 
@@ -163,26 +166,95 @@ func genDeclName(gd *ast.GenDecl) string {
 }
 
 
-// isDelineatorBlock returns true if the raw comment text contains a delineator line (3+ repeated =, -, ~, or *
-// characters).
+// delineatorASCII is the set of ASCII characters recognized as delineator fillers.
+var delineatorASCII = [256]bool{
+	'=': true, '-': true, '~': true, '*': true,
+	'#': true, '+': true, '^': true, '/': true,
+	'@': true, '%': true, '_': true,
+}
+
+// delineatorUnicode is the set of Unicode box-drawing characters recognized as delineator fillers.
+var delineatorUnicode = map[rune]bool{
+	'─': true, '━': true, '═': true, // solid horizontal
+	'┄': true, '┅': true, // triple dash
+	'┈': true, '┉': true, // quad dash
+	'╌': true, '╍': true, // double dash
+}
+
+// isDelineatorBlock returns true if the raw comment text contains a delineator line.
+// Recognized patterns:
+//   - Pure repeated line: 3+ of the same filler character (ASCII or Unicode box-drawing)
+//   - Centered-text banner: 3+ filler, text, 3+ of the same filler
 func isDelineatorBlock(raw string) bool {
 	for _, line := range strings.Split(raw, "\n") {
-		s := strings.TrimSpace(line)
-		if len(s) >= 3 {
-			first := s[0]
-			if first == '=' || first == '-' || first == '~' || first == '*' {
-				allSame := true
-				for i := 1; i < len(s); i++ {
-					if s[i] != first {
-						allSame = false
-						break
-					}
-				}
-				if allSame {
-					return true
-				}
-			}
+		if isDelineatorLine(strings.TrimSpace(line)) {
+			return true
 		}
 	}
 	return false
+}
+
+// isDelineatorLine returns true if s is a pure repeated line or a centered-text banner.
+func isDelineatorLine(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) < 3 {
+		return false
+	}
+
+	runes := []rune(s)
+	first := runes[0]
+
+	// Check if the first character is a recognized filler.
+	if !isDelineatorRune(first) {
+		return false
+	}
+
+	// Pure repeated line: all characters are the same filler.
+	allSame := true
+	for _, r := range runes[1:] {
+		if r != first {
+			allSame = false
+			break
+		}
+	}
+	if allSame {
+		return true
+	}
+
+	// Centered-text banner: 3+ filler, text, 3+ of the same filler.
+	return isCenteredBanner(runes, first)
+}
+
+// isDelineatorRune returns true if r is recognized as a delineator filler character.
+func isDelineatorRune(r rune) bool {
+	if r < 256 {
+		return delineatorASCII[byte(r)]
+	}
+	return delineatorUnicode[r]
+}
+
+// isCenteredBanner checks if runes form a centered-text banner: 3+ filler, text, 3+ same filler.
+func isCenteredBanner(runes []rune, filler rune) bool {
+	n := len(runes)
+
+	// Count leading filler.
+	lead := 0
+	for lead < n && runes[lead] == filler {
+		lead++
+	}
+	if lead < 3 {
+		return false
+	}
+
+	// Count trailing filler.
+	trail := 0
+	for trail < n && runes[n-1-trail] == filler {
+		trail++
+	}
+	if trail < 3 {
+		return false
+	}
+
+	// There must be non-filler content between the leading and trailing runs.
+	return lead+trail < n
 }

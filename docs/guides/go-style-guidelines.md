@@ -68,22 +68,27 @@ Within each delineator group, methods are **alphabetical**.
 Every exported method (and unexported helpers):
 
 ```go
-// Verb-phrase summary.
+// Name <present-tense verb phrase>.
 //
 // Optional extended description.
-//
-// +devlore:defaults key=value  (if applicable)
 //
 // Parameters:
 //   - paramName: Description (default: value)
 //
 // Returns:
 //   - type: description
+//
+// +devlore:defaults key=value  (if applicable)
 ```
 
-- First line is an imperative verb phrase
+- The first line is the summary: it begins with the identifier name, then a present-tense verb phrase
+  (`Instance returns …`, `Copy copies …`), on **one line**, filled to column 120. Never a bare imperative —
+  Go's `golint` requires the leading name.
+- The optional extended description is **zero or more paragraphs**, each filled to column 120 and separated by a
+  blank `//` line.
 - Parameters and Returns sections always present on exported methods
 - Default values documented inline
+- `+devlore:defaults` directives (when applicable) follow the Returns section
 - Unexported helpers also get full doc comments with Parameters/Returns
 
 ## 5. Struct Design
@@ -217,6 +222,11 @@ Within each group, methods are **alphabetical** — except compensable pairs, wh
 
 ### A.5 Example: `pkg/op/provider/file/provider.go`
 
+This example shows the **region structure and method ordering** only. The [§4](#4-doc-comment-format) doc-comment
+blocks are elided from the exported methods to keep the layout legible — but every method shown carries a full §4
+block (summary + `Parameters:` / `Returns:`), **exported and unexported alike**, as the unexported region at the
+bottom demonstrates in full. Unexported methods are **not** exempt from §4.
+
 ```go
 // region EXPORTED METHODS
 
@@ -262,10 +272,44 @@ func (p *Provider) Parent(path string) string   { ... }
 
 // region Behaviors
 
-func (p *Provider) compensateWrite(undo Tombstone) error                        { ... }
+// compensateWrite restores the bytes displaced by the paired forward write from the tombstone.
+//
+// Parameters:
+//   - `undo`: the tombstone captured by the forward write.
+//
+// Returns:
+//   - `error`: non-nil when the displaced bytes cannot be restored.
+func (p *Provider) compensateWrite(undo Tombstone) error { ... }
+
+// prepareWrite stages a write, capturing the bytes it would displace into a tombstone for compensation.
+//
+// Parameters:
+//   - `resource`: the target resource to write.
+//
+// Returns:
+//   - `Resource`: the staged resource.
+//   - `Tombstone`: the compensation state for the paired compensateWrite.
+//   - `error`: non-nil when staging fails.
 func (p *Provider) prepareWrite(resource Resource) (Resource, Tombstone, error) { ... }
-func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string)  { ... }
-func (p *Provider) write(resource Resource, ...) (Resource, Tombstone, error)   { ... }
+
+// pruneEmptyParents removes now-empty parent directories of `path`, stopping at `boundary`.
+//
+// Parameters:
+//   - `path`: the path whose parents are candidates for pruning.
+//   - `prune`: whether pruning is enabled; false makes this a no-op.
+//   - `boundary`: the directory at which pruning stops.
+func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) { ... }
+
+// write performs the staged write, returning the written resource and its compensation tombstone.
+//
+// Parameters:
+//   - `resource`: the target resource to write.
+//
+// Returns:
+//   - `Resource`: the written resource.
+//   - `Tombstone`: the compensation state.
+//   - `error`: non-nil when the write fails.
+func (p *Provider) write(resource Resource, ...) (Resource, Tombstone, error) { ... }
 
 // endregion
 

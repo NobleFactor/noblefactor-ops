@@ -579,10 +579,641 @@ func TestSourceFile_RealFile_RoundTrip(t *testing.T) {
 	}
 }
 
+func registryWithDelineatorResize(style string) *doctaxonomy.SchemaRegistry {
+	reg := doctaxonomy.DefaultRegistry()
+	reg.Register(doctaxonomy.CommentSchema{
+		Name: "delineator", Format: "go", NodeType: "Delineator",
+		Elements: []doctaxonomy.SchemaElement{
+			{Name: "content", Production: "resize", Consumes: "*(Paragraph / Code / Heading / List)", Style: style, Order: 1},
+		},
+	})
+	return reg
+}
+
+func TestDelineatorResize_ToLineWidth(t *testing.T) {
+	src := `package example
+
+// =====
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorResize(""),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      80,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Should contain a line of 77 '=' chars (80 - 3 for "// ").
+	expected := strings.Repeat("=", 77)
+	if !strings.Contains(got, expected) {
+		t.Errorf("expected 77 '=' chars in output:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func TestDelineatorResize_StyleConversion(t *testing.T) {
+	src := `package example
+
+// -----
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorResize("double"),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      40,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Should contain double horizontal chars.
+	if !strings.Contains(got, "═") {
+		t.Errorf("expected '═' in output:\n%s", got)
+	}
+	// Original '-' should be gone.
+	if strings.Contains(got, "-----") {
+		t.Errorf("original dashes should be replaced:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func TestDelineatorResize_BannerPreservesText(t *testing.T) {
+	src := `package example
+
+// === Public API ===
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorResize(""),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      80,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Text should be preserved.
+	if !strings.Contains(got, "Public API") {
+		t.Errorf("expected 'Public API' in output:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func registryWithDelineatorRegion() *doctaxonomy.SchemaRegistry {
+	reg := doctaxonomy.DefaultRegistry()
+	reg.Register(doctaxonomy.CommentSchema{
+		Name: "delineator", Format: "go", NodeType: "Delineator",
+		Elements: []doctaxonomy.SchemaElement{
+			{Name: "content", Production: "region", Consumes: "*(Paragraph / Code / Heading / List)", Order: 1},
+		},
+	})
+	return reg
+}
+
+func TestDelineatorRegion_Banner(t *testing.T) {
+	src := `package example
+
+// === Public API ===
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorRegion(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      80,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Should have region marker.
+	if !strings.Contains(got, "region Public API") {
+		t.Errorf("expected 'region Public API':\n%s", got)
+	}
+
+	// Should have endregion with TODO.
+	if !strings.Contains(got, "endregion Public API") {
+		t.Errorf("expected 'endregion Public API':\n%s", got)
+	}
+	if !strings.Contains(got, "TODO(go-style)") {
+		t.Errorf("expected TODO marker:\n%s", got)
+	}
+
+	// Original delineator should be gone.
+	if strings.Contains(got, "====") {
+		t.Errorf("original delineator should be replaced:\n%s", got)
+	}
+
+	// Code should survive.
+	if !strings.Contains(got, "func Foo()") {
+		t.Errorf("func Foo() missing:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func TestDelineatorRegion_BoxComment(t *testing.T) {
+	src := `package example
+
+// =============================================================================
+// Provider
+// =============================================================================
+
+// Provider provides operations.
+type Provider struct{}
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorRegion(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      80,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Should have region marker with extracted name.
+	if !strings.Contains(got, "region Provider") {
+		t.Errorf("expected 'region Provider':\n%s", got)
+	}
+	if !strings.Contains(got, "endregion Provider") {
+		t.Errorf("expected 'endregion Provider':\n%s", got)
+	}
+
+	// Type and func should survive.
+	if !strings.Contains(got, "type Provider struct") {
+		t.Errorf("Provider type missing:\n%s", got)
+	}
+	if !strings.Contains(got, "func Foo()") {
+		t.Errorf("func Foo() missing:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func TestDelineatorRegion_PureLine(t *testing.T) {
+	src := `package example
+
+// =============================================================================
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorRegion(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      80,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Should have region with TODO name.
+	if !strings.Contains(got, "region TODO(go-style)") {
+		t.Errorf("expected TODO placeholder name:\n%s", got)
+	}
+	if !strings.Contains(got, "endregion TODO(go-style)") {
+		t.Errorf("expected endregion with TODO name:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
 func firstNLines(s string, n int) string {
 	lines := strings.SplitN(s, "\n", n+1)
 	if len(lines) > n {
 		lines = lines[:n]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// registryWithDelineatorRemoval returns a registry that removes delineator comments.
+func registryWithDelineatorRemoval() *doctaxonomy.SchemaRegistry {
+	reg := doctaxonomy.DefaultRegistry()
+	reg.Register(doctaxonomy.CommentSchema{
+		Name: "delineator", Format: "go", NodeType: "Delineator",
+		Elements: []doctaxonomy.SchemaElement{
+			{Name: "content", Production: "nil", Consumes: "*(Paragraph / Code / Heading / List)", Order: 1},
+		},
+	})
+	return reg
+}
+
+func TestDelineatorRemoval_PureLine(t *testing.T) {
+	src := `package example
+
+// =============================================================================
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorRemoval(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      120,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Delineator should be gone.
+	if strings.Contains(got, "====") {
+		t.Errorf("delineator not removed:\n%s", got)
+	}
+
+	// Code should survive.
+	if !strings.Contains(got, "func Foo()") {
+		t.Errorf("func Foo() missing:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func TestDelineatorRemoval_BoxComment(t *testing.T) {
+	src := `package example
+
+// =============================================================================
+// Provider
+// =============================================================================
+
+// Provider provides operations.
+type Provider struct{}
+
+// =============================================================================
+// Functions
+// =============================================================================
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorRemoval(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      120,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// All delineators should be gone.
+	if strings.Contains(got, "====") {
+		t.Errorf("delineator not removed:\n%s", got)
+	}
+
+	// The text between delineator borders ("Provider", "Functions") was part of
+	// the delineator comment — it gets removed too.
+
+	// Code should survive.
+	if !strings.Contains(got, "type Provider struct") {
+		t.Errorf("Provider type missing:\n%s", got)
+	}
+	if !strings.Contains(got, "func Foo()") {
+		t.Errorf("func Foo() missing:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func TestDelineatorRemoval_CenteredBanner(t *testing.T) {
+	src := `package example
+
+// ========================= Public API =======================================
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorRemoval(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      120,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Banner should be gone.
+	if strings.Contains(got, "====") {
+		t.Errorf("banner not removed:\n%s", got)
+	}
+	if strings.Contains(got, "Public API") {
+		t.Errorf("banner text not removed:\n%s", got)
+	}
+
+	// Code should survive.
+	if !strings.Contains(got, "func Foo()") {
+		t.Errorf("func Foo() missing:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
+}
+
+func TestDelineatorRemoval_BackwardCompat_NoSchema(t *testing.T) {
+	src := `package example
+
+// =============================================================================
+// Provider
+// =============================================================================
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	// Use DefaultRegistry which has NO Delineator schema — delineators should be preserved.
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": doctaxonomy.DefaultRegistry(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      120,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// Delineators should be PRESERVED (no schema to process them).
+	if !strings.Contains(got, "====") {
+		t.Errorf("delineator should be preserved without schema:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+}
+
+func TestDelineatorRemoval_MixedCharacters(t *testing.T) {
+	src := `package example
+
+// #############################################################################
+
+// -----------------------------------------------------------------------------
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+// Foo does something.
+func Foo() {}
+`
+	sf, err := LoadSourceFile(src)
+	if err != nil {
+		t.Fatalf("LoadSourceFile: %v", err)
+	}
+
+	sf.ctx = op.Context{}
+	sf.ctx.Data = map[string]any{
+		"schema_registry": registryWithDelineatorRemoval(),
+		"spacing_rules":   DefaultSpacingRules(),
+		"line_width":      120,
+	}
+
+	tmp := filepath.Join(t.TempDir(), "test.go")
+	sf.filename = tmp
+	sf.Cleanup()
+	if err := sf.SaveAs(tmp); err != nil {
+		t.Fatalf("SaveAs: %v", err)
+	}
+
+	result, err := os.ReadFile(tmp)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(result)
+
+	// All delineator styles should be gone.
+	if strings.Contains(got, "####") {
+		t.Errorf("hash delineator not removed:\n%s", got)
+	}
+	if strings.Contains(got, "----") {
+		t.Errorf("dash delineator not removed:\n%s", got)
+	}
+	if strings.Contains(got, "~~~~") {
+		t.Errorf("tilde delineator not removed:\n%s", got)
+	}
+
+	// Code should survive.
+	if !strings.Contains(got, "func Foo()") {
+		t.Errorf("func Foo() missing:\n%s", got)
+	}
+
+	// Must be valid Go.
+	if _, err := LoadSourceFile(got); err != nil {
+		t.Fatalf("output is not valid Go:\n%v\n%s", err, got)
+	}
+
+	t.Logf("Output:\n%s", got)
 }
