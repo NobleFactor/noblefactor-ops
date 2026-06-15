@@ -11,9 +11,19 @@ Every Go file, in exact order:
 5. **Interface guards** — `var _ op.ContextProvider = (*Provider)(nil)` with `// Interface Guard:` comment
 6. **Package-level vars** — grouped `var ()` blocks with doc comments
 7. **Main struct** — with doc comment and annotations
-8. **Exported types** — e.g., `type Reducer func(...)` with doc comment
-9. **Main struct methods** — exported first, then unexported (see Method Region Hierarchy)
-10. **All other structs and their methods** — alphabetical order, each following the same exported-then-unexported pattern
+8. **Main struct methods** — exported first, then unexported (see Method Region Hierarchy)
+9. **Supporting types** — `region SUPPORTING TYPES` at the end of the file (see [Supporting Types Region](#supporting-types-region))
+
+### Supporting Types Region
+
+Types whose purpose is to support the operation of the file's main type (e.g., `Reducer` supports `file.Provider`) live in
+a `region SUPPORTING TYPES` at the end of the file, after all main-struct methods.
+
+- A supporting struct keeps its own methods with it, inside the region, following the same exported-then-unexported method
+  ordering.
+- Generally-useful types that are **not** tied to the main type belong in their **own files**, not in `SUPPORTING TYPES`.
+- Visibility follows usage: a supporting type referenced **outside** the main type's package is **exported**; otherwise
+  **unexported**.
 
 ## 2. Method Region Hierarchy
 
@@ -178,18 +188,19 @@ type Provider struct {
 }
 ```
 
-### A.2 Tombstone Struct
+### A.2 Receipt Struct
 
-Each provider defines a Tombstone that holds compensation state:
+Each provider defines a Receipt that holds compensation state:
 
-- Embeds `op.TombstoneBase`
+- Embeds `op.ReceiptBase` (which carries the affected [Resource] and the recovery key)
 - Domain-specific fields documented inline with the member
 
 ```go
-// Tombstone holds file-specific compensation state.
-type Tombstone struct {
-	op.TombstoneBase
-	RecoveryPath string // where data was moved during the operation; empty means nothing to recover
+// Receipt holds file-specific compensation state.
+type Receipt struct {
+	op.ReceiptBase
+	boundary *Resource // edge at which parent-directory pruning stops; nil when none
+	source   *Resource // original location for move-like operations; nil when none
 }
 ```
 
@@ -198,15 +209,18 @@ type Tombstone struct {
 Providers implement compensable actions — a forward method paired with its undo:
 
 ```go
-func (p *Provider) Action(args...) (result T, undo Tombstone, err error) { ... }
-func (p *Provider) CompensateAction(undo Tombstone) error { ... }
+func (p *Provider) Action(args...) (result T, receipt Receipt, err error) { ... }
+func (p *Provider) CompensateAction(receipt Receipt) error { ... }
 ```
 
-- Forward returns three values: `(result, undo, error)` — always
-- Compensate takes the tombstone, returns `error`
+- Forward returns three values: `(result, receipt, error)` — always
+- Compensate takes the receipt, returns `error`
 - The pair is **adjacent** — `CompensateX` immediately follows `X`
-- Compensate methods open with a nil-resource guard: `if undo.Resource() == nil { return nil }`
+- Compensate methods open with a nil-resource guard: `if receipt.Resource() == nil { return nil }`
 - Naming: `Compensate` + action name (e.g., `CompensateBackup`, `CompensateCopy`)
+
+A traversal or multi-entry action that accumulates many compensations returns an `*op.RecoveryStack` in place of a
+single `Receipt`; its `CompensateX` unwinds the stack in LIFO order (e.g., `WalkTree` / `CompensateWalkTree`).
 
 ### A.4 Provider Behavior Delineators
 
@@ -214,7 +228,7 @@ Providers add a `// Compensable actions` delineator before the generic ones. The
 
 | Delineator               | Meaning                             | Signature pattern                                             |
 | ------------------------ | ----------------------------------- | ------------------------------------------------------------- |
-| `// Compensable actions` | Forward action paired with its undo | `(result T, undo U, err error)` + `CompensateX(undo U) error` |
+| `// Compensable actions` | Forward action paired with its undo | `(result T, receipt R, err error)` + `CompensateX(receipt R) error` |
 | `// Fallible actions`    | Operations that can fail            | Returns `error` (alone or with other values)                  |
 | `// Actions`             | Infallible operations               | No `error` in return                                          |
 
@@ -240,11 +254,11 @@ func (p *Provider) Root() string { ... }
 
 // Compensable actions
 
-func (p *Provider) Backup(...)    (Resource, Tombstone, error) { ... }
-func (p *Provider) CompensateBackup(undo Tombstone) error      { ... }
+func (p *Provider) Backup(...)    (Resource, Receipt, error) { ... }
+func (p *Provider) CompensateBackup(receipt Receipt) error      { ... }
 
-func (p *Provider) Copy(...)      (Resource, Tombstone, error) { ... }
-func (p *Provider) CompensateCopy(undo Tombstone) error        { ... }
+func (p *Provider) Copy(...)      (Resource, Receipt, error) { ... }
+func (p *Provider) CompensateCopy(receipt Receipt) error        { ... }
 
 // ... Link, Move, Remove, RemoveAll, Unlink, WalkTree, WriteBytes, WriteText
 // ... each followed immediately by its CompensateX
@@ -272,25 +286,25 @@ func (p *Provider) Parent(path string) string   { ... }
 
 // region Behaviors
 
-// compensateWrite restores the bytes displaced by the paired forward write from the tombstone.
+// compensateWrite restores the bytes displaced by the paired forward write from the receipt.
 //
 // Parameters:
-//   - `undo`: the tombstone captured by the forward write.
+//   - `receipt`: the receipt captured by the forward write.
 //
 // Returns:
 //   - `error`: non-nil when the displaced bytes cannot be restored.
-func (p *Provider) compensateWrite(undo Tombstone) error { ... }
+func (p *Provider) compensateWrite(receipt Receipt) error { ... }
 
-// prepareWrite stages a write, capturing the bytes it would displace into a tombstone for compensation.
+// prepareWrite stages a write, capturing the bytes it would displace into a receipt for compensation.
 //
 // Parameters:
 //   - `resource`: the target resource to write.
 //
 // Returns:
 //   - `Resource`: the staged resource.
-//   - `Tombstone`: the compensation state for the paired compensateWrite.
+//   - `Receipt`: the compensation state for the paired compensateWrite.
 //   - `error`: non-nil when staging fails.
-func (p *Provider) prepareWrite(resource Resource) (Resource, Tombstone, error) { ... }
+func (p *Provider) prepareWrite(resource Resource) (Resource, Receipt, error) { ... }
 
 // pruneEmptyParents removes now-empty parent directories of `path`, stopping at `boundary`.
 //
@@ -300,16 +314,16 @@ func (p *Provider) prepareWrite(resource Resource) (Resource, Tombstone, error) 
 //   - `boundary`: the directory at which pruning stops.
 func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) { ... }
 
-// write performs the staged write, returning the written resource and its compensation tombstone.
+// write performs the staged write, returning the written resource and its compensation receipt.
 //
 // Parameters:
 //   - `resource`: the target resource to write.
 //
 // Returns:
 //   - `Resource`: the written resource.
-//   - `Tombstone`: the compensation state.
+//   - `Receipt`: the compensation state.
 //   - `error`: non-nil when the write fails.
-func (p *Provider) write(resource Resource, ...) (Resource, Tombstone, error) { ... }
+func (p *Provider) write(resource Resource, ...) (Resource, Receipt, error) { ... }
 
 // endregion
 
