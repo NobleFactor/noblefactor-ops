@@ -13,6 +13,7 @@ Every Go file, in exact order:
 7. **Main struct** — with doc comment and annotations
 8. **Main struct methods** — exported first, then unexported (see Method Region Hierarchy)
 9. **Supporting types** — `region SUPPORTING TYPES` at the end of the file (see [Supporting Types Region](#supporting-types-region))
+10. **Helper functions** — `region HELPER FUNCTIONS` at the end of the file (see [Helper Functions Region](#helper-functions-region))
 
 ### Supporting Types Region
 
@@ -24,6 +25,17 @@ a `region SUPPORTING TYPES` at the end of the file, after all main-struct method
 - Generally-useful types that are **not** tied to the main type belong in their **own files**, not in `SUPPORTING TYPES`.
 - Visibility follows usage: a supporting type referenced **outside** the main type's package is **exported**; otherwise
   **unexported**.
+
+### Helper Functions Region
+
+Unexported free functions whose purpose is to support the operation of the file's main type live in a
+`region HELPER FUNCTIONS` at the end of the file — the function analog of the
+[Supporting Types Region](#supporting-types-region).
+
+- A free function used in more than one file in the package belongs in `helpers.go` (see §10), not in a
+  `HELPER FUNCTIONS` region.
+- Exported free functions that form part of the package's public API use a `region EXPORTED FUNCTIONS`, not
+  `HELPER FUNCTIONS`.
 
 ## 2. Method Region Hierarchy
 
