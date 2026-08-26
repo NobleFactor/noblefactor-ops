@@ -54,13 +54,26 @@ Applies to `~DEFAULT_BRANCH`, `refs/heads/main`, `refs/heads/develop`, `refs/hea
 
 | Actor | Mode |
 | --- | --- |
-| `OrganizationAdmin` | `always` |
-| `Integration` id `2791147` (the automation app) | `always` |
+| `OrganizationAdmin` | `pull_request` |
+| `Integration` id `2791147` (the automation app) | `pull_request` |
 
-`always` means every rule above, not merely the review requirement. This is what makes
-`gh pr merge --admin` work in the PR scripts, and what lets the automation app merge its own
-cross-repository pull requests in devlore-cli's `knowledge-extract`, `docs-publish`, and `release`
-workflows.
+`pull_request` mode is an override at merge and nothing else. **Direct pushes to `main`, `develop`,
+and `release/*` are refused for everyone**, organization admins and the automation app included.
+Both can still merge a pull request whose required checks are failing or whose review is missing,
+which is what keeps `gh pr merge --admin` working in the PR scripts and lets the automation app
+merge its own cross-repository pull requests in devlore-cli's `knowledge-extract`, `docs-publish`,
+and `release` workflows.
+
+Until 2026-08-26 both actors held `always`, which exempted them from **every** rule in every
+circumstance — including the `pull_request` rule requiring a pull request at all. A direct push to a
+protected branch was therefore possible for an admin and for the app, contrary to the policy stated
+below and to every previous revision of this document. Narrowed deliberately: you must at least look
+at the CI results.
+
+One workflow relied on the removed behavior. `devlore-registry`'s `update-indexes.yaml` triggers on
+push to `develop`/`main`/`release/*`, then commits and runs a bare `git push` back into the branch
+that triggered it. That push is now refused, and the workflow must be reworked to open a pull
+request as devlore-cli's three already do.
 
 `strict` is deliberately **false**. Enabling it would require every pull request to be current with
 its base before merging, which on a five-leg matrix means re-running ten checks each time the base
@@ -82,8 +95,14 @@ A branch outside that set cannot be pushed by anyone. Worth knowing before namin
 
 ## Required checks
 
-`quality-gate` is the **minimum**, and the only check an organization ruleset can require, because
-it is the only one every repository produces.
+**Every required check must pass.** There is no partial credit and no leg that reports for
+information only. The sole exception is a bypass actor — an organization admin or a repository
+admin — who may override at merge, having looked at the results.
+
+`quality-gate` is the **minimum**, and the only check an *organization* ruleset can require, because
+it is the only one every repository produces. That is a statement about where a requirement can be
+declared, not about how much is required: a repository carrying a tier-2 ruleset requires everything
+in it, and a red leg blocks the merge for anyone who is not a bypass actor.
 
 Cross-platform repositories require more. Building for a platform proves the code compiles there;
 it does not prove it runs. Every supported platform must therefore report **both**:
@@ -147,7 +166,14 @@ gh api "repos/NobleFactor/<repo>/commits/$sha/check-runs" --jq '.check_runs[] | 
 
 ### Where tier 2 lives
 
-In a **repository** ruleset, not the organization one. `test (darwin-arm64)` exists only in
+In a **repository** ruleset, not the organization one.
+
+The first instance is **21539972 — "Cross-platform required checks"** on devlore-cli, created
+2026-08-26. It requires all eleven contexts — `quality-gate` plus the ten platform legs, so a
+repository's full requirement is legible in one place rather than split across two rulesets — over
+the same refs as the organization ruleset, with `strict` false and both bypass actors at
+`pull_request`.
+ `test (darwin-arm64)` exists only in
 devlore-cli; requiring it org-wide would leave devlore-registry and noblefactor-ops waiting forever
 for a check that never arrives, blocking every merge in both.
 
@@ -181,8 +207,10 @@ gh api repos/NobleFactor/<repo>/rulesets --method POST --input repo-ruleset.json
 ## Rationale
 
 1. **Squash-only merges** — clean, linear history on protected branches.
-2. **Required reviews** — peer review for contributors; admins bypass review, never the PR itself.
-3. **No direct pushes** — every change carries an audit trail and CI validation.
+2. **Required reviews** — peer review for contributors; admins override review at merge, never the
+   pull request itself.
+3. **No direct pushes, by anyone** — every change carries an audit trail and CI validation, and an
+   override is a decision made after looking at the results, not a way to avoid producing them.
 4. **`quality-gate` everywhere** — one check every repository can honor.
 5. **Per-platform `test` and `scenario` where platforms are shipped** — a cross-compile proves the
    target builds, not that it runs. Both suites, on the platform itself, or the claim is untested.
@@ -191,6 +219,9 @@ gh api repos/NobleFactor/<repo>/rulesets --method POST --input repo-ruleset.json
 ## Changelog
 
 - 2026-01-27: Initial policy created and applied to all 5 NobleFactor repositories
+- 2026-08-26: Both bypass actors on ruleset 12426847 narrowed from `always` to `pull_request`, so
+  direct pushes to protected branches are refused for everyone including organization admins and the
+  automation app. Recorded the first tier-2 repository ruleset, 21539972 on devlore-cli.
 - 2026-08-25: Rewritten against the live configuration. The previous revision described a
   per-repository ruleset named "Protect main branches" carrying a single `pull_request` rule and a
   `RepositoryRole` bypass limited to `pull_request` mode. None of that matches what is enforced:
