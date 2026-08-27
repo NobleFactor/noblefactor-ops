@@ -1,0 +1,13 @@
+# Words codespell flags that are correct here. Lowercase, one per line — codespell folds case.
+#
+# aks          Azure Kubernetes Service
+# som          Serviceable Obtainable Market, in the TAM/SAM/SOM breakdown
+# thirdparty   appears inside a Google documentation URL, not prose
+# unparseable  a valid spelling, and the name of a confidence level in the product
+aks
+som
+thirdparty
+unparseable
+# `runn` appears in PLAN-starlark-extensions.md as the *example* of a typo'd attribute in an
+# error message -- `struct has no .runn attribute`. Correcting it would destroy the illustration.
+runn

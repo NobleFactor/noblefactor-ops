@@ -1,92 +1,58 @@
 ---
 title: "noblefactor-ops"
-description: "Team site for NobleFactor projects - operations tooling for release signing, key management, and cross-repo automation"
+description: "The organization's documented standards, and the historical record of the star tooling that moved to devlore-cli"
 ---
 
 # noblefactor-ops
 
-Team site for NobleFactor projects. **This repository is private.**
+**This repository is private.** It holds documents. It builds nothing.
 
-- **nf-ops** — Operations tooling: release signing, key management, registry maintenance, and cross-repo automation
+## What is here
 
-## Purpose
+### The standards CLAUDE.md points at
 
-This repository contains shared operations tooling for all NobleFactor projects:
+| Document | Defines |
+| --- | --- |
+| [docs/documentation-standards.md](docs/documentation-standards.md) | Frontmatter: the two document families and their vocabularies |
+| [docs/plans/TEMPLATE.md](docs/plans/TEMPLATE.md) | The plan document every task begins with |
+| [docs/guides/pr-script-template.md](docs/guides/pr-script-template.md) | The PR script format |
+| [docs/guides/go-style-guidelines.md](docs/guides/go-style-guidelines.md) | Go file layout, naming, comments, tests |
+| [docs/github-branch-protection.md](docs/github-branch-protection.md) | Branch protection and required checks |
 
-- Release signing ceremonies (YubiKey/HSM required)
-- SSH key generation and rotation
-- INDEX.yaml generation and signing
-- Registry maintenance utilities
-- Cross-repo automation (token rotation, deploy workflows)
+`.github/scripts/Test-Frontmatter.sh` is the reference implementation of the frontmatter standard.
+Repositories adopting the gate should use that script rather than a variant, so a document valid in
+one repository is valid in all of them.
 
-## Building
+### The record of the star work
 
-```bash
-make build          # Build nf-ops to bin/
-```
+`docs/architecture/` and `docs/plans/` describe the design and construction of `star` and its
+extensions. That code moved to **devlore-cli** in March 2026 and was removed from this repository on
+2026-08-27; these documents are the record of how it came to be, so the paths they cite no longer
+resolve here. They are kept deliberately — the reasoning outlived the code.
 
-## Installing
+Anything about `star` as it exists today belongs in devlore-cli.
 
-```bash
-make install        # Install to ~/.local/bin (or GOBIN)
-```
+### Infrastructure setup
 
-## Commands
+`scripts/setup-azure-swa.sh`, `scripts/setup-github-repo.sh`, and `scripts/setup-ground-zero.sh`.
 
-```bash
-# Key management (ADR-040)
-nf-ops key generate --type release      # Generate release signing key
-nf-ops key generate --type ci           # Generate CI signing key
-nf-ops key rotate --key release         # Rotate release key with ceremony
-nf-ops key list                         # List all managed keys
+## What is not here, despite what this file used to say
 
-# Release signing
-nf-ops sign pmm <path>                  # Sign a PMM with release key
-nf-ops sign index                       # Generate and sign INDEX.yaml
-nf-ops sign binary <path>               # Sign a release binary
+Earlier revisions of this README described an `nf-ops` binary with key-ceremony, signing, and
+registry-audit commands, and a `cmd/nf-ops` / `internal/{ceremony,signing,index,audit}` layout. None
+of that was ever built. The only command this repository ever held was `cmd/star`, a copy left
+behind by the March move — which devlore-registry's CI went on building for five months, producing
+the wrong binary and the failure tracked as devlore-cli#695.
 
-# Registry maintenance
-nf-ops registry reindex                 # Regenerate INDEX.yaml
-nf-ops registry verify                  # Verify all PMM signatures
-nf-ops registry audit                   # Audit trail report
-```
+Release signing and key management remain unimplemented. When they are built, they need an ADR
+before a README.
 
-## Security Model
+## CI
 
-This tool is designed for **ceremony-based operations**:
-
-1. **Human presence required** — Most operations require interactive confirmation
-2. **Hardware key support** — Release signing expects YubiKey/HSM
-3. **Audit logging** — All operations logged for compliance
-4. **No CI secrets** — Release keys never stored in CI; signing happens post-build
-
-See [ADR-040: SSH Key Ceremony](https://github.com/NobleFactor/noblefactor/blob/main/lore/design/adr/040-ssh-key-ceremony.md) for the full key management protocol.
-
-## Project Structure
-
-```text
-noblefactor-ops/
-├── cmd/
-│   └── nf-ops/main.go        # nf-ops entry point
-├── internal/
-│   ├── ceremony/             # Key ceremony workflows
-│   ├── signing/              # SSH signing operations
-│   ├── index/                # INDEX.yaml generation
-│   └── audit/                # Audit logging
-├── Makefile
-└── go.mod
-```
-
-## CI Integration
-
-This repo's CI does **not** perform signing. Instead:
-
-1. `devlore-cli` CI builds unsigned artifacts
-2. Human runs ceremony from this repo to sign
-3. Signatures uploaded to release
-
-For INDEX.yaml (lower-trust operation), a CI-specific key may be used.
+One job, `quality-gate`: frontmatter validation and spelling. The name is fixed — organization
+ruleset 12426847 requires that context on every repository, so renaming it would leave a required
+check that never arrives.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).

@@ -1,0 +1,18 @@
+# Tracked markdown that legitimately carries no document frontmatter.
+#
+# Listed one path per line, exactly as `git ls-files` prints it. A new entry here is a decision a
+# reviewer should see, which is why this is a list rather than a pattern.
+
+# Historical records of work on code this repository no longer holds. star and its extensions moved
+# to devlore-cli in March 2026 and the Go trees were removed in this commit; these documents describe
+# what was done and why, and their paths dangle by design. Adding frontmatter to a closed record
+# would be editing history to satisfy a gate, so they are exempted instead.
+docs/architecture/star-source-analysis-api.md
+docs/plans/nil-production-comment-removal.md
+docs/plans/shared-provider-receivers-phase5-analysis.md
+draft-star-lint-deadcode.md
+
+# A style guide, reader-facing rather than a catalogued document -- the same call the site repository
+# made for its migration guides. It would benefit from `title` and a `type`, which is a content
+# decision and not a gate one; this entry should go when that happens.
+docs/guides/go-style-guidelines.md
