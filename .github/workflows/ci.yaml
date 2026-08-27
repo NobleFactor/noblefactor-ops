@@ -1,5 +1,16 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 name: CI
+
+# This repository holds the organization's standards -- the PR script template, the Go style
+# guidelines, the branch-protection policy, and the plan template CLAUDE.md mandates -- plus the
+# architecture and plan records of the star work that moved to devlore-cli in March 2026. It builds
+# nothing. The gate is therefore what a documents repository can actually assert: that the
+# frontmatter is well formed against the standard this repository itself defines, and that the prose
+# is not misspelled.
+#
+# The job name must stay `quality-gate`. Organization ruleset 12426847 requires that context on every
+# repository, so renaming it would leave a required check that never arrives -- which blocks every
+# pull request rather than none.
 
 on:
   push:
@@ -8,58 +19,26 @@ on:
     branches: [develop]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
-    env:
-      GOPRIVATE: github.com/NobleFactor/*
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      # Enforces docs/documentation-standards.md, which this repository defines for the whole
+      # organization. Two document families, one rule: a document declaring `type` is a catalogue
+      # document and takes decision statuses; one without is a working document and takes the
+      # lifecycle statuses from docs/plans/TEMPLATE.md.
+      - name: Frontmatter
+        run: ./.github/scripts/Test-Frontmatter.sh
+
+      # Prose is the product here. codespell has a low false-positive rate; new exceptions go in
+      # .github/codespell-ignore, one word per line.
+      - name: Spelling
+        uses: codespell-project/actions-codespell@v2
         with:
-          go-version-file: go.mod
-
-      - name: Generate app token
-        id: app-token
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
-          private-key: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
-          owner: NobleFactor
-          repositories: devlore-cli
-
-      - name: Configure private module access
-        run: git config --global url."https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Check go.mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum
-
-      - name: Build
-        run: go build ./...
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Install lint tools
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0
-          go install mvdan.cc/sh/v3/cmd/shfmt@latest
-          sudo apt-get update && sudo apt-get install -y shellcheck
-          golangci-lint version
-
-      - name: Lint Go
-        run: go run ./cmd/star lint go
-
-      - name: Test
-        run: go test ./... -timeout 60s
-
-      - name: Lint Shell
-        run: go run ./cmd/star lint shell
-
-      - name: Code metrics
-        run: |
-          go install github.com/boyter/scc/v3@latest
-          scc --count-as "star:Python" .
+          ignore_words_file: .github/codespell-ignore
+          skip: ./.git,*.svg,*.wasm,*.lock
