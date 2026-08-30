@@ -5,7 +5,7 @@ type: Process
 audience: Engineers, Claude Code
 status: Approved
 created: 2026-03-16
-updated: 2026-03-16
+updated: 2026-08-30
 ---
 
 # PR Script Template
@@ -13,6 +13,35 @@ updated: 2026-03-16
 Standard structure for the bash PR script that Claude Code generates to
 `~/Workspace/NobleFactor/go`. Each script is self-contained: stage, commit, push,
 create PR, verify CI, verify mergeability, squash merge, clean up.
+
+---
+
+## The pre-flight command is discovered, not remembered
+
+The example below shows `.github/scripts/shell-lint.sh`, which is what the `personal` repository's
+workflow invokes. **Do not copy it.** Read `.github/workflows/*` in the repository you are working
+in and use what it actually runs:
+
+| Repository | CI entry point |
+| --- | --- |
+| `personal` | `.github/scripts/shell-lint.sh` |
+| `devlore-cli` | `make vet-all`, `make lint-all`, `./build/star lint go ./...` |
+| `noblefactor-ops` | `./.github/scripts/Test-Frontmatter.sh`, `codespell` |
+
+Where a repository routes through a build tool, call the target rather than the underlying binary:
+the target is what CI runs and it carries the flags. Where CI uses a GitHub Action rather than a
+command — `codespell-project/actions-codespell`, say — run the CLI it wraps with the same
+arguments the workflow passes it.
+
+Read the workflow each time rather than trusting this table. It went stale during the change that
+introduced it: `noblefactor-ops` dropped its Go trees and re-based its gate on documents while this
+edit was in the working tree, turning a `go build` pre-flight into a command with nothing to
+build.
+
+This step exists because a hand-rolled subset of the gate will differ from it eventually. On
+2026-08-30 a `personal` PR pre-flighted with `shellcheck` alone and failed CI on `shfmt`, after the
+issue, branch, commit and PR already existed. The remedy is not a longer checklist; it is to stop
+maintaining a second copy of the gate.
 
 ---
 
@@ -28,6 +57,15 @@ cd ~/Workspace/NobleFactor/<repo>
 git add \
   path/to/file1 \
   path/to/file2
+
+# --- Pre-flight: the repository's own gate, not an approximation of it ---
+#
+# Run what CI runs. Passing here must mean passing there, which is only true if it is literally
+# the same command. Placed before the commit so a failure costs nothing -- no branch, no issue,
+# no PR to recover.
+#
+# set -euo pipefail aborts on a non-zero exit. Do not wrap this in an if.
+.github/scripts/shell-lint.sh
 
 # Commit
 git commit -m "$(cat <<'EOF'
