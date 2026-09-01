@@ -14,6 +14,7 @@ description: "The organization's documented standards, and the historical record
 | Document | Defines |
 | --- | --- |
 | [docs/documentation-standards.md](docs/documentation-standards.md) | Frontmatter: the two document families and their vocabularies |
+| [docs/guides/development-process.md](docs/guides/development-process.md) | How work is organized: one worktree, issue triage, plans, documents on every commit |
 | [docs/plans/TEMPLATE.md](docs/plans/TEMPLATE.md) | The plan document every task begins with |
 | [docs/guides/pr-script-template.md](docs/guides/pr-script-template.md) | The PR script format |
 | [docs/guides/go-style-guidelines.md](docs/guides/go-style-guidelines.md) | Go file layout, naming, comments, tests |
