@@ -22,7 +22,7 @@ in [release-process.md](release-process.md); the two are read together.
 
 | Section | Status | Notes |
 |---------|--------|-------|
-| The unit of work | Approved | One issue, one worktree |
+| The unit of work | Approved | Feature spans issues; worktree is a pull request; session is an issue |
 | Discovering issues mid-work | Approved | Log, then decide where it is resolved |
 | Blocking issues | Approved | Definition and the choice it forces |
 | Plans | Approved | Named after the issue; committed before the work begins |
@@ -36,8 +36,21 @@ in [release-process.md](release-process.md); the two are read together.
 **A branch requires an issue.** A branch names work; work is tracked. A branch attached to nothing is a
 claim nobody can find later, and the issue is what makes it findable from the outside.
 
-**One open worktree at a time.** Not one branch — one worktree. Work happens in one place, and its state
-is legible at a glance because there is only one place to look.
+**Three things nest, and they are not the same size.**
+
+| | What it is | How many at once |
+|---|---|---|
+| **Feature** | A body of work spanning several linked issues | Many, in parallel |
+| **Worktree** | One pull request, resolving one or more of that feature's issues | One per pull request |
+| **Session** | One issue, worked to completion | One per issue |
+
+**A feature groups the issues that serve it.** Many features may be in flight at once. The feature is
+what makes a set of otherwise unrelated issues legible as one intent.
+
+**A worktree is a pull request.** It branches from the default branch and resolves one or more of its
+feature's issues. As many worktrees may be open as there are pull requests in flight; they do not
+compete for attention, because `git-open-branch` names each one `<repo>.<issue>-<name>` and a directory
+listing is therefore the whole picture. Legibility comes from naming, not from scarcity.
 
 Within that worktree:
 
@@ -45,6 +58,19 @@ Within that worktree:
 - **No pull request until every issue in that worktree is resolved.** A worktree is finished as a whole
   or not at all. Opening a pull request while one of its issues is outstanding either strands that issue
   or drags it into a second branch.
+
+**A session targets a single issue and works it to completion.** Not a worktree's worth of work — one
+issue. A session that drifts across issues leaves each of them half-described in the middle of another's
+context, and produces a conversation nobody can resume with a clear question in mind.
+
+**A session is disposable and easily resumed.** Closing one is normal and costs nothing: `Start-Claude`
+resumes the conversation belonging to that repository and branch. That is what makes a session per issue
+affordable. Were resuming expensive, sessions would grow to fit the worktree and stop bounding anything.
+
+**A session declares the feature it serves.** `Start-Claude --issue <feature>` titles it from that
+issue, giving `<repository> | <branch> | <feature>`. The branch already names the issue that opened the
+worktree, so titling by the feature is what tells parallel sessions apart — with several features in
+flight, the session name is the only thing distinguishing one from another at a glance.
 
 A pull request resolves one or more issues. Nothing else is acceptable in it. Work that resolves no issue
 is a stray commit, and a stray commit is how a change arrives that nobody can explain six months later.
@@ -64,7 +90,7 @@ choice is not one of them:
 
 | Decision | What follows |
 |----------|--------------|
-| **In the current worktree** | Add it to the current plan. It joins the set that must be resolved before this worktree can open a pull request. |
+| **In the current worktree** | Add it to the current plan. It joins the set that must be resolved before this worktree can open a pull request, and it gets its own session — not more work inside the one in hand. |
 | **Elsewhere** | Create the plan for that worktree and its issue. Reference that plan and its issue number from the current plan. |
 
 The cross-reference is the point. A plan that mentions a problem without saying where it is handled has
@@ -150,6 +176,12 @@ create a branch without an issue, derives the branch name from that issue's labe
 is a consequence of the work rather than of the typist, and creates the worktree. `git-close-branch`
 verifies a pull request is merged before it deletes anything, removes the worktree, and deletes the
 branch locally and on the remote.
+
+`Start-Claude` implements the session rules. It opens a session named
+`<repository> | <branch> | <feature>`, takes the feature from `--issue`, and resumes the conversation
+belonging to that repository and branch. It is what makes a session disposable in practice rather than
+in principle: without cheap resumption there is no reason to close one, and a session that is never
+closed stops bounding a single issue.
 
 The rules in this document are normative on their own. The scripts make them convenient and hard to
 forget; they do not define them, and a team without the scripts is held to the same process.

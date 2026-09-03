@@ -10,8 +10,8 @@ updated: 2026-09-01
 
 ## Summary
 
-The discipline we work by — one issue at a time, one open worktree, a plan committed before the work, and
-every document updated on every commit — is practiced and unwritten. This plan adds
+The discipline we work by — a session per issue, a worktree per pull request, a plan committed before the
+work, and every document updated on every commit — is practiced and unwritten. This plan adds
 `docs/guides/development-process.md` as a new guide, indexes it in the README's standards table, and
 records why it is a separate document rather than a section of the existing process guide.
 
@@ -47,8 +47,11 @@ README's standards table, which a subsection cannot.
 
 ### Requirement 2: The four rules, stated normatively
 
-- **One open worktree at a time.** More than one issue may be resolved in it; no pull request until every
-  issue in that worktree is resolved.
+- **Three nested units: feature, worktree, session.** A feature spans linked issues and many run in
+  parallel; a worktree is one pull request and may resolve more than one of its feature's issues, with no
+  pull request until every one of them is resolved; a session targets a single issue and is disposable
+  and easily resumed. *(Revised by issue #135. As first written this read "one open worktree at a time,"
+  which contradicted practice.)*
 - **Issues are logged on discovery**, and where each is resolved is decided at that moment — current
   worktree (added to the current plan) or elsewhere (a plan created for it, cross-referenced from the
   current plan).

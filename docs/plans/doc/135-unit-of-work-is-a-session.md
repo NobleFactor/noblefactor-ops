@@ -78,32 +78,34 @@ session name is the only thing distinguishing one from another at a glance.
 
 ## Implementation Phases
 
-### Phase 1: The unit of work
+### Phase 1: The unit of work — complete
 
-- [ ] Replace the section with the three nested units
-- [ ] Retire "One open worktree at a time" and keep its legibility rationale, re-grounded on naming
-- [ ] State the session, disposable and easily resumed
-- [ ] State the feature and how a session declares it
+- [x] Replace the section with the three nested units
+- [x] Retire "One open worktree at a time" and keep its legibility rationale, re-grounded on naming
+- [x] State the session, disposable and easily resumed
+- [x] State the feature and how a session declares it
 
-### Phase 2: Consequential edits
+### Phase 2: Consequential edits — complete
 
-- [ ] `Discovering issues mid-work`
-- [ ] Section Status row
-- [ ] Reference implementation
-- [ ] Correct Requirement 2 of plan 133
+- [x] `Discovering issues mid-work`
+- [x] Section Status row
+- [x] Reference implementation
+- [x] Correct Requirement 2 of plan 133
 
 ## Files to Create/Modify
 
 | File | Action | Purpose |
 | --- | --- | --- |
 | `docs/guides/development-process.md` | Modify | The revision |
+| `docs/guides/release-process.md` | Modify | Its cross-reference asserted the retired rule |
 | `docs/plans/doc/133-development-process.md` | Modify | Stop asserting the retired rule |
 | `docs/plans/doc/135-unit-of-work-is-a-session.md` | Create | This plan |
 
 ## Out of Scope
 
-- `release-process.md`. Branching and release mechanics are unaffected by which unit bounds a piece
-  of work.
+- `release-process.md`'s branching and release mechanics, which are unaffected by which unit bounds a
+  piece of work. Its one-line cross-reference to this guide did assert the retired rule, and is
+  corrected here.
 - `docs/guides/powershell-style-guidelines.md`, which is untracked in this repository. Committing it
   resolves no issue in this pull request and belongs to its own.
 

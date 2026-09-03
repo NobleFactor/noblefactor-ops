@@ -12,8 +12,8 @@ updated: 2026-02-11
 
 This document defines the branching strategy, release workflow, and quality gates for Noble Factor projects.
 
-How work is *organized* — one issue at a time, one open worktree, a plan committed before the work, and
-every document updated on every commit — is in
+How work is *organized* — a feature spanning issues, a worktree per pull request, a session per issue, a
+plan committed before the work, and every document updated on every commit — is in
 [development-process.md](development-process.md). The two are read together.
 
 ---
