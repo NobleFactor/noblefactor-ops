@@ -109,6 +109,13 @@ session name is the only thing distinguishing one from another at a glance.
 - `docs/guides/powershell-style-guidelines.md`, which is untracked in this repository. Committing it
   resolves no issue in this pull request and belongs to its own.
 
+## Issue 135
+
+[The unit of work is a session, not a worktree, and features run in
+parallel](https://github.com/NobleFactor/noblefactor-ops/issues/135)
+
+The whole plan serves this one issue.
+
 ## Related Documents
 
 - Issue #135
