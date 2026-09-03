@@ -124,6 +124,8 @@ The whole plan serves this one issue.
   because it revises the same document
 - [137-powershell-style-guidelines.md](137-powershell-style-guidelines.md) — issue #137, resolved in this worktree
   because the guide belongs beside these revisions
+- [138-squash-never-delete-branch.md](138-squash-never-delete-branch.md) — issue #138, resolved in this worktree
+  because it revises a process document this pull request carries
 - [133-development-process.md](133-development-process.md) — issue #133, the guide this revises
 - `docs/guides/development-process.md` — the document under revision
 
