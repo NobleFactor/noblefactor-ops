@@ -106,8 +106,9 @@ session name is the only thing distinguishing one from another at a glance.
 - `release-process.md`'s branching and release mechanics, which are unaffected by which unit bounds a
   piece of work. Its one-line cross-reference to this guide did assert the retired rule, and is
   corrected here.
-- `docs/guides/powershell-style-guidelines.md`, which is untracked in this repository. Committing it
-  resolves no issue in this pull request and belongs to its own.
+- `docs/guides/powershell-style-guidelines.md` is committed in this worktree under its own issue,
+  #137, not under this one. It rides in the same pull request because it belongs beside these
+  revisions, and it is listed here so this plan does not appear to claim it.
 
 ## Issue 135
 

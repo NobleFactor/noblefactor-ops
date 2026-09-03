@@ -1,7 +1,7 @@
 ---
 title: "Every issue links its plan and design documents, and the process does not say so"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/136
-status: in-progress
+status: complete
 created: 2026-09-03
 updated: 2026-09-03
 ---
@@ -65,11 +65,11 @@ and the plan arrives at the moment the process already places it.
 
 ## Implementation Phases
 
-### Phase 1: The guide
+### Phase 1: The guide — complete
 
-- [ ] Add the rule under **Plans** in `docs/guides/development-process.md`
-- [ ] Revise the **Plans** row of the Section Status table
-- [ ] Add the table to this issue and to #135, so the guide's own issues obey it
+- [x] Add the rule under **Plans** in `docs/guides/development-process.md`
+- [x] Revise the **Plans** row of the Section Status table
+- [x] Add the table to this issue and to #135, so the guide's own issues obey it
 
 ## Files to Create/Modify
 
