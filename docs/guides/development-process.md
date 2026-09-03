@@ -25,7 +25,7 @@ in [release-process.md](release-process.md); the two are read together.
 | The unit of work | Approved | Feature spans issues; worktree is a pull request; session is an issue |
 | Discovering issues mid-work | Approved | Log, then decide where it is resolved |
 | Blocking issues | Approved | Definition and the choice it forces |
-| Plans | Approved | Named after the issue; committed before the work begins |
+| Plans | Approved | Named after the issue; committed before the work begins; every issue ends with a linked table of its plan and design documents |
 | Documents on every commit | Approved | No deviations |
 | Reference implementation | Approved | `git-open-branch`, `git-close-branch` |
 
@@ -145,6 +145,33 @@ afterwards is a description, and a description cannot be reviewed as a proposal 
 it would have surfaced have already been made.
 
 The order is: issue, then branch, then plan committed on that branch, then review, then the work.
+
+**Two issues may share a plan.** A worktree may resolve more than one issue, and the second need not
+open a plan of its own when the first already describes the work. When it does open one, it is named
+for its own issue, so the path rule above bends only in the branch segment: the branch carries the
+issue that opened the worktree, and the plan carries the issue it serves.
+
+**A plan carries an `## Issue NNN` heading for every issue it serves.** The number alone — no `#`,
+no title. GitHub makes a heading's anchor from its text, so a heading that carries the title breaks
+every link to it the moment the title is reworded. The number alone yields `#issue-nnn`, which cannot
+change, and a link into a shared plan lands on the section for that issue rather than the top of a
+document about something else.
+
+**Every issue ends with a table of its documents.** Headed `## Plan and design documents`, two
+columns, `Kind` and `Document`: one row for the plan and one for each design document the issue
+bears on. Each row is a link to a committed file, not a title. Design documents are not required — an
+issue that touches none carries the plan row alone — but where they exist they are linked, because a
+title is something the reader has to go and find.
+
+Links go to the **default branch**, `main` or `develop`. Such a link is dead until the branch merges
+and correct forever after. A link to the feature branch is the other way round: correct while the
+work is open, then dead when `git-close-branch` deletes the branch — which is the moment the issue
+closes and becomes most likely to be read.
+
+An issue whose branch has not opened has no plan yet, and its plan row says so rather than being
+omitted. The plan arrives when the branch does, as the order above already places it, and the row is
+completed then. Every issue carries the table from the day it is filed; the plan link is the one row
+that is expected to start empty.
 
 ---
 

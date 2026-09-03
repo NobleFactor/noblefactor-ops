@@ -119,6 +119,8 @@ The whole plan serves this one issue.
 ## Related Documents
 
 - Issue #135
+- [136-issue-document-table.md](136-issue-document-table.md) — issue #136, resolved in this worktree
+  because it revises the same document
 - [133-development-process.md](133-development-process.md) — issue #133, the guide this revises
 - `docs/guides/development-process.md` — the document under revision
 
