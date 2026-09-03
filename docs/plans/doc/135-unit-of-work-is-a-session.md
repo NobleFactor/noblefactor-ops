@@ -121,6 +121,8 @@ The whole plan serves this one issue.
 - Issue #135
 - [136-issue-document-table.md](136-issue-document-table.md) — issue #136, resolved in this worktree
   because it revises the same document
+- [137-powershell-style-guidelines.md](137-powershell-style-guidelines.md) — issue #137, resolved in this worktree
+  because the guide belongs beside these revisions
 - [133-development-process.md](133-development-process.md) — issue #133, the guide this revises
 - `docs/guides/development-process.md` — the document under revision
 
