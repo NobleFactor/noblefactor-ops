@@ -36,6 +36,10 @@ in [release-process.md](release-process.md); the two are read together.
 **A branch requires an issue.** A branch names work; work is tracked. A branch attached to nothing is a
 claim nobody can find later, and the issue is what makes it findable from the outside.
 
+What that issue must carry — its kind, its place in the hierarchy, and the markers that put it there
+— is [issue-standards.md](../issue-standards.md). This document begins where that one ends: it
+assumes a well-classified issue and describes how the work around it is organized.
+
 **Three things nest, and they are not the same size.**
 
 | | What it is | How many at once |
@@ -219,6 +223,7 @@ forget; they do not define them, and a team without the scripts is held to the s
 
 - [release-process.md](release-process.md) — branching strategy, releases, rollback, tagging
 - [docs/plans/TEMPLATE.md](../plans/TEMPLATE.md) — the plan every task begins with
+- [docs/issue-standards.md](../issue-standards.md) — issue kinds, the hierarchy, and triage attributes
 - [docs/documentation-standards.md](../documentation-standards.md) — frontmatter families
 - [docs/github-branch-protection.md](../github-branch-protection.md) — protected branches and required checks
 - [pr-script-template.md](pr-script-template.md) — the PR script format

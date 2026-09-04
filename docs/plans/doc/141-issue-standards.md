@@ -1,7 +1,7 @@
 ---
 title: "Issue standards: write down the hierarchy a script already enforces"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/141
-status: draft
+status: complete
 created: 2026-09-04
 updated: 2026-09-04
 ---
@@ -87,23 +87,56 @@ for a separate issue, not corrected in passing.
 
 ## Implementation Phases
 
-### Phase 1: Write the document (status: pending)
+### Phase 1: Write the document (status: complete)
 
 `docs/issue-standards.md`, frontmatter per `documentation-standards.md`. Source of truth is the
 `Get-EpicReport` header plus the behaviour of `--audit`, read together so the document describes what
 the tool does rather than what its comment says it does.
 
-### Phase 2: Reference it from the process guide (status: pending)
+### Phase 2: Reference it from the process guide (status: complete)
 
 `development-process.md` gains a pointer where it introduces the unit of work, and
 `## References` gains a row.
 
-### Phase 3: Verify (status: pending)
+### Phase 3: Verify (status: complete)
 
 - The document's frontmatter passes `Test-Frontmatter.sh`
 - Every rule in it is checked against `--audit`'s actual behaviour, not only the header comment
 - The kinds listed match the labels `Get-EpicReport` accepts
 - Spelling passes `codespell` with the repository's ignore file
+
+## Verification
+
+Every rule was checked against `--audit`'s behaviour rather than the header comment, because a
+comment being the only specification is the problem this document exists to fix.
+
+| Documented | Implementation |
+| --- | --- |
+| Five kinds | the jq filter accepts exactly `epic`, `feature`, `task`, `bug`, `chore` |
+| `**Feature:**` drives placement, not classification | `parentFeature` feeds `$placement`; it is absent from the faults list |
+| Only open issues are audited | `faults: (if .state == "OPEN" then faults else [] end)` |
+| A bug in triage is the one epic exemption | `awaitingTriage: isBug and (epicTags \| length) == 0` |
+| Frontmatter | `Test-Frontmatter.sh` clean |
+| Spelling | `codespell` clean |
+
+## Resolved: where `chore` sits
+
+Outside the `epic → feature → task/bug` hierarchy, which classifies the *product*, because a chore
+targets the *process*: a cleanliness or efficiency task undertaken to reduce friction by improving or
+correcting a human or machine process.
+
+A chore therefore has no parent feature and carries no `**Feature:**` marker. It does carry
+`Epic:Process` — [noblefactor-ops#142](https://github.com/NobleFactor/noblefactor-ops/issues/142) —
+a standing epic that **never closes**, because there is no release in which friction is finished.
+That keeps the one-epic invariant whole: the audit needs no second exception, and a permanently open
+epic is recorded as designed rather than read as an oversight.
+
+The plan's open question is answered by decision, not by discovery: the audit would have flagged an
+epic-less chore, and the two candidate fixes were to exempt chores or to give them an epic. The
+second was chosen.
+
+Applied to this issue first: #141 was filed as `task` and reclassified `chore` + `Epic:Process`,
+which is the standard's first use, on itself.
 
 ## Out of Scope
 
@@ -115,8 +148,4 @@ the tool does rather than what its comment says it does.
 
 ## Open Questions
 
-1. **Does `chore` sit outside the tiers or beside `task` and `bug`?** The header calls it
-   "maintenance work on the repo itself", which reads as outside the epic → feature → task/bug
-   hierarchy — but then its `Epic:<Name>` and `**Feature:**` obligations are unclear, and the audit
-   treats it as a kind like any other. The document must say which, and the answer should come from
-   reading `--audit`'s code rather than inferring from the comment.
+None. The `chore` question is resolved above.
