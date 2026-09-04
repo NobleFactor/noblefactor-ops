@@ -50,7 +50,7 @@ The script itself also uses `[CmdletBinding()]` before its `param()` block.
 
 ## 3. Function Organization
 
-Functions are grouped by responsibility and placed after the main operation. Helper functions are ordered so that
+Functions are grouped by responsibility and placed before the main operation. Helper functions are ordered so that
 higher-level operations appear before the primitives they use when that improves reading order; otherwise use
 alphabetical order within a responsibility group.
 
