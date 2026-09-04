@@ -127,7 +127,13 @@ case "${merge_state}" in
         ;;
 esac
 
-# Squash merge
+# Squash merge -- and nothing else on this line.
+#
+# Always --squash. Never --delete-branch: it deletes the LOCAL branch first, which fails when a
+# linked worktree holds the branch (the normal case under git-open-branch), gh exits non-zero, and
+# set -e ends the script here -- after the merge has already landed, before any cleanup has run.
+# Deletion belongs to git close-branch below, which deletes the remote first so a failure leaves
+# both halves intact.
 gh pr merge "${pr_number}" --squash --admin
 
 # Clean up (works from both worktrees and regular branches)
@@ -145,3 +151,7 @@ git close-branch
 5. **Merge gate before merge.** Check `mergeStateStatus` to catch conflicts, blocks, or staleness before attempting `gh pr merge`.
 6. **`git close-branch` for cleanup.** Handles both worktree and regular-branch scenarios.
 7. **One PR at a time.** Merge and clean up before starting the next branch.
+8. **Always `--squash`, never `--delete-branch`.** The merge command carries `--squash` and no other
+   deletion flag. `--delete-branch` deletes the local branch first, which fails when a linked
+   worktree holds it, and under `set -e` that aborts the script after the merge and before cleanup.
+   `git close-branch` deletes in the order that survives a failure: remote, then worktree, then local.
