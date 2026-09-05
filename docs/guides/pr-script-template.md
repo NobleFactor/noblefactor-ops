@@ -26,7 +26,7 @@ in and use what it actually runs:
 | --- | --- |
 | `personal` | `.github/scripts/shell-lint.sh` |
 | `devlore-cli` | `make vet-all`, `make lint-all`, `./build/star lint go ./...` |
-| `noblefactor-ops` | `./.github/scripts/Test-Frontmatter.sh`, `codespell` |
+| `noblefactor-ops` | `./.github/scripts/Test-Frontmatter.sh`, `codespell`, `buildifier -mode=check -lint=warn -warnings=-function-docstring-args,-function-docstring-return $(git ls-files '*.star')` |
 
 Where a repository routes through a build tool, call the target rather than the underlying binary:
 the target is what CI runs and it carries the flags. Where CI uses a GitHub Action rather than a
