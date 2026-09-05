@@ -289,3 +289,82 @@ def audit_lines(a):
         for i in a["untriaged"]:
             out.append("- " + line(i))
     return out
+
+# ── threads ─────────────────────────────────────────────────────────────────
+#
+# A thread is a narrative -- a use case or scenario -- carrying cross-cutting feature development
+# (docs/issue-standards.md, Threads). Membership is the Thread:<Name> label; order is the beat table
+# in the thread issue's body; the two must agree, and disagreement either way is a fault.
+
+def thread_names(space):
+    """Every thread across the configured repositories, from the label space, sorted."""
+    names = {}
+    for repo in space:
+        for label in space[repo]:
+            if label.startswith("Thread:"):
+                names[label[len("Thread:"):]] = True
+    return sorted(names.keys())
+
+def thread_issue(all, name):
+    """The thread's own issue: kind feature, carrying its label, titled 'Thread:'. None when absent."""
+    candidates = by_number([i for i in all if tagged(i, "feature") and tagged(i, "Thread:" + name) and i["title"].startswith("Thread:")])
+    return candidates[0] if candidates else None
+
+def beat_table(thread):
+    """(beat, owner/repo#N) in document order, from rows of the thread issue's body whose first cell is a beat number."""
+    beats = []
+    for raw in (thread.get("body", "") or "").split("\n"):
+        cells = [c.strip() for c in raw.strip().strip("|").split("|")]
+        if len(cells) < 2 or not regex.match(pattern = "^[0-9]+$", text = cells[0]):
+            continue
+        refs = regex.find_all_submatch(pattern = "(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#([0-9]+)", text = raw, count = -1)
+        if refs == None or len(refs) == 0:
+            continue
+        m = refs[0]
+        beats.append((int(cells[0]), (m[1] if m[1] else thread["repo"]) + "#" + m[2]))
+    return beats
+
+def thread_rows(name, all):
+    """The thread issue, then its members in beat order, then labelled members the table omits; with the agreement faults."""
+    thread = thread_issue(all, name)
+    members = [i for i in all if tagged(i, "Thread:" + name) and (thread == None or key(i) != key(thread))]
+    by_key = {key(i): i for i in members}
+    beats = beat_table(thread) if thread else []
+    listed = {k: b for b, k in beats}
+
+    rows = []
+    faults = []
+    if thread == None:
+        faults.append("no thread issue: no feature titled 'Thread:' carries Thread:" + name)
+    else:
+        r = row(thread, "")
+        r["thread"] = name
+        r["beat"] = ""
+        rows.append(r)
+
+    for b, k in beats:
+        if k in by_key:
+            r = row(by_key[k], "beat " + str(b))
+            r["thread"] = name
+            r["beat"] = b
+            r["epic_name"] = _strip(epic_tag(by_key[k]), "Epic:")
+            rows.append(r)
+        else:
+            faults.append("beat " + str(b) + " names " + k + ", which does not carry Thread:" + name)
+
+    for i in by_number([i for i in members if key(i) not in listed]):
+        r = row(i, "labelled, not in the beat table")
+        r["thread"] = name
+        r["beat"] = ""
+        r["epic_name"] = _strip(epic_tag(i), "Epic:")
+        rows.append(r)
+        faults.append(i["ref"] + " carries Thread:" + name + " and is not in the beat table")
+
+    return {"name": name, "thread": thread, "rows": rows, "faults": faults}
+
+def thread_table_lines(rows):
+    """The thread's status table: beat, issue, title, status, owning epic, comment."""
+    out = ["| Beat | Issue | Title | Status | Epic | Comment |", "|---|---|---|---|---|---|"]
+    for r in rows:
+        out.append("| " + str(r.get("beat", "")) + " | [" + r["ref"] + "](" + r["url"] + ") | " + r["title"] + " | " + ("✅" if r["done"] else "") + " | " + r.get("epic_name", "") + " | " + r["comment"] + " |")
+    return out

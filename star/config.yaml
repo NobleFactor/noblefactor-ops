@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+# star's project configuration for this repository. The gh block names the repositories
+# `star gh issues report` spans by default; see docs/plans/feature/140-star-report-epics.md.
+gh:
+  repositories:
+    - NobleFactor/devlore-cli
+    - NobleFactor/noblefactor-ops

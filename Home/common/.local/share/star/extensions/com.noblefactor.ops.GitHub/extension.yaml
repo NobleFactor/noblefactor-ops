@@ -12,7 +12,7 @@ commands:
       - name: by
         type: string
         default: "epic"
-        help: Section the report by epic (feature and thread arrive in later phases)
+        help: Section the report by epic or by thread (feature arrives in a later phase)
       - name: view
         type: string
         default: "table"
@@ -21,10 +21,14 @@ commands:
         type: string
         default: ""
         help: Report one epic, by the Name in its Epic:<Name> label
+      - name: thread
+        type: string
+        default: ""
+        help: Report one thread, by the Name in its Thread:<Name> label
       - name: state
         type: string
-        default: "open"
-        help: open, closed, or all
+        default: ""
+        help: open, closed, or all; defaults to open by epic and to all by thread
       - name: limit
         type: int
         default: "500"
