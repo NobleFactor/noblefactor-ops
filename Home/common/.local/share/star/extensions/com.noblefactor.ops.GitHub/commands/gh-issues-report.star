@@ -9,13 +9,19 @@
 # devlore-cli's scripts/Get-EpicReport. The result is the rows; --markdown returns the document the
 # script prints instead, for the reader and for the parity diff.
 
-load("commands/scheme.star", "audit", "audit_lines", "by_number", "epic_rows", "epic_tag", "exempt_numbers", "fetch_issues", "is_bug", "is_child", "line", "parent_feature", "table_lines", "tagged", "task_row")
+load("commands/scheme.star", "audit", "audit_lines", "by_number", "epic_rows", "epic_tag", "exempt_numbers", "fetch_issues", "is_bug", "is_child", "key", "label_space", "line", "parent_feature", "resolve_repos", "table_lines", "tagged", "task_row")
 
 def _epics(all, epic_filter):
     return by_number([i for i in all if tagged(i, "epic") and (epic_filter == "" or epic_tag(i) == "Epic:" + epic_filter)])
 
-def _table_document(all, epics, state):
-    out = ["# Epic status\n", "State filter: **" + state + "**."]
+def _header(state, repos):
+    out = ["State filter: **" + state + "**."]
+    if len(repos) > 1:
+        out.append("Repositories: " + ", ".join(repos) + ".")
+    return out
+
+def _table_document(all, epics, state, repos):
+    out = ["# Epic status\n"] + _header(state, repos)
     if len(epics) == 0:
         out.append("\nNo epics matched.")
         return out
@@ -24,8 +30,8 @@ def _table_document(all, epics, state):
         out.extend(table_lines(epic_rows(e, all)))
     return out
 
-def _tree_document(all, epics, state, a):
-    out = ["# Epic report\n", "State filter: **" + state + "**.", "\n## Classification audit\n"]
+def _tree_document(all, epics, state, repos, a):
+    out = ["# Epic report\n"] + _header(state, repos) + ["\n## Classification audit\n"]
     out.extend(audit_lines(a))
     if len(epics) == 0:
         out.append("\nNo epics matched.")
@@ -35,19 +41,19 @@ def _tree_document(all, epics, state, a):
         tag = epic_tag(e)
         features = by_number([i for i in all if tagged(i, "feature") and epic_tag(i) == tag])
         tasks = [i for i in all if is_child(i) and epic_tag(i) == tag]
-        feature_numbers = [f["number"] for f in features]
+        feature_keys = [key(f) for f in features]
         out.append("\n## " + line(e))
         out.append("\n_" + str(len(features)) + " feature(s), " + str(len([t for t in tasks if not is_bug(t)])) + " task(s), " + str(len([t for t in tasks if is_bug(t)])) + " bug(s)._")
         for f in features:
             out.append("\n### " + line(f))
-            mine = by_number([t for t in tasks if parent_feature(t) == f["number"]])
+            mine = by_number([t for t in tasks if parent_feature(t) == key(f)])
             if len(mine) == 0:
                 out.append("\n_No tasks filed._")
             else:
                 out.append("\n| Done | Issue | Title | Kind | Severity | Priority |")
                 out.append("|---|---|---|---|---|---|")
                 out.extend([task_row(t) for t in mine])
-        unfiled = by_number([t for t in tasks if parent_feature(t) == None or parent_feature(t) not in feature_numbers])
+        unfiled = by_number([t for t in tasks if parent_feature(t) == None or parent_feature(t) not in feature_keys])
         if len(unfiled) > 0:
             out.append("\n### Unfiled — no parent feature stated")
             out.append("\n| Done | Issue | Title | Kind | Severity | Priority |")
@@ -68,6 +74,7 @@ def run(_command, ctx):
     state = ctx.args.get("state", "open")
     limit = ctx.args.get("limit", 500)
     directory = ctx.args.get("directory", "")
+    repo_flag = ctx.args.get("repo", "")
     markdown = ctx.args.get("markdown", False)
 
     if by != "epic":
@@ -77,13 +84,21 @@ def run(_command, ctx):
     if state not in ["open", "closed", "all"]:
         fail("--state must be open, closed, or all (got '" + state + "')")
 
-    all = fetch_issues(state, limit, directory)
+    repos = resolve_repos(repo_flag, directory)
+    if len(repos) > 1:
+        note("repositories: " + ", ".join(repos))
+        if epic_filter:
+            space = label_space(repos)
+            known = sorted({label[len("Epic:"):]: True for r in space for label in space[r] if label.startswith("Epic:")}.keys())
+            if epic_filter not in known:
+                fail("no Epic:" + epic_filter + " label in " + ", ".join(repos) + "; known epics: " + ", ".join(known))
+    all = fetch_issues(state, limit, repos)
     exempt = exempt_numbers()
     epics = _epics(all, epic_filter)
     a = audit(all, exempt)
 
     if markdown:
-        lines = _table_document(all, epics, state) if view == "table" else _tree_document(all, epics, state, a)
+        lines = _table_document(all, epics, state, repos) if view == "table" else _tree_document(all, epics, state, repos, a)
         return "\n".join(lines)
 
     rows = []

@@ -101,6 +101,10 @@ The number alone, or `owner/repo#<number>` when the feature lives in another rep
 happens: features cross repository boundaries. An issue without the marker is reported as
 **Unfiled** rather than being attached to something by guesswork.
 
+**The marker is the last `**Feature:**` in the body** — the closing metadata line, conventionally
+`**Epic:** #N · **Feature:** #M`. Prose above it may cite the form as an example, as this very
+repository's #141 does; the report reads the last one and ignores the rest.
+
 ### The one exception
 
 **A bug awaiting triage carries no epic.** It has no feature yet, so it has no epic, and the audit

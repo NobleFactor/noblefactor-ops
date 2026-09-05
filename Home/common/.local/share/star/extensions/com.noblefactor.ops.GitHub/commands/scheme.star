@@ -11,6 +11,14 @@
 
 KINDS = ["epic", "feature", "task", "bug", "chore"]
 
+def short(repo):
+    """The repository's name without its owner: noblefactor-ops for NobleFactor/noblefactor-ops."""
+    return repo.split("/")[-1]
+
+def key(it):
+    """owner/repo#N -- the identity a **Feature:** marker names across repositories."""
+    return it["repo"] + "#" + str(it["number"])
+
 def names(it):
     return [label["name"] for label in it["labels"]]
 
@@ -31,7 +39,7 @@ def mark(it):
     return "~~" if it["state"] == "CLOSED" else ""
 
 def line(it):
-    return mark(it) + it["title"] + mark(it) + " [#" + str(it["number"]) + "](" + it["url"] + ")"
+    return mark(it) + it["title"] + mark(it) + " [" + it["ref"] + "](" + it["url"] + ")"
 
 def is_bug(it):
     return tagged(it, "bug")
@@ -57,12 +65,18 @@ def severity_rank(it):
 def is_child(it):
     return tagged(it, "task") or is_bug(it) or tagged(it, "chore")
 
-# A task's parent feature, stated in its body as **Feature:** #123.
+# A task's parent feature, stated in its body as **Feature:** #123 or **Feature:** owner/repo#123.
+# The marker is the closing metadata line, so the LAST match wins: prose above it may mention another
+# feature in the same form, and the script's narrower regex happened never to see those.
 def parent_feature(it):
-    m = regex.find_submatch(pattern = "Feature:\\*\\* #([0-9]+)", text = it.get("body", "") or "")
+    """The key of the parent feature the body names -- owner/repo#N -- or None. A bare #N is the issue's own repository."""
+    ms = regex.find_all_submatch(pattern = "Feature:\\*\\* (?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#([0-9]+)", text = it.get("body", "") or "", count = -1)
 
-    # find_submatch returns None on no match, not an empty list.
-    return int(m[1]) if m != None and len(m) > 1 else None
+    # find_all_submatch returns None on no match; an optional group that did not participate is "".
+    if ms == None or len(ms) == 0:
+        return None
+    m = ms[-1]
+    return (m[1] if m[1] else it["repo"]) + "#" + m[2]
 
 # A bug awaiting triage has no feature yet, so it has no epic. That is the triage queue, not a fault.
 def awaiting_triage(it):
@@ -125,6 +139,8 @@ def comment(it, placement):
 def row(it, placement):
     return {
         "issue": it["number"],
+        "repo": it["repo"],
+        "ref": it["ref"],
         "url": it["url"],
         "title": cell(it["title"]),
         "kind": kind_of(it),
@@ -141,10 +157,10 @@ def row(it, placement):
 def task_row(it):
     done = "✅" if it["state"] == "CLOSED" else ""
     kind = "bug" if is_bug(it) else "task"
-    return "| " + done + " | [#" + str(it["number"]) + "](" + it["url"] + ") | " + mark(it) + cell(it["title"]) + mark(it) + " | " + kind + " | " + _strip(severity(it), "Severity:") + " | " + _strip(priority(it), "Priority:") + " |"
+    return "| " + done + " | [" + it["ref"] + "](" + it["url"] + ") | " + mark(it) + cell(it["title"]) + mark(it) + " | " + kind + " | " + _strip(severity(it), "Severity:") + " | " + _strip(priority(it), "Priority:") + " |"
 
 def by_number(items):
-    return sorted(items, key = lambda i: i["number"])
+    return sorted(items, key = lambda i: (i["number"], i["repo"]))
 
 # The rows of one epic, in tree order: the epic, then each feature and its children, then the unfiled.
 def epic_rows(e, all):
@@ -152,15 +168,16 @@ def epic_rows(e, all):
     tag = epic_tag(e)
     features = by_number([i for i in all if tagged(i, "feature") and epic_tag(i) == tag and not tagged(i, "epic")])
     tasks = [i for i in all if is_child(i) and epic_tag(i) == tag]
-    feature_numbers = [f["number"] for f in features]
+    feature_keys = [key(f) for f in features]
     rows = [row(e, "")]
     for f in features:
         rows.append(row(f, ""))
-        for t in by_number([t for t in tasks if parent_feature(t) == f["number"]]):
-            r = row(t, "feature #" + str(f["number"]))
+        for t in by_number([t for t in tasks if parent_feature(t) == key(f)]):
+            r = row(t, "feature " + f["ref"])
             r["feature"] = f["number"]
+            r["feature_repo"] = f["repo"]
             rows.append(r)
-    for t in by_number([t for t in tasks if parent_feature(t) == None or parent_feature(t) not in feature_numbers]):
+    for t in by_number([t for t in tasks if parent_feature(t) == None or parent_feature(t) not in feature_keys]):
         rows.append(row(t, "unfiled, no parent feature"))
     for r in rows:
         r["epic"] = e["number"]
@@ -169,34 +186,71 @@ def epic_rows(e, all):
 def table_lines(rows):
     out = ["| ID | Issue | Title | Status | Comment |", "|---|---|---|---|---|"]
     for i, r in enumerate(rows):
-        out.append("| " + str(i + 1) + " | [#" + str(r["issue"]) + "](" + r["url"] + ") | " + r["title"] + " | " + ("✅" if r["done"] else "") + " | " + r["comment"] + " |")
+        out.append("| " + str(i + 1) + " | [" + r["ref"] + "](" + r["url"] + ") | " + r["title"] + " | " + ("✅" if r["done"] else "") + " | " + r["comment"] + " |")
     return out
 
 # ── fetching ────────────────────────────────────────────────────────────────
 
-def _repo_flag(directory):
-    if not directory:
-        return ""
+def _origin_repo(directory):
+    """owner/name from the origin remote of a working tree."""
     r = shell.exec(command = "git -C '" + directory + "' remote get-url origin")
-    if r.exit_code != 0:
-        fail("no origin remote in " + directory + ": " + r.stderr.strip())
     m = regex.find_submatch(pattern = "[:/]([^/:]+/[^/]+?)(?:\\.git)?\\s*$", text = r.stdout)
     if m == None or len(m) < 2:
-        fail("cannot read owner/name from origin: " + r.stdout.strip())
-    return " -R " + m[1]
+        fail("cannot read owner/name from the origin of " + directory + ": " + r.stdout.strip())
+    return m[1]
 
-def fetch_issues(state, limit, directory):
-    """Every issue of the target repository via gh issue list, numbers coerced to int."""
-    cmd = "gh issue list" + _repo_flag(directory) + " --state " + state + " --limit " + str(limit) + " --json number,title,state,labels,body,url"
-    r = shell.exec(command = cmd)
-    if r.exit_code != 0:
-        fail("gh issue list failed: " + r.stderr.strip())
-    issues = json.decode(data = r.stdout)
+def _current_repo():
+    """owner/name of the repository the command runs in, as gh resolves it."""
+    r = shell.exec(command = "gh repo view --json nameWithOwner --jq .nameWithOwner")
+    return r.stdout.strip()
 
-    # encoding/json decodes numbers as floats; the scheme compares and prints issue numbers as ints.
-    for it in issues:
-        it["number"] = int(it["number"])
+def configured_repos():
+    """gh.repositories from star/config.yaml, or an empty list."""
+    cfg = config.get
+    if hasattr(cfg, "gh") and hasattr(getattr(cfg, "gh"), "repositories"):
+        return [str(x) for x in getattr(cfg, "gh").repositories]
+    return []
+
+def resolve_repos(repo_flag, directory):
+    """The repositories to report on: --repo, else --directory's origin, else gh.repositories, else the current one."""
+    if repo_flag:
+        return [r.strip() for r in repo_flag.split(",") if r.strip()]
+    if directory:
+        return [_origin_repo(directory)]
+    repos = configured_repos()
+    return repos if repos else [_current_repo()]
+
+def fetch_issues(state, limit, repos):
+    """Every issue of each repository via gh issue list -- authoritative and immediate, unlike search -- tagged with its repository and display ref."""
+
+    # shell.exec raises on a non-zero exit (devlore-cli#824), so a failed gh never reaches this code;
+    # there is no exit_code to check.
+    multi = len(repos) > 1
+    issues = []
+    for repo in repos:
+        r = shell.exec(command = "gh issue list -R " + repo + " --state " + state + " --limit " + str(limit) + " --json number,title,state,labels,body,url")
+        batch = json.decode(data = r.stdout)
+        for it in batch:
+            # encoding/json decodes numbers as floats; the scheme compares and prints issue numbers as ints.
+            it["number"] = int(it["number"])
+            it["repo"] = repo
+            it["ref"] = (short(repo) + "#" if multi else "#") + str(it["number"])
+        issues.extend(batch)
     return issues
+
+def label_space(repos):
+    """Every Epic: and Thread: label per repository with its open count -- one GraphQL request, filtered here and never with labels(query:), which is a relevance search."""
+    parts = []
+    for i, repo in enumerate(repos):
+        owner, name = repo.split("/")
+        parts.append("r" + str(i) + ": repository(owner: \"" + owner + "\", name: \"" + name + "\") { nameWithOwner labels(first: 100) { nodes { name issues(states: OPEN) { totalCount } } } }")
+    r = shell.exec(command = "gh api graphql -f query='{ " + " ".join(parts) + " }'")
+    data = json.decode(data = r.stdout)["data"]
+    out = {}
+    for k in data:
+        node = data[k]
+        out[node["nameWithOwner"]] = {label["name"]: int(label["issues"]["totalCount"]) for label in node["labels"]["nodes"] if label["name"].startswith("Epic:") or label["name"].startswith("Thread:")}
+    return out
 
 def exempt_numbers():
     # gh.exempt in star/config.yaml. Flat, not gh.issues.exempt: the extension spec accepts a nested:
