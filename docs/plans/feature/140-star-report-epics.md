@@ -172,13 +172,13 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 - [x] **Acceptance:** `Epic:Ops:Process` reports devlore-cli#809 under it — row 20 of 20, from noblefactor-ops with both repositories configured
 - [x] Single-repository parity unchanged: 27 / 67 lines here, 786 on devlore-cli, byte for byte
 
-### Phase 3: Threads
+### Phase 3: Threads — complete 2026-09-05
 
-- [ ] Threads discovered from `Thread:<Name>` labels in stage 1; `thread_epics` has no successor
-- [ ] The thread issue found by label and kind `feature`; its beat table parsed for order
-- [ ] Agreement audit: labelled-but-not-listed and listed-but-not-labelled are both faults
-- [ ] **Acceptance:** `star gh issues report --by thread --thread Ops:PortableTooling` renders ten
-      members across two repositories in beat order 0–8
+- [x] Threads discovered from `Thread:<Name>` labels in stage 1; `thread_epics` has no successor
+- [x] The thread issue found by label, kind `feature`, and a title beginning `Thread:`; its beat table parsed for order — rows whose first cell is a number, first issue reference on the row
+- [x] Agreement audit: labelled-but-not-listed and listed-but-not-labelled are both faults, rendered under the thread's table. Both threads are clean today, so the fault paths are exercised by reading, not by a live case
+- [x] **Acceptance:** `star gh issues report --by thread --thread Ops:PortableTooling` renders the thread
+      issue and nine members across two repositories in beat order 0–8, with each member's owning epic
 
 ### Phase 4: The scheme's semantics
 
@@ -255,6 +255,19 @@ each is recorded so a later phase or a devlore-cli issue picks it up rather than
   neighbourhood in the shell-provider epic.
 - **`load()` resolves against the extension root**, not the loading file's directory:
   `load("commands/scheme.star", ...)`.
+
+## Phase 3 decisions and findings
+
+- **This repository gains `star/config.yaml`** naming both repositories, so the standing report and
+  the thread report span the set by default. Unplanned; the plan named devlore-cli's config and not
+  this repository's own. Single-repository parity is now checked with `--repo` forcing one.
+- **`--state` defaults by view.** `open` by epic, `all` by thread — the script's rule — implemented
+  by an empty default resolved after `--by` is known, so an explicit `--state open` by thread works.
+- **The thread table has a Beat column and an Epic column.** The thread report's value is the order
+  and the ownership; the epic table's five columns do not carry either.
+- **Two conventions became rules** in `issue-standards.md` §Threads, because the parser depends on
+  them: the thread issue's title begins `Thread:`; a beat row's first cell is its number and the first
+  issue reference on the row is its member.
 
 ## Phase 2 decisions and findings
 

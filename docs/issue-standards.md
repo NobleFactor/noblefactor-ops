@@ -140,6 +140,12 @@ own thread label. Its body is the narrative, with a beat table naming each membe
 owns it. **The order is the story's; the ownership is the epics'.** Beats are not filed in the order
 they execute, so neither issue number nor label gives the order — only the table does.
 
+Two conventions the report reads, so they are rules: **the thread issue's title begins `Thread:`**,
+which is how it is told apart from the members that share its label; and **the beat table's first
+column is the beat number, and the first issue reference on the row is the member** — `#N` for the
+thread issue's own repository, `owner/repo#N` across repositories. Prose may cite issues freely; only
+rows whose first cell is a number are read.
+
 **What the audit checks.** No cardinality rule: zero, one or several thread labels are all valid, and
 whether a story is fully told is a judgement, not a label property. One agreement rule, once the
 tooling implements it: every issue carrying `Thread:<Name>` appears in that thread's beat table, and
