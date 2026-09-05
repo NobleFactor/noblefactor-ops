@@ -1,7 +1,7 @@
 ---
 title: "Threads, the Ops axis, and what an empty level means"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/148
-status: in-progress
+status: complete
 created: 2026-09-04
 updated: 2026-09-05
 ---
@@ -152,16 +152,16 @@ document says so rather than implying an enforcement that does not exist.
 
 **Files**: `docs/guides/development-process.md` — Modify
 
-### Phase 3: Name the follow-on work
+### Phase 3: Name the follow-on work — complete (#154 closed, #140 rewritten, #155)
 
-- [ ] **#142 must be decomposed.** Ruling 2 makes it an incomplete epic: twelve issues, three
+- [x] **#142 must be decomposed.** Ruling 2 makes it an incomplete epic: twelve issues, three
       features, eight chores all unfiled. Its chores cluster into issue standards (#141, #148), PR
       tooling (#144, #145), process commands and their dependency (#146, #147, #150), and the
       extensions replacing scripts (#140, #151). File as its own chore.
-- [ ] **#140's body predates its comments.** It still declares `report: threads: [...]` and
+- [x] **#140's body predates its comments.** It still declares `report: threads: [...]` and
       `--repo <owner/name>`, both superseded by three comments beneath it. Rewrite the body so an
       implementer reads the current design first.
-- [ ] **The PR script template has a latent bug.** `cd <worktree>` … `git close-branch` …
+- [x] **The PR script template has a latent bug.** `cd <worktree>` … `git close-branch` …
       `git status --short` fails with exit 128 every time, because close-branch removes the worktree
       the script is standing in. Observed on PR #811. File as its own chore.
 
