@@ -160,17 +160,17 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 **Files**: `Home/common/.local/share/star/extensions/com.noblefactor.ops.GitHub/**` — Create;
 `docs/architecture/star-extensions.md` — Modify
 
-### Phase 2: The configured set of repositories
+### Phase 2: The configured set of repositories — complete 2026-09-05
 
-- [ ] Stage 1: one GraphQL request, one alias per configured repository, all labels with open counts;
+- [x] Stage 1: one GraphQL request, one alias per configured repository, all labels with open counts;
       filtered client-side on `^(Epic|Thread):` — never with `labels(query:)`, which is a relevance
       search that returned `feature` for `"Epic:"` and nothing for `"Ops:"`
-- [ ] Stage 2: `gh search issues --repo ... --label ...` for the members of a selection
-- [ ] Normalise on read: search returns `state` lowercased and `labels` pre-flattened
-- [ ] `--repo` repeatable; `-C` resolves a working tree to its repository
-- [ ] The banner names the repositories queried and warns that search is eventually consistent
-- [ ] **Acceptance:** `Epic:Ops:Process` reports devlore-cli#809 under it, which no single-repository
-      run can
+- [x] Stage 2: **per-repository `gh issue list -R`, not `gh search issues`** — see the decision below
+- [x] Normalisation unnecessary under that decision; `gh issue list` returns the shape the scheme already reads
+- [x] `--repo` comma-separated (no slice flag type in the spec); `--directory` resolves a working tree to its repository
+- [x] The banner names the repositories queried; with `gh issue list` there is no eventual consistency to warn of
+- [x] **Acceptance:** `Epic:Ops:Process` reports devlore-cli#809 under it — row 20 of 20, from noblefactor-ops with both repositories configured
+- [x] Single-repository parity unchanged: 27 / 67 lines here, 786 on devlore-cli, byte for byte
 
 ### Phase 3: Threads
 
@@ -255,6 +255,31 @@ each is recorded so a later phase or a devlore-cli issue picks it up rather than
   neighbourhood in the shell-provider epic.
 - **`load()` resolves against the extension root**, not the loading file's directory:
   `load("commands/scheme.star", ...)`.
+
+## Phase 2 decisions and findings
+
+- **Stage 2 is per-repository `gh issue list`, not `gh search issues`.** The plan chose search
+  because it spans repositories. But the repository set is *configured* — explicit and small — so
+  search's one advantage, not knowing the set, does not apply, while all four of its traps do: index
+  lag, the 1000-result cap, lowercased `state`, pre-flattened `labels`. N calls to `gh issue list -R`
+  are authoritative, immediate, uncapped per repository, and return the shape the scheme already
+  reads. GraphQL stays for stage 1: the label space with open counts, one request, used to validate
+  `--epic` against every configured repository and to name what was queried.
+- **The `**Feature:**` marker is the last one in the body.** #141 cites
+  `**Feature:** NobleFactor/noblefactor-ops#140` in prose — an example of the cross-repository form,
+  in the issue about the standard — and carries its real marker on the closing line. The script's
+  regex required `#` immediately after the space and so never saw prose citations; a regex that
+  admits `owner/repo#N` does. Last match is the rule, written into `issue-standards.md` §Placement.
+- **Feature identity is `owner/repo#N`.** A bare `#N` is the child's own repository. devlore-cli#797
+  names `NobleFactor/noblefactor-ops#140` and now files under it when both repositories are in the
+  set.
+- **Rendering across repositories.** With one repository the ref is `#N`, byte-identical to the
+  script; with several it is `<repo>#N` — `devlore-cli#809` — since `#809` beside `#147` would be
+  ambiguous. Rows carry `repo` and `ref`; `feature_repo` joins `feature`.
+- **`--repo` is comma-separated.** The extension flag spec has no slice type (devlore-cli#827
+  covers short aliases; the same gap). Comma-separated is the pragmatic form and reads as one list.
+- **Resolution order:** `--repo`, else `--directory`'s origin, else `gh.repositories`, else the
+  repository the command runs in.
 
 ## Decisions recorded
 

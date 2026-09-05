@@ -6,7 +6,7 @@ description: GitHub issues under the NobleFactor classification scheme -- the re
 
 commands:
   - name: gh.issues.report
-    help: Render the epic / feature / task tree from GitHub issues, by epic
+    help: Render the epic / feature / task tree from GitHub issues, by epic, across the configured repositories
     implementation: commands/gh-issues-report.star
     flags:
       - name: by
@@ -29,6 +29,10 @@ commands:
         type: int
         default: "500"
         help: Most issues to fetch
+      - name: repo
+        type: string
+        default: ""
+        help: Repositories to report on, owner/name, comma-separated; overrides gh.repositories in star/config.yaml
       - name: directory
         type: string
         default: ""
@@ -46,6 +50,10 @@ commands:
         type: int
         default: "500"
         help: Most issues to fetch
+      - name: repo
+        type: string
+        default: ""
+        help: Repositories to audit, owner/name, comma-separated; overrides gh.repositories in star/config.yaml
       - name: directory
         type: string
         default: ""

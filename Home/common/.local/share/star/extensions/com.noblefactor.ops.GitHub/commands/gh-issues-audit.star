@@ -5,7 +5,7 @@
 
 # gh-issues-audit.star
 
-load("commands/scheme.star", "audit", "audit_lines", "exempt_numbers", "faults", "fetch_issues")
+load("commands/scheme.star", "audit", "audit_lines", "exempt_numbers", "faults", "fetch_issues", "resolve_repos")
 
 def run(_command, ctx):
     """The classification audit as rows; the script's audit section with --markdown.
@@ -16,12 +16,16 @@ def run(_command, ctx):
     """
     limit = ctx.args.get("limit", 500)
     directory = ctx.args.get("directory", "")
+    repo_flag = ctx.args.get("repo", "")
     markdown = ctx.args.get("markdown", False)
 
-    all = fetch_issues("open", limit, directory)
+    repos = resolve_repos(repo_flag, directory)
+    if len(repos) > 1:
+        note("repositories: " + ", ".join(repos))
+    all = fetch_issues("open", limit, repos)
     a = audit(all, exempt_numbers())
 
     if markdown:
         return "\n".join(["## Classification audit\n"] + audit_lines(a))
 
-    return [{"issue": i["number"], "url": i["url"], "title": i["title"], "faults": faults(i)} for i in a["bad"]]
+    return [{"issue": i["number"], "repo": i["repo"], "ref": i["ref"], "url": i["url"], "title": i["title"], "faults": faults(i)} for i in a["bad"]]
