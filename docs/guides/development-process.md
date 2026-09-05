@@ -51,6 +51,11 @@ assumes a well-classified issue and describes how the work around it is organize
 **A feature groups the issues that serve it.** Many features may be in flight at once. The feature is
 what makes a set of otherwise unrelated issues legible as one intent.
 
+**A thread is not a fourth row.** It is a narrative — a use case or scenario — whose beats land in
+several features, usually across epics and often across repositories. A session serves a feature; a
+thread is what several sessions add up to. It is a view across units of work, not a unit itself, and
+it is defined in [issue-standards.md](../issue-standards.md#threads).
+
 **A worktree is a pull request.** It branches from the default branch and resolves one or more of its
 feature's issues. As many worktrees may be open as there are pull requests in flight; they do not
 compete for attention, because `git-open-branch` names each one `<repo>.<issue>-<name>` and a directory
