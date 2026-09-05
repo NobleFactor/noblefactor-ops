@@ -138,6 +138,11 @@ gh pr merge "${pr_number}" --squash --admin
 
 # Clean up (works from both worktrees and regular branches)
 git close-branch
+
+# close-branch removed the worktree this script was standing in. Anything that runs after it must
+# first step back to the main clone, or it runs from a deleted directory and exits 128.
+cd ~/Workspace/NobleFactor/<repo>
+git status --short
 ```
 
 ---
@@ -150,6 +155,9 @@ git close-branch
 4. **CI gate is tolerant.** Repos with no required checks proceed; real failures abort.
 5. **Merge gate before merge.** Check `mergeStateStatus` to catch conflicts, blocks, or staleness before attempting `gh pr merge`.
 6. **`git close-branch` for cleanup.** Handles both worktree and regular-branch scenarios.
+   It also **removes the worktree the script is standing in**, so nothing after it may assume `cwd`
+   survives: `cd` to the main clone first. Observed as a spurious exit 128 after a successful merge
+   on devlore-cli#811.
 7. **One PR at a time.** Merge and clean up before starting the next branch.
 8. **Always `--squash`, never `--delete-branch`.** The merge command carries `--squash` and no other
    deletion flag. `--delete-branch` deletes the local branch first, which fails when a linked
