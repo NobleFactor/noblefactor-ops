@@ -94,17 +94,24 @@ One package holds every `gh` resource.
 | `--epic <Name>`, `--thread <Name>` | narrows to one | all |
 | `--state` | `open`, `closed`, `all` | `open`; `all` when `--by thread` |
 | `--repo <owner/name>` | repeatable; narrows the configured set | the configured set |
-| `-C <path>` | a working tree; resolves to its repository and narrows to it | — |
+| `--directory <path>` | a working tree; resolves to its repository and narrows to it. `-C` when the spec grows short flags | — |
 
-**Result** — one row per issue, in tree order:
+**Result** — one row per issue, in tree order. Phase 1 ships the jq's row, unchanged, because parity
+is measured against it:
 
 ```
-{repo, number, url, title, kind, state, epic, feature, threads[], placement, faults[], comment}
+{issue, url, title, kind, state, done, placement, severity, priority, wip, faults[], comment, epic, feature}
 ```
 
-`-o table` is the status table people read; `-o json` is what a script consumes. The markdown
-document — headings per section, the table beneath — is what `--view tree` emits when no `-o` is
-given; `-o` always wins.
+The target shape adds `repo` (Phase 2) and `threads[]` (Phase 3). `issue` stays `issue`; renaming it
+`number` buys nothing and breaks the one consumer that exists.
+
+`-o json` is what a script consumes; `-o table` renders the rows, columns alphabetical. The markdown
+document — headings per section, the table beneath, byte-identical to the script's — is a **string
+result** behind `--markdown`, and a string result renders quoted under the default json, so the
+working form is `--markdown -o value`. That tail is the cost of the pipeline having no text
+passthrough for a scalar string; the devlore-cli issue filed from Phase 1 is the fix, and until it
+lands the PR template carries the long form.
 
 ### `star gh issues audit`
 
@@ -124,26 +131,31 @@ gh:
     repositories:
         - NobleFactor/devlore-cli
         - NobleFactor/noblefactor-ops
-    issues:
-        exempt: [65]
+    exempt: [65]
 ```
+
+Flat. The plan first had `gh: issues: exempt:`; the extension spec accepts a `nested:` block, and the
+runtime does not build it into the config struct (Phase 1 finding below).
 
 A repository that declares nothing reports on the repository it is run in — the degenerate set of one.
 
 ## Implementation Phases
 
-### Phase 1: Reproduce the report from one repository, and write the grammar down
+### Phase 1: Reproduce the report from one repository, and write the grammar down — complete 2026-09-05
 
 The jq ported to Starlark, against `gh issue list --json` for the current repository only. The shape
 of every later phase is fixed here: the row schema, the kind and placement rules, the audit.
 
-- [ ] `extension.yaml`, `commands/gh-issues-report.star`, `commands/gh-issues-audit.star`, the `gh`
+- [x] `extension.yaml`, `commands/gh-issues-report.star`, `commands/gh-issues-audit.star`, the `gh`
       config block
-- [ ] Rows built from `gh issue list`; `--by epic`, `--view table|tree`, `--epic`, `--state`
-- [ ] Five kinds; a chore is a child of its feature; unparented children are `unfiled`
-- [ ] `star-extensions.md` §Naming Convention states the tree grammar and the service-token rule
-- [ ] **Acceptance:** `star gh issues report --epic Ops:Process --view table --state all` run in this
+- [x] Rows built from `gh issue list`; `--by epic`, `--view table|tree`, `--epic`, `--state`
+- [x] Five kinds; a chore is a child of its feature; unparented children are `unfiled`
+- [x] `star-extensions.md` §Naming Convention states the tree grammar and the service-token rule
+- [x] **Acceptance:** `star gh issues report --epic Ops:Process --view table --state all` run in this
       repository is row-for-row what `Get-EpicReport` produces today
+- [x] **Beyond acceptance:** devlore-cli, `--view tree --state all`, with `gh.exempt: [65]` supplied
+      through the XDG user config -- PARITY OK (775 lines). That run exercises severity, priority, WIP, exemption
+      and the triage queue, none of which this repository's issues do.
 
 **Files**: `Home/common/.local/share/star/extensions/com.noblefactor.ops.GitHub/**` — Create;
 `docs/architecture/star-extensions.md` — Modify
@@ -212,6 +224,37 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 - `docs/architecture/star-extensions.md` — the extension specification
 - `NobleFactor/devlore-cli#797` — the companion that deletes the script
 - `NobleFactor/devlore-cli#809` — the last change to the script, and Phase 1's parity target
+
+## Phase 1 findings
+
+Three things the runtime does that the plan could not know until code ran against it. None blocks;
+each is recorded so a later phase or a devlore-cli issue picks it up rather than rediscovering it.
+
+- **A string result needs `-o value`** (devlore-cli#826). `print()` narrates to stderr and the pipeline's default is
+  json, so the markdown document — which must be a string — is quoted under the default. `--markdown
+  -o value` is the working incantation and is what the parity diff uses. Phase 6's report line in the
+  PR template will carry it. A `text` passthrough rendering for scalar strings is the fix and belongs
+  to devlore-cli's CLI epic.
+- **Dict columns render alphabetically.** `-o table` on a list of dicts orders columns by the sorted
+  key union; the only way to control order is a Go type implementing `HasHeaders`, which Starlark
+  cannot produce. The JSON rows are the contract; the human table is `--markdown`.
+- **An empty list becomes `null`** (devlore-cli#825). `goValue` converts an empty Starlark list to a nil slice, so
+  `"faults": []` marshals as `"faults": null`. A consumer testing `length` sees the difference. A
+  devlore-cli fix in `goValue`.
+- **No short flags in the extension spec** (devlore-cli#827). `Flag` has `name`, `type`, `help`, `default`, `required`;
+  no alias. `-C` ships as `--directory` until the spec grows one.
+- **`nested:` in an extension's config schema is parsed and not built** (devlore-cli#823). `ConfigSchema.Nested` exists
+  and `ToConfigSpec` copies it, but the struct `config.get` exposes carries only the flat `fields`.
+  Declared `gh: issues: exempt:`; observed `dir(cfg.gh) == ["repositories"]`. Flattened to
+  `gh.exempt`. A devlore-cli fix, or the `nested:` key should go from the spec.
+- **`[]int` is a valid field type**, alongside `[]string`.
+- **`shell.exec` raises on a non-zero exit** (devlore-cli#824) instead of returning the result, so a Starlark caller
+  never sees `exit_code` or `stderr` for a failed command -- `gh`'s own message is lost and the user
+  gets `Error in shell.exec: exit status 4`. The `exit_code` checks in `scheme.star` are therefore
+  unreachable and kept only as intent. Surfacing the captured stderr belongs to devlore-cli#800's
+  neighbourhood in the shell-provider epic.
+- **`load()` resolves against the extension root**, not the loading file's directory:
+  `load("commands/scheme.star", ...)`.
 
 ## Decisions recorded
 

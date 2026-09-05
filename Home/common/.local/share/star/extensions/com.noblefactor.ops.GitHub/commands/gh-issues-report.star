@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+"""The epic / feature / task tree from GitHub issues."""
+
+# gh-issues-report.star
+#
+# Phase 1 of noblefactor-ops#140: one repository, --by epic, and row-for-row parity with
+# devlore-cli's scripts/Get-EpicReport. The result is the rows; --markdown returns the document the
+# script prints instead, for the reader and for the parity diff.
+
+load("commands/scheme.star", "audit", "audit_lines", "by_number", "epic_rows", "epic_tag", "exempt_numbers", "fetch_issues", "is_bug", "is_child", "line", "parent_feature", "table_lines", "tagged", "task_row")
+
+def _epics(all, epic_filter):
+    return by_number([i for i in all if tagged(i, "epic") and (epic_filter == "" or epic_tag(i) == "Epic:" + epic_filter)])
+
+def _table_document(all, epics, state):
+    out = ["# Epic status\n", "State filter: **" + state + "**."]
+    if len(epics) == 0:
+        out.append("\nNo epics matched.")
+        return out
+    for e in epics:
+        out.append("\n## " + e["title"] + " [#" + str(e["number"]) + "](" + e["url"] + ")\n")
+        out.extend(table_lines(epic_rows(e, all)))
+    return out
+
+def _tree_document(all, epics, state, a):
+    out = ["# Epic report\n", "State filter: **" + state + "**.", "\n## Classification audit\n"]
+    out.extend(audit_lines(a))
+    if len(epics) == 0:
+        out.append("\nNo epics matched.")
+        return out
+    out.append("\n_" + str(len(epics)) + " epic(s)._")
+    for e in epics:
+        tag = epic_tag(e)
+        features = by_number([i for i in all if tagged(i, "feature") and epic_tag(i) == tag])
+        tasks = [i for i in all if is_child(i) and epic_tag(i) == tag]
+        feature_numbers = [f["number"] for f in features]
+        out.append("\n## " + line(e))
+        out.append("\n_" + str(len(features)) + " feature(s), " + str(len([t for t in tasks if not is_bug(t)])) + " task(s), " + str(len([t for t in tasks if is_bug(t)])) + " bug(s)._")
+        for f in features:
+            out.append("\n### " + line(f))
+            mine = by_number([t for t in tasks if parent_feature(t) == f["number"]])
+            if len(mine) == 0:
+                out.append("\n_No tasks filed._")
+            else:
+                out.append("\n| Done | Issue | Title | Kind | Severity | Priority |")
+                out.append("|---|---|---|---|---|---|")
+                out.extend([task_row(t) for t in mine])
+        unfiled = by_number([t for t in tasks if parent_feature(t) == None or parent_feature(t) not in feature_numbers])
+        if len(unfiled) > 0:
+            out.append("\n### Unfiled — no parent feature stated")
+            out.append("\n| Done | Issue | Title | Kind | Severity | Priority |")
+            out.append("|---|---|---|---|---|---|")
+            out.extend([task_row(t) for t in unfiled])
+    return out
+
+def run(_command, ctx):
+    """Render the tree by epic; rows by default, the script's markdown document with --markdown.
+
+    Args:
+      _command: the command spec star passes first; unused here.
+      ctx: the invocation -- ctx.args carries the flags.
+    """
+    by = ctx.args.get("by", "epic")
+    view = ctx.args.get("view", "table")
+    epic_filter = ctx.args.get("epic", "")
+    state = ctx.args.get("state", "open")
+    limit = ctx.args.get("limit", 500)
+    directory = ctx.args.get("directory", "")
+    markdown = ctx.args.get("markdown", False)
+
+    if by != "epic":
+        fail("--by " + by + " arrives in a later phase of noblefactor-ops#140; only --by epic is implemented")
+    if view not in ["tree", "table"]:
+        fail("--view must be tree or table (got '" + view + "')")
+    if state not in ["open", "closed", "all"]:
+        fail("--state must be open, closed, or all (got '" + state + "')")
+
+    all = fetch_issues(state, limit, directory)
+    exempt = exempt_numbers()
+    epics = _epics(all, epic_filter)
+    a = audit(all, exempt)
+
+    if markdown:
+        lines = _table_document(all, epics, state) if view == "table" else _tree_document(all, epics, state, a)
+        return "\n".join(lines)
+
+    rows = []
+    for e in epics:
+        rows.extend(epic_rows(e, all))
+    return rows

@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.ops.GitHub
+description: GitHub issues under the NobleFactor classification scheme -- the report and the audit
+
+commands:
+  - name: gh.issues.report
+    help: Render the epic / feature / task tree from GitHub issues, by epic
+    implementation: commands/gh-issues-report.star
+    flags:
+      - name: by
+        type: string
+        default: "epic"
+        help: Section the report by epic (feature and thread arrive in later phases)
+      - name: view
+        type: string
+        default: "table"
+        help: tree or table
+      - name: epic
+        type: string
+        default: ""
+        help: Report one epic, by the Name in its Epic:<Name> label
+      - name: state
+        type: string
+        default: "open"
+        help: open, closed, or all
+      - name: limit
+        type: int
+        default: "500"
+        help: Most issues to fetch
+      - name: directory
+        type: string
+        default: ""
+        help: A working tree; the report targets the repository its origin names
+      - name: markdown
+        type: bool
+        default: "false"
+        help: Return the markdown document Get-EpicReport prints, as one string (render with -o value)
+
+  - name: gh.issues.audit
+    help: Every open issue the classification scheme cannot place, with the fault
+    implementation: commands/gh-issues-audit.star
+    flags:
+      - name: limit
+        type: int
+        default: "500"
+        help: Most issues to fetch
+      - name: directory
+        type: string
+        default: ""
+        help: A working tree; the audit targets the repository its origin names
+      - name: markdown
+        type: bool
+        default: "false"
+        help: Return the audit section Get-EpicReport prints, as one string (render with -o value)
+
+config:
+  path: gh
+  type: GitHubConfig
+  fields:
+    repositories: "[]string"
+    exempt: "[]int"
+  defaults:
+    repositories: []
+    exempt: []
