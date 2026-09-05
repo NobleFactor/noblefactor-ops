@@ -23,7 +23,7 @@ is organized once an issue exists.
 | `feature` | two | A capability the product gains; the unit an epic is decomposed into |
 | `task` | three | Work that **implements part of** a feature |
 | `bug` | three | Work that **repairs** a feature |
-| `chore` | outside | Work on the **process**, not the product; carries `Epic:Process` |
+| `chore` | three | Work on the **process**, not the product; the tooling axis, `Epic:Ops:Process` |
 
 `task` and `bug` are peers and **mutually exclusive**. An issue carrying both is misclassified, and
 this is the most common fault the audit reports. The question that separates them is not difficulty
@@ -49,20 +49,21 @@ The right-hand column is product work. Some of it is cleanup and none of it is a
 the product ships is a `task` under the feature that owns that code, or a `bug` if the tidying
 repairs something.
 
-**A chore therefore sits outside the `epic → feature → task/bug` hierarchy.** That hierarchy
-classifies the product; a chore is not part of the product, so it has no parent feature. It is not a
-lesser kind or a leftover — it is a different axis, and it is deliberately not squeezed onto the
-product's.
+**A chore is on a different axis, not outside the hierarchy.** The `Ops:` segment marks that axis
+(below). Within it a chore files exactly as a task does: under a feature, of an epic. What makes it a
+chore is what it changes — how the work is done — never where it hangs. An epic of chores needs
+features like any other epic, and a chore that names no feature is unfiled like any other tier-three
+issue.
 
 The test, when a chore is hard to distinguish from a task: **if the change shipped to a user, would
 they notice?** A chore is invisible to them and visible to everyone who works here.
 
 ## The process epic
 
-Chores carry `Epic:Process`, and **that epic never closes.**
+Chores carry `Epic:Ops:Process`, and **that epic never closes.**
 
 Every other epic is a body of work with an end: it decomposes into features, the features ship, and
-the epic closes. `Epic:Process` has no such state. There is no release in which friction is finished,
+the epic closes. `Epic:Ops:Process` has no such state. There is no release in which friction is finished,
 no point at which the tooling stops needing to keep up with the work it serves. It is a standing home
 for that work, not a plan to complete it.
 
@@ -73,12 +74,15 @@ It also keeps the scheme uniform where it matters. Every issue carries exactly o
 label, and the audit needs no special case for chores — the one exception remains a bug awaiting
 triage, which genuinely has no epic yet because it has no feature yet.
 
-A chore still has **no parent feature**, and so carries no `**Feature:**` marker. Under
-`Epic:Process` there is no feature tier; the chores hang directly from the epic. That is what "outside
-the hierarchy" means in practice: it borrows the epic label so every issue can be placed, and takes
-none of the tiers below it.
+**It needs features like any epic.** Ruled 2026-09-04: an epic with no features is not an epic — it
+is ill-defined, or incomplete and awaiting its plan. `Epic:Ops:Process` is no exception. Its
+permanence is about *closing*, not about *shape*. A chore files under one of its features and carries
+the `**Feature:**` marker like any tier-three issue. At the time of writing
+[#142](https://github.com/NobleFactor/noblefactor-ops/issues/142) has three features and eight chores
+that name none; the report shows every one as `unfiled, no parent feature`, which is this rule being
+enforced.
 
-**Every participating repository provides the `Epic:Process` label**, since chores arise everywhere —
+**Every participating repository provides the `Epic:Ops:Process` label**, since chores arise everywhere —
 unlike other epic labels, which exist only where their epic is hosted. The epic issue itself lives
 once, in the hub: [NobleFactor/noblefactor-ops#142](https://github.com/NobleFactor/noblefactor-ops/issues/142).
 Chores in other repositories reference it the way any cross-repository parent is referenced.
@@ -87,7 +91,7 @@ Chores in other repositories reference it the way any cross-repository parent is
 
 **Every issue carries its epic's label**, `Epic:<Name>` — with the exception below.
 
-**Every tier-three issue names its parent** in its body:
+**Every tier-three issue — task, bug, or chore — names its parent** in its body:
 
 ```
 **Feature:** #<number>
@@ -102,8 +106,79 @@ happens: features cross repository boundaries. An issue without the marker is re
 **A bug awaiting triage carries no epic.** It has no feature yet, so it has no epic, and the audit
 exempts it. That is the triage queue, not a fault.
 
-There is no second exception. A chore carries `Epic:Process`, so the one-epic rule holds for every
-kind.
+There is no second exception. A chore carries `Epic:Ops:Process`, so the one-epic rule holds for
+every kind.
+
+## Threads
+
+**A thread is a narrative — a use case or scenario — and it exists to carry cross-cutting feature
+development.** Its beats are the steps of a story a person could tell, and its parts land wherever
+the machinery lives: usually several epics, often several repositories.
+
+It is a second label family beside `Epic:`, and a second axis rather than a tier:
+
+| | `Epic:<Name>` | `Thread:<Name>` |
+| --- | --- | --- |
+| Answers | which body of work **owns** this | which scenario this **serves** |
+| Cardinality per issue | exactly one | zero or more |
+| Crosses repositories | no | yes, by design |
+| Closes when | the work ships | the scenario works end to end |
+
+An issue keeps its kind and its epic and gains a thread label. Nothing about the hierarchy changes.
+
+**When to open one.** The test: *would moving this work into one epic take issues away from the epic
+that owns their machinery?* If yes, it is a thread. `Thread:WritOrigin` needs a codec fix, a schema
+addition, a layer registration and a drift report — four owners, one scenario. Minting
+`Epic:WritOrigin` would have stripped each from the epic that owns it.
+
+**The thread issue** is kind `feature`, filed under the epic that most owns the scenario, carrying its
+own thread label. Its body is the narrative, with a beat table naming each member and the epic that
+owns it. **The order is the story's; the ownership is the epics'.** Beats are not filed in the order
+they execute, so neither issue number nor label gives the order — only the table does.
+
+**What the audit checks.** No cardinality rule: zero, one or several thread labels are all valid, and
+whether a story is fully told is a judgement, not a label property. One agreement rule, once the
+tooling implements it: every issue carrying `Thread:<Name>` appears in that thread's beat table, and
+every issue in the table carries the label. Both directions are faults. Today nothing checks either —
+`Get-EpicReport` does not read `Thread:` labels at all, and its `--by thread` selects epics by name.
+That gap is [#140](https://github.com/NobleFactor/noblefactor-ops/issues/140).
+
+**One namespace.** A thread name must not collide with an epic name. Both families render as sections
+of the same report, and `Thread:Process` beside `Epic:Process` is unreadable.
+
+## The Ops axis
+
+**A label whose name begins `Ops:` marks the tooling axis — work on how we work. Absence means
+product.**
+
+| Tooling | Product |
+| --- | --- |
+| `Epic:Ops:Process` | `Epic:ResourceModel` |
+| `Thread:Ops:PortableTooling` | `Thread:WritOrigin` |
+
+The segment marks the exception rather than relabelling the majority, so the families are unchanged
+and every rule above survives untouched: still exactly one `Epic:`, still zero or more `Thread:`. A
+report sections on the prefix; a person scanning a list finds the tooling grouped; and the namespace
+rule is satisfied for tooling as a side effect, since an `Ops:` name cannot collide with a product
+name.
+
+Tooling labels carry a distinct hue so the visual scan agrees with the machine rule. The hue is a
+convenience and proves nothing; the segment is the rule.
+
+## What an empty level means
+
+A level with nothing under it is one of two things, and a report that renders it blank says neither —
+blank reads as an error whichever cause it has. The states are named:
+
+| Level | With nothing under it, it is |
+| --- | --- |
+| An epic with no features | **ill-defined**, or **awaiting plan and design** |
+| A feature with no tasks | **awaiting decomposition** |
+| A task, bug or chore with no feature | **unfiled** |
+
+Ruled 2026-09-04: **an epic with no features is not an epic.** Either it should not carry the kind, or
+its plan has not yet produced the features it will decompose into — and until it has, that is its
+state, and the report should say so. `Epic:Ops:Process` is currently in it.
 
 ## Triage adds attributes, never a kind
 
@@ -120,8 +195,9 @@ system an issue touches.
 
 An issue is well classified when it carries:
 
-- **exactly one** kind label, and
-- **exactly one** `Epic:<Name>` label
+- **exactly one** kind label,
+- **exactly one** `Epic:<Name>` label, and
+- **zero or more** `Thread:<Name>` labels — there is no cardinality rule for threads
 
 Anything else is a fault the audit names: no kind, multiple kinds, no epic, multiple epics. The two
 exceptions above apply.
@@ -132,14 +208,14 @@ rewriting history nobody will read.
 ## The labels a repository provides
 
 A participating repository carries all five kinds — `epic`, `feature`, `task`, `bug`, `chore` —
-plus `Epic:Process`, an `Epic:<Name>` label for each epic it hosts, and the triage attributes it
-uses. `Epic:Process` is required everywhere rather than per-epic, because chores arise in every
-repository.
+plus `Epic:Ops:Process`, an `Epic:<Name>` label for each epic it hosts, a `Thread:<Name>` label for
+each thread with members there, and the triage attributes it uses. `Epic:Ops:Process` is required
+everywhere rather than per-epic, because chores arise in every repository; a thread label is required
+wherever the thread reaches, because a thread crosses repositories by design.
 
-Nothing currently checks this, and the sets have diverged: `noblefactor-ops` carries four kinds and
-no `chore`, while `devlore-cli` carries five plus `Area:*`, `Severity:*` and `Priority:*`. A missing
-kind is not a decision not to use it; it is a repository where that kind cannot be filed and nobody
-noticed.
+Nothing currently checks this. Both repositories carry five kinds; `devlore-cli` also carries
+`Area:*`, `Severity:*` and `Priority:*`. A missing kind is not a decision not to use it; it is a
+repository where that kind cannot be filed and nobody noticed.
 
 GitHub's default labels — `enhancement`, `documentation`, `duplicate`, `good first issue`,
 `help wanted`, `invalid`, `question`, `wontfix` — are **not kinds**. They look reasonable at filing
