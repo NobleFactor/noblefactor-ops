@@ -58,6 +58,14 @@ git add \
   path/to/file1 \
   path/to/file2
 
+# Nothing left behind: a tracked file still modified after staging is a change this PR silently
+# omits. gh prints "Warning: N uncommitted change" and carries on; the script must not.
+git diff --quiet || {
+  echo "unstaged changes remain; stage them by name or revert them:"
+  git status --short
+  exit 1
+}
+
 # --- Pre-flight: the repository's own gate, not an approximation of it ---
 #
 # Run what CI runs. Passing here must mean passing there, which is only true if it is literally
@@ -143,6 +151,13 @@ git close-branch
 # first step back to the main clone, or it runs from a deleted directory and exits 128.
 cd ~/Workspace/NobleFactor/<repo>
 git status --short
+
+# --- The standing end-of-PR report (ruled 2026-09-04) ---
+#
+# Every pull request ends with the epic report, table form, all states, scoped to the epic, feature
+# or thread the pull request served. It is how the state the merge just changed is read back. Today
+# the bash script; `star gh issues report ... --markdown -o value` when noblefactor-ops#140 lands.
+~/Workspace/NobleFactor/devlore-cli/scripts/Get-EpicReport --epic <Name> --view table --state all
 ```
 
 ---
@@ -163,3 +178,10 @@ git status --short
    deletion flag. `--delete-branch` deletes the local branch first, which fails when a linked
    worktree holds it, and under `set -e` that aborts the script after the merge and before cleanup.
    `git close-branch` deletes in the order that survives a failure: remote, then worktree, then local.
+9. **Every pull request ends with the epic report.** Table form, all states, scoped to the epic,
+   feature or thread the pull request served. Ruled 2026-09-04. The script prints it last, after
+   cleanup, so the reader sees the state the merge produced.
+
+10. **Nothing left behind.** After `git add` by name, `git diff --quiet` must pass. A modified tracked
+    file the script did not stage is a change the PR silently omits; #161 merged without the rule
+    above for exactly this reason.
