@@ -1,0 +1,233 @@
+---
+title: "star gh issues report: the epic report as a base-layer extension"
+issue: https://github.com/NobleFactor/noblefactor-ops/issues/140
+status: in-progress
+created: 2026-09-05
+updated: 2026-09-05
+---
+
+# Plan: star gh issues report: the epic report as a base-layer extension
+
+## Summary
+
+`Get-EpicReport` becomes a star extension owned here and deployed by writ, and the bash script retires.
+The extension reads the classification scheme from labels across a configured set of repositories,
+renders it by epic, by feature or by thread, names why any level is empty, and treats the thread
+issue's beat table as the source of order. It lands under a `gh` service node in star's command tree,
+whose grammar this plan also writes down. Six phases; the first reproduces today's table from one
+repository and is useful on its own.
+
+## Goals
+
+1. **Reproduce the report** — `gh issues report --by epic --view table` renders what the script
+   renders today.
+2. **Span repositories** — a thread with members in two repositories reports as one thread.
+3. **Implement the scheme as written** — five kinds, threads, the `Ops:` axis, three empty states.
+4. **Settle the tree** — the grammar `star <service> <resource> <verb>`, written into
+   `star-extensions.md` so the next extension does not have to infer it.
+5. **Retire the script** — devlore-cli#797 lands with the last phase.
+
+## The command tree
+
+Ruled 2026-09-05. The grammar is **`star <service> <resource> <verb>`** — the shape
+`az keyvault certificate create` has and `star devlore actions generate` already follows. Star's own
+commands elide the service token because star is the service. A noun that belongs to no service —
+`lint` drives shellcheck, `session` drives tmux — is bare.
+
+```
+star
+├── config · docs · hook · key · lint · self · setup · version       star's own — <resource> <verb>
+│
+├── devlore                                                          devlore
+│   └── actions · knowledge · model · package · test   <verb>
+│
+├── gh                                                               ops — this plan
+│   ├── issues    report · audit
+│   ├── labels    audit · sync
+│   └── secrets   rotate                                             #15, the precedent
+│
+└── session   start [app]                                            ops — #151
+```
+
+Owners are visible in the extension prefix — `com.noblefactor.star.*`, `.devlore.*`, `.ops.*` — and
+invisible to the person typing. The same rule keeps tool names out of the tree: `gh` appears because
+GitHub is a *service*, the way `devlore` is; `shellcheck` does not, because it is a tool `lint` uses.
+
+## Verified facts the design rests on
+
+Read from devlore-cli on 2026-09-05; each is a thing the plan would otherwise have to guess.
+
+| Fact | Where |
+| --- | --- |
+| `run(command, ctx)`'s return value is the command's result; the shared root emits it through the pipeline, so `-o json`, `-o table`, `-o csv`, `-o yaml` are free | `cmd/star/star/command.go:87-96`; `cmd/star/main.go:435` `cli.Emit(c, result)` |
+| Extension search order: `<git root>/star/extensions` → `$XDG_DATA_HOME/star/extensions` (default `~/.local/share`) → `/usr/local/share/star/extensions` → embedded; first name wins | `cmd/star/star/loader.go:232`; `pkg/xdg/xdg.go:148` |
+| The project config file is **`star/config.yaml`**; an extension declares `config: path: <name>` and its fields | `devlore-cli/star/config.yaml`; `LintShell/extension.yaml` |
+| An extension is `extension.yaml` plus `commands/<name>.star`; command `gh.issues.report` becomes `star gh issues report` | `cmd/star/extensions/com.noblefactor.star.LintShell/` |
+| `shell.exec(command)` runs `sh -c` and returns stdout, stderr and the exit code; `json.decode(text)` parses | `pkg/op/provider/shell/provider.go:49`; `pkg/op/provider/json/provider.go:38` |
+| `ctx.args.get(name, default)` reads flags and positionals; `note`, `warn`, `error`, `succeed`, `fail` narrate on stderr | `LintShell/commands/lint-shell.star` |
+
+## Current State
+
+| Component | Status | Notes |
+| --- | --- | --- |
+| `Get-EpicReport` | Working, single-repo | ~200 lines of jq in 350 of bash; chores render since devlore-cli#809 |
+| `--by thread` | Inert | selects epics from a hardcoded list of four; prints "No epics matched" here |
+| Cross-repository reach | None | `gh issue list` sees one repository |
+| Empty-level naming | None | an epic with no features renders blank |
+| `Ops:` sectioning | None | |
+| Feature rollup | None | flat issue list only |
+| Label-set enforcement | None | `issue-standards.md`: "nothing currently checks this" |
+| Tree grammar | Inferred, unwritten | `star-extensions.md` names commands, not the shape of the tree |
+
+## The extension
+
+**Name** `com.noblefactor.ops.GitHub` under `Home/common/.local/share/star/extensions/` — `common`,
+because star runs on Windows. writ deploys it to `$XDG_DATA_HOME/star/extensions/`, the user slot.
+One package holds every `gh` resource.
+
+### `star gh issues report`
+
+| Flag | Values | Default |
+| --- | --- | --- |
+| `--by` | `epic`, `feature`, `thread` | `epic` |
+| `--view` | `tree`, `table` | `table` |
+| `--epic <Name>`, `--thread <Name>` | narrows to one | all |
+| `--state` | `open`, `closed`, `all` | `open`; `all` when `--by thread` |
+| `--repo <owner/name>` | repeatable; narrows the configured set | the configured set |
+| `-C <path>` | a working tree; resolves to its repository and narrows to it | — |
+
+**Result** — one row per issue, in tree order:
+
+```
+{repo, number, url, title, kind, state, epic, feature, threads[], placement, faults[], comment}
+```
+
+`-o table` is the status table people read; `-o json` is what a script consumes. The markdown
+document — headings per section, the table beneath — is what `--view tree` emits when no `-o` is
+given; `-o` always wins.
+
+### `star gh issues audit`
+
+The classification audit alone, as a command rather than a flag: every open issue the scheme cannot
+place, with the fault. Same repository set, same `--repo` and `-C`.
+
+### `star gh labels audit` · `star gh labels sync`
+
+`audit` reports which configured repository lacks a kind, `Epic:Ops:Process`, or a thread label that
+reaches it. `sync` creates what is missing, with the canonical colour and description. One reads,
+one acts — the same pair as `issues audit` and `issues report`.
+
+### Config, in `star/config.yaml`
+
+```yaml
+gh:
+    repositories:
+        - NobleFactor/devlore-cli
+        - NobleFactor/noblefactor-ops
+    issues:
+        exempt: [65]
+```
+
+A repository that declares nothing reports on the repository it is run in — the degenerate set of one.
+
+## Implementation Phases
+
+### Phase 1: Reproduce the report from one repository, and write the grammar down
+
+The jq ported to Starlark, against `gh issue list --json` for the current repository only. The shape
+of every later phase is fixed here: the row schema, the kind and placement rules, the audit.
+
+- [ ] `extension.yaml`, `commands/gh-issues-report.star`, `commands/gh-issues-audit.star`, the `gh`
+      config block
+- [ ] Rows built from `gh issue list`; `--by epic`, `--view table|tree`, `--epic`, `--state`
+- [ ] Five kinds; a chore is a child of its feature; unparented children are `unfiled`
+- [ ] `star-extensions.md` §Naming Convention states the tree grammar and the service-token rule
+- [ ] **Acceptance:** `star gh issues report --epic Ops:Process --view table --state all` run in this
+      repository is row-for-row what `Get-EpicReport` produces today
+
+**Files**: `Home/common/.local/share/star/extensions/com.noblefactor.ops.GitHub/**` — Create;
+`docs/architecture/star-extensions.md` — Modify
+
+### Phase 2: The configured set of repositories
+
+- [ ] Stage 1: one GraphQL request, one alias per configured repository, all labels with open counts;
+      filtered client-side on `^(Epic|Thread):` — never with `labels(query:)`, which is a relevance
+      search that returned `feature` for `"Epic:"` and nothing for `"Ops:"`
+- [ ] Stage 2: `gh search issues --repo ... --label ...` for the members of a selection
+- [ ] Normalise on read: search returns `state` lowercased and `labels` pre-flattened
+- [ ] `--repo` repeatable; `-C` resolves a working tree to its repository
+- [ ] The banner names the repositories queried and warns that search is eventually consistent
+- [ ] **Acceptance:** `Epic:Ops:Process` reports devlore-cli#809 under it, which no single-repository
+      run can
+
+### Phase 3: Threads
+
+- [ ] Threads discovered from `Thread:<Name>` labels in stage 1; `thread_epics` has no successor
+- [ ] The thread issue found by label and kind `feature`; its beat table parsed for order
+- [ ] Agreement audit: labelled-but-not-listed and listed-but-not-labelled are both faults
+- [ ] **Acceptance:** `star gh issues report --by thread --thread Ops:PortableTooling` renders ten
+      members across two repositories in beat order 0–8
+
+### Phase 4: The scheme's semantics
+
+- [ ] `--by feature`: one row per feature — done, open, and its state
+- [ ] Empty levels named: *awaiting plan and design*, *awaiting decomposition*, *unfiled*
+- [ ] `Ops:` sectioned apart from product in every view
+- [ ] **Acceptance:** #142's report opens with its five features and no blank section anywhere
+
+### Phase 5: The label set
+
+- [ ] `gh labels audit`: for each configured repository, the kinds, `Epic:Ops:Process`, and every
+      thread label whose members reach it; report what is missing
+- [ ] `gh labels sync`: create what `audit` reports, with canonical colour and description
+- [ ] **Acceptance:** `audit` is clean on both repositories after `sync`; a deliberately deleted label
+      is reported and restored
+
+### Phase 6: Retire the script
+
+- [ ] devlore-cli#797: `scripts/Get-EpicReport` deleted; devlore-cli's `star/config.yaml` declares
+      its `gh:` block
+- [ ] `development-process.md` names `star gh issues report` as the report
+- [ ] The PR script template's closing report line becomes `star gh issues report`
+
+## Files to Create/Modify
+
+| File | Action | Purpose |
+| --- | --- | --- |
+| `Home/common/.local/share/star/extensions/com.noblefactor.ops.GitHub/extension.yaml` | Create | four commands, their flags, the `gh` config schema |
+| `.../commands/gh-issues-report.star` | Create | Phases 1–4 |
+| `.../commands/gh-issues-audit.star` | Create | Phase 1 |
+| `.../commands/gh-labels-audit.star`, `gh-labels-sync.star` | Create | Phase 5 |
+| `docs/architecture/star-extensions.md` | Modify | Phase 1: the tree grammar |
+| `docs/plans/feature/140-star-report-epics.md` | Create | this plan |
+| `docs/guides/development-process.md`, `docs/guides/pr-script-template.md` | Modify | Phase 6 |
+
+## Related Documents
+
+- Issue #140 — this feature; its body is the design this plan implements
+- Issue #151 — `star session start`, the other `ops` noun in the tree
+- Issue #152 — `Thread:Ops:PortableTooling`, beat 3, and the Phase 3 acceptance case
+- Issue #15 — `star gh rotate-secrets`, closed; the precedent for a `gh` node, now `gh secrets rotate`
+- `docs/issue-standards.md` — the scheme; §Threads, §The Ops axis, §What an empty level means
+- `docs/architecture/star-extensions.md` — the extension specification
+- `NobleFactor/devlore-cli#797` — the companion that deletes the script
+- `NobleFactor/devlore-cli#809` — the last change to the script, and Phase 1's parity target
+
+## Decisions recorded
+
+- **Plan approved 2026-09-05.** Phase 1 begins on the next branch.
+
+- **`gh`, not `github`.** `az` uses its own CLI name as the service token; `gh` is GitHub's, and #15
+  set the precedent. Ruled 2026-09-05.
+- **The audit is a verb.** `gh issues audit`, not `gh issues report --audit`. A flag that changes what
+  a command *is* — a report into an audit — is a second command.
+- **`labels` is `audit`/`sync`, not `audit --fix`.** Consistent with `issues audit`/`issues report`:
+  one command reads, another acts.
+
+## Open Questions
+
+- [ ] **Beat-table parsing.** A markdown table in an issue body, first column the beat number, issue
+      references in a later column. Proposed: parse `#N` and `owner/repo#N` from each row in document
+      order; ignore everything else. Fragile by construction and stated as such.
+- [ ] **Does `gh secrets rotate` live here?** #15 is closed and the extension can hold it, but nothing
+      has asked for it since. Proposed: not until something does; the tree has a place for it.
