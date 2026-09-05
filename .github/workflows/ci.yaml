@@ -5,8 +5,8 @@ name: CI
 # guidelines, the branch-protection policy, and the plan template CLAUDE.md mandates -- plus the
 # architecture and plan records of the star work that moved to devlore-cli in March 2026. It builds
 # nothing. The gate is therefore what a documents repository can actually assert: that the
-# frontmatter is well formed against the standard this repository itself defines, and that the prose
-# is not misspelled.
+# frontmatter is well formed against the standard this repository itself defines, that the prose is
+# not misspelled, and -- since #161 put star extensions in Home/ -- that the Starlark is well formed.
 #
 # The job name must stay `quality-gate`. Organization ruleset 12426847 requires that context on every
 # repository, so renaming it would leave a required check that never arrives -- which blocks every
@@ -42,3 +42,23 @@ jobs:
         with:
           ignore_words_file: .github/codespell-ignore
           skip: ./.git,*.svg,*.wasm,*.lock
+
+      # Starlark. buildifier is Bazel's formatter and linter for the language and knows nothing of
+      # devlore's provider surface; it catches formatting, unused variables, confusing names and
+      # missing docstrings, and passes a well-formed call to a method that does not exist. The
+      # resolution checker that would catch that is a Go built-in (devlore-cli#721); this is the
+      # interim, ruled 2026-09-05. Pinned to a release and its digest, not @latest: a formatter that
+      # changes under CI is a gate that fails on someone else's commit. The two disabled warnings
+      # are buildifier's Google-docstring completeness rules; one-line docstrings are the house style.
+      - name: Starlark
+        env:
+          BUILDIFIER_VERSION: v8.5.1
+          BUILDIFIER_SHA256: 887377fc64d23a850f4d18a077b5db05b19913f4b99b270d193f3c7334b5a9a7
+        run: |
+          set -euo pipefail
+          curl -sSfL -o buildifier \
+            "https://github.com/bazelbuild/buildtools/releases/download/${BUILDIFIER_VERSION}/buildifier-linux-amd64"
+          echo "${BUILDIFIER_SHA256}  buildifier" | sha256sum --check --strict
+          chmod +x buildifier
+          git ls-files '*.star' | xargs -r ./buildifier -mode=check -lint=warn \
+            -warnings=-function-docstring-args,-function-docstring-return
