@@ -577,3 +577,120 @@ def label_sync(rows, dry_run):
             note(action + "d " + r["label"] + " in " + r["repo"])
             done.append({"repo": r["repo"], "label": r["label"], "action": action, "dry_run": False})
     return done
+
+# ── schedules ───────────────────────────────────────────────────────────────
+#
+# A schedule says what we are executing, in what order, and what is next (issue-standards.md, Three
+# ways to slice the work). Lane, item, next and waits-on are declared in a Schedule: issue's table;
+# progress is derived here from the feature rollup. A lane names an epic or a feature.
+
+def schedule_issues(all):
+    """Every schedule issue in the set: kind chore, title beginning 'Schedule:', by number."""
+    return by_number([i for i in all if is_schedule_issue(i)])
+
+def schedule_name(sched):
+    """The name after 'Schedule:' in the title."""
+    return sched["title"][len("Schedule:"):].strip()
+
+def _short_refs(text, repos):
+    """owner/repo#N rendered as repo#N for the configured repositories."""
+    for repo in repos:
+        text = text.replace(repo + "#", short(repo) + "#")
+    return text
+
+def lane_table(sched):
+    """(lane, item spec, next, waits-on) per row whose first cell is a lane number. The item is the Epic:<Name> token if present, else the first issue reference."""
+    lanes = []
+    for raw in (sched.get("body", "") or "").split("\n"):
+        cells = [c.strip() for c in raw.strip().strip("|").split("|")]
+        if len(cells) < 2 or not regex.match(pattern = "^[0-9]+$", text = cells[0]):
+            continue
+        item = cells[1]
+        epic = regex.find_submatch(pattern = "Epic:([A-Za-z0-9:_.-]+)", text = item)
+        ref = regex.find_submatch(pattern = "(?:([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#([0-9]+)", text = item)
+        if epic != None and len(epic) > 1:
+            spec = {"epic": epic[1]}
+        elif ref != None and len(ref) > 2:
+            spec = {"key": (ref[1] if ref[1] else sched["repo"]) + "#" + ref[2]}
+        else:
+            spec = {"unresolved": item}
+        lanes.append({
+            "lane": int(cells[0]),
+            "spec": spec,
+            "item_text": item,
+            "next": cells[2] if len(cells) > 2 else "",
+            "waits_on": cells[3] if len(cells) > 3 else "",
+        })
+    return lanes
+
+def _aggregate(frows):
+    """Sum a set of feature rows into done, open, feature count, and a state."""
+    done = 0
+    open_ = 0
+    n = 0
+    for r in frows:
+        if r["feature"] == None:
+            continue
+        n += 1
+        done += r["done"]
+        open_ += r["open"]
+    if n == 0:
+        return {"done": 0, "open": 0, "features": 0, "state": "awaiting plan and design"}
+    total = done + open_
+    state = "no tasks filed" if total == 0 else (str(done) + " of " + str(total) + " done across " + str(n) + " feature(s)")
+    return {"done": done, "open": open_, "features": n, "state": state}
+
+def resolve_lane(spec, all):
+    """The issue a lane names and its live progress. An epic aggregates its features; a feature rolls up its children; anything else reports its own state."""
+    it = None
+    if "epic" in spec:
+        tag = "Epic:" + spec["epic"]
+        epics = [i for i in all if tagged(i, "epic") and epic_tag(i) == tag]
+        it = epics[0] if epics else None
+        if it == None:
+            return None, {"done": 0, "open": 0, "features": 0, "state": "no epic issue carries " + tag}
+        return it, _aggregate(feature_rows([it], all))
+    if "key" in spec:
+        hits = [i for i in all if key(i) == spec["key"]]
+        it = hits[0] if hits else None
+        if it == None:
+            return None, {"done": 0, "open": 0, "features": 0, "state": spec["key"] + " is not in the configured repositories"}
+        if tagged(it, "epic"):
+            return it, _aggregate(feature_rows([it], all))
+        if tagged(it, "feature"):
+            tag = epic_tag(it)
+            tasks = [i for i in all if is_child(i) and epic_tag(i) == tag]
+            kids = children_of(it, tasks)
+            done = len([k for k in kids if k["state"] == "CLOSED"])
+            return it, {"done": done, "open": len(kids) - done, "features": 1, "state": feature_state(it, kids)}
+        return it, {"done": 1 if it["state"] == "CLOSED" else 0, "open": 0 if it["state"] == "CLOSED" else 1, "features": 0, "state": "closed" if it["state"] == "CLOSED" else "open"}
+    return None, {"done": 0, "open": 0, "features": 0, "state": "unresolved: " + spec.get("unresolved", "")}
+
+def schedule_rows(sched, all, repos):
+    """The lanes of one schedule, in declared order, with live progress."""
+    rows = []
+    for lane in lane_table(sched):
+        it, prog = resolve_lane(lane["spec"], all)
+        rows.append({
+            "schedule": schedule_name(sched),
+            "lane": lane["lane"],
+            "item_ref": it["ref"] if it else "",
+            "item_url": it["url"] if it else "",
+            "item_title": cell(it["title"]) if it else lane["item_text"],
+            "item_kind": kind_of(it) if it else "",
+            "done": prog["done"],
+            "open": prog["open"],
+            "features": prog["features"],
+            "state": prog["state"],
+            "next": _short_refs(lane["next"], repos),
+            "waits_on": _short_refs(lane["waits_on"], repos),
+        })
+    return rows
+
+def schedule_table_lines(rows):
+    """Lane, item, progress, next, waits on."""
+    out = ["| Lane | Item | Progress | Next | Waits on |", "|---|---|---|---|---|"]
+    for r in rows:
+        item = ("[" + r["item_ref"] + "](" + r["item_url"] + ") " if r["item_ref"] else "") + r["item_title"]
+        out.append("| " + str(r["lane"]) + " | " + item + " | " + r["state"] + " | " + cell(r["next"]) + " | " + cell(r["waits_on"]) + " |")
+    return out

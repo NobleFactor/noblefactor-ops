@@ -9,7 +9,7 @@
 # devlore-cli's scripts/Get-EpicReport. The result is the rows; --markdown returns the document the
 # script prints instead, for the reader and for the parity diff.
 
-load("commands/scheme.star", "audit", "audit_lines", "axis", "by_axis", "by_number", "epic_name", "epic_rows", "epic_tag", "exempt_numbers", "feature_rows", "feature_table_lines", "fetch_issues", "is_bug", "is_child", "key", "label_space", "line", "parent_feature", "resolve_repos", "table_lines", "tagged", "task_row", "thread_names", "thread_rows", "thread_table_lines")
+load("commands/scheme.star", "audit", "audit_lines", "axis", "by_axis", "by_number", "epic_name", "epic_rows", "epic_tag", "exempt_numbers", "feature_rows", "feature_table_lines", "fetch_issues", "is_bug", "is_child", "key", "label_space", "line", "parent_feature", "resolve_repos", "schedule_issues", "schedule_name", "schedule_rows", "schedule_table_lines", "table_lines", "tagged", "task_row", "thread_names", "thread_rows", "thread_table_lines")
 
 def _epics(all, epic_filter):
     return by_axis(by_number([i for i in all if tagged(i, "epic") and (epic_filter == "" or epic_tag(i) == "Epic:" + epic_filter)]), epic_name)
@@ -102,6 +102,16 @@ def _feature_document(epics, all, state, repos):
         out.extend(feature_table_lines([r for r in rows if r["epic"] == e["number"] and r["epic_ref"] == e["ref"]]))
     return out
 
+def _schedule_document(scheds, all, state, repos):
+    out = ["# Schedule status\n"] + _header(state, repos)
+    if len(scheds) == 0:
+        out.append("\nNo schedules matched.")
+        return out
+    for sc in scheds:
+        out.append("\n## " + sc["title"] + " [" + sc["ref"] + "](" + sc["url"] + ")\n")
+        out.extend(schedule_table_lines(schedule_rows(sc, all, repos)))
+    return out
+
 def run(_command, ctx):
     """Render the tree by epic; rows by default, the script's markdown document with --markdown.
 
@@ -113,21 +123,22 @@ def run(_command, ctx):
     view = ctx.args.get("view", "table")
     epic_filter = ctx.args.get("epic", "")
     thread_filter = ctx.args.get("thread", "")
+    schedule_filter = ctx.args.get("schedule", "")
     state = ctx.args.get("state", "")
     limit = ctx.args.get("limit", 500)
     directory = ctx.args.get("directory", "")
     repo_flag = ctx.args.get("repo", "")
     markdown = ctx.args.get("markdown", False)
 
-    if by not in ["epic", "feature", "thread"]:
-        fail("--by must be epic, feature, or thread (got '" + by + "')")
+    if by not in ["epic", "feature", "thread", "schedule"]:
+        fail("--by must be epic, feature, thread, or schedule (got '" + by + "')")
     if view not in ["tree", "table"]:
         fail("--view must be tree or table (got '" + view + "')")
 
     # Status includes what has closed: by thread and by feature the state defaults to all, since a
     # done-versus-open rollup that cannot see closed issues counts nothing as done.
     if state == "":
-        state = "all" if by in ["thread", "feature"] else "open"
+        state = "all" if by in ["thread", "feature", "schedule"] else "open"
     if state not in ["open", "closed", "all"]:
         fail("--state must be open, closed, or all (got '" + state + "')")
 
@@ -157,6 +168,19 @@ def run(_command, ctx):
         rows = []
         for t in threads:
             rows.extend(t["rows"])
+        return rows
+
+    if by == "schedule":
+        scheds = schedule_issues(all)
+        if schedule_filter:
+            scheds = [sc for sc in scheds if schedule_name(sc) == schedule_filter]
+            if len(scheds) == 0:
+                fail("no schedule named '" + schedule_filter + "'; known: " + ", ".join([schedule_name(sc) for sc in schedule_issues(all)]))
+        if markdown:
+            return "\n".join(_schedule_document(scheds, all, state, repos))
+        rows = []
+        for sc in scheds:
+            rows.extend(schedule_rows(sc, all, repos))
         return rows
 
     epics = _epics(all, epic_filter)
