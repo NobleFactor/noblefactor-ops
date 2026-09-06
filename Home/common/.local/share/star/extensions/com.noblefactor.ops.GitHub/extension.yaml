@@ -2,7 +2,7 @@
 # Copyright Noble Factor. All rights reserved.
 
 extension: com.noblefactor.ops.GitHub
-description: GitHub issues under the NobleFactor classification scheme -- the report and the audit
+description: GitHub under the NobleFactor classification scheme -- the issue report and audit, and the label set
 
 commands:
   - name: gh.issues.report
@@ -66,6 +66,36 @@ commands:
         type: bool
         default: "false"
         help: Return the audit section Get-EpicReport prints, as one string (render with -o value)
+
+  - name: gh.labels.audit
+    help: Which configured repositories lack a kind, Epic:Ops:Process, or a thread label, and which carry one that has drifted
+    implementation: commands/gh-labels-audit.star
+    flags:
+      - name: repo
+        type: string
+        default: ""
+        help: Repositories to audit, owner/name, comma-separated; overrides gh.repositories in star/config.yaml
+      - name: directory
+        type: string
+        default: ""
+        help: A working tree; the audit targets the repository its origin names
+      - name: markdown
+        type: bool
+        default: "false"
+        help: Return the audit as a document, one string (render with -o value)
+
+  - name: gh.labels.sync
+    help: Create the labels the audit reports missing and align the ones that drifted; never deletes; honours --dry-run
+    implementation: commands/gh-labels-sync.star
+    flags:
+      - name: repo
+        type: string
+        default: ""
+        help: Repositories to sync, owner/name, comma-separated; overrides gh.repositories in star/config.yaml
+      - name: directory
+        type: string
+        default: ""
+        help: A working tree; the sync targets the repository its origin names
 
 config:
   path: gh

@@ -459,3 +459,107 @@ def feature_table_lines(rows):
         else:
             out.append("| [" + r["ref"] + "](" + r["url"] + ") " + ("~~" + r["title"] + "~~" if r["closed"] else r["title"]) + " | " + str(r["done"]) + " | " + str(r["open"]) + " | " + r["state"] + " |")
     return out
+
+# ── the label set every participating repository carries ───────────────────
+#
+# docs/issue-standards.md, The labels a repository provides: the five kinds, Epic:Ops:Process, and
+# every Thread:<Name> whose members reach it. A thread crosses repositories by design, so a thread
+# label present in one configured repository is expected in all of them -- otherwise nothing there
+# can join. Epic:<Name> labels are per-repository by definition and are not synced.
+
+REQUIRED_EVERYWHERE = ["epic", "feature", "task", "bug", "chore", "Epic:Ops:Process"]
+
+def label_inventory(repos):
+    """Every label per repository with its colour and description -- one GraphQL request; first 100 per repository."""
+    parts = []
+    for i, repo in enumerate(repos):
+        owner, name = repo.split("/")
+        parts.append("r" + str(i) + ": repository(owner: \"" + owner + "\", name: \"" + name + "\") { nameWithOwner labels(first: 100) { totalCount nodes { name color description } } }")
+    r = shell.exec(command = "gh api graphql -f query='{ " + " ".join(parts) + " }'")
+    data = json.decode(data = r.stdout)["data"]
+    out = {}
+    for k in data:
+        node = data[k]
+        if int(node["labels"]["totalCount"]) > 100:
+            warn(node["nameWithOwner"] + " has more than 100 labels; only the first 100 were read")
+        out[node["nameWithOwner"]] = {label["name"]: {"color": label["color"], "description": label["description"] or ""} for label in node["labels"]["nodes"]}
+    return out
+
+def canonical_labels(inv, repos):
+    """The expected set and its canonical colour and description: the kinds, Epic:Ops:Process, and every thread label, each as first seen in configuration order."""
+    expected = {}
+    names = list(REQUIRED_EVERYWHERE)
+    threads = {}
+    for repo in repos:
+        for name in inv.get(repo, {}):
+            if name.startswith("Thread:"):
+                threads[name] = True
+    names.extend(sorted(threads.keys()))
+    for name in names:
+        for repo in repos:
+            if name in inv.get(repo, {}):
+                expected[name] = inv[repo][name]
+                break
+        if name not in expected:
+            expected[name] = None
+    return expected
+
+def label_faults(inv, repos):
+    """Per repository: missing labels, and labels whose colour or description differs from the canonical."""
+    expected = canonical_labels(inv, repos)
+    rows = []
+    for repo in repos:
+        have = inv.get(repo, {})
+        for name in sorted(expected.keys()):
+            want = expected[name]
+            if want == None:
+                rows.append({"repo": repo, "label": name, "status": "absent everywhere", "color": "", "description": ""})
+            elif name not in have:
+                rows.append({"repo": repo, "label": name, "status": "missing", "color": want["color"], "description": want["description"]})
+            elif have[name]["color"] != want["color"] or have[name]["description"] != want["description"]:
+                rows.append({"repo": repo, "label": name, "status": "divergent", "color": want["color"], "description": want["description"], "actual_color": have[name]["color"], "actual_description": have[name]["description"]})
+    return rows
+
+def label_audit_lines(rows, repos):
+    """The audit as a document: one section per repository, or one line when clean."""
+    out = ["# Label audit\n", "Repositories: " + ", ".join(repos) + "."]
+    if len(rows) == 0:
+        out.append("\nEvery repository carries the five kinds, Epic:Ops:Process, and every thread label.")
+        return out
+    for repo in repos:
+        mine = [r for r in rows if r["repo"] == repo]
+        if len(mine) == 0:
+            continue
+        out.append("\n## " + repo + "\n")
+        out.append("| Label | Status | Canonical |")
+        out.append("|---|---|---|")
+        for r in mine:
+            canon = ("#" + r["color"] + " " + r["description"]) if r["color"] else ""
+            out.append("| `" + r["label"] + "` | " + r["status"] + " | " + cell(canon) + " |")
+    return out
+
+def _sh_quote(s):
+    """Single-quote a string for sh -c."""
+    return "'" + s.replace("'", "'\\''") + "'"
+
+def label_sync(rows, dry_run):
+    """Create missing labels and align divergent ones, per the audit rows; never delete. Returns what was done, or would be."""
+    done = []
+    for r in rows:
+        if r["status"] == "missing":
+            cmd = "gh label create -R " + r["repo"] + " " + _sh_quote(r["label"]) + " --color " + r["color"] + " --description " + _sh_quote(r["description"])
+            action = "create"
+        elif r["status"] == "divergent":
+            cmd = "gh label edit -R " + r["repo"] + " " + _sh_quote(r["label"]) + " --color " + r["color"] + " --description " + _sh_quote(r["description"])
+            action = "align"
+        else:
+            done.append({"repo": r["repo"], "label": r["label"], "action": "skip", "reason": r["status"]})
+            continue
+        if dry_run:
+            note("would " + action + " " + r["label"] + " in " + r["repo"])
+            done.append({"repo": r["repo"], "label": r["label"], "action": action, "dry_run": True})
+        else:
+            shell.exec(command = cmd)
+            note(action + "d " + r["label"] + " in " + r["repo"])
+            done.append({"repo": r["repo"], "label": r["label"], "action": action, "dry_run": False})
+    return done

@@ -223,9 +223,13 @@ each thread with members there, and the triage attributes it uses. `Epic:Ops:Pro
 everywhere rather than per-epic, because chores arise in every repository; a thread label is required
 wherever the thread reaches, because a thread crosses repositories by design.
 
-Nothing currently checks this. Both repositories carry five kinds; `devlore-cli` also carries
-`Area:*`, `Severity:*` and `Priority:*`. A missing kind is not a decision not to use it; it is a
-repository where that kind cannot be filed and nobody noticed.
+`star gh labels audit` checks this across the configured repositories and `star gh labels sync`
+creates what is missing and aligns colour and description to the first configured repository that
+carries the label. Thread labels are **set-wide**: a thread crosses repositories by design, so a
+`Thread:<Name>` present in one configured repository is expected in all of them, or nothing there can
+join. `sync` never deletes — a label removal strips it from every issue carrying it. A missing kind is
+not a decision not to use it; it is a repository where that kind cannot be filed and nobody noticed,
+and the audit now notices.
 
 GitHub's default labels — `enhancement`, `documentation`, `duplicate`, `good first issue`,
 `help wanted`, `invalid`, `question`, `wontfix` — are **not kinds**. They look reasonable at filing

@@ -187,13 +187,16 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 - [x] `Ops:` sectioned apart from product in every view: product first, tooling last, a divider between when both are present; rows carry `axis`
 - [x] **Acceptance:** `--by feature --epic Ops:Process` renders #142's six features with counts and states — 1/0 children done, 4/0 children done, 2 of 4, 0 of 3, awaiting decomposition, and the thread issue named as one — and no blank section anywhere
 
-### Phase 5: The label set
+### Phase 5: The label set — complete 2026-09-05
 
-- [ ] `gh labels audit`: for each configured repository, the kinds, `Epic:Ops:Process`, and every
-      thread label whose members reach it; report what is missing
-- [ ] `gh labels sync`: create what `audit` reports, with canonical colour and description
-- [ ] **Acceptance:** `audit` is clean on both repositories after `sync`; a deliberately deleted label
-      is reported and restored
+- [x] `gh labels audit`: for each configured repository, the kinds, `Epic:Ops:Process`, and every
+      thread label present anywhere in the set; reports what is missing and what has drifted in colour
+      or description
+- [x] `gh labels sync`: create what `audit` reports missing and align what drifted, canonical colour
+      and description; never deletes; honours `--dry-run`
+- [x] **Acceptance:** a throwaway `Thread:Ops:Scratch` created in one repository was reported missing in
+      the other, `sync --dry-run` said what it would do and did nothing, `sync` created it, `audit` came
+      back clean, the throwaway was deleted from both (no issues carried it), and `audit` stayed clean
 
 ### Phase 6: Retire the script
 
@@ -255,6 +258,23 @@ each is recorded so a later phase or a devlore-cli issue picks it up rather than
   neighbourhood in the shell-provider epic.
 - **`load()` resolves against the extension root**, not the loading file's directory:
   `load("commands/scheme.star", ...)`.
+
+## Phase 5 decisions and findings
+
+- **Thread labels are set-wide.** The plan said "every thread label whose members reach it", which is
+  circular: members reach a repository only if the label exists there to be applied. A thread crosses
+  repositories by design, so a `Thread:` label present in any configured repository is expected in all
+  of them. `Epic:<Name>` labels stay per-repository and are not synced.
+- **Canonical is first-configured.** Colour and description come from the first repository in
+  `gh.repositories` order that carries the label. The first real run found `chore` divergent here
+  and aligned it to devlore-cli's `#BFD4F2 Maintenance work on the repo: build, CI, tooling,
+  process`. That description predates `issue-standards.md`'s definition of a chore; settling the
+  canonical text is a follow-on, and once one repository carries it `sync` spreads it.
+- **`sync` never deletes.** Deleting a label strips it from every issue carrying it — data loss, not
+  this command's to do. It creates and aligns; a stray label is reported by nothing yet.
+- **`--dry-run` is honoured** through `ctx.dry_run`, which star's root flag already sets.
+- **First 100 labels per repository.** One GraphQL page; a repository over that is warned about.
+  Neither is near it.
 
 ## Phase 4 decisions and findings
 
