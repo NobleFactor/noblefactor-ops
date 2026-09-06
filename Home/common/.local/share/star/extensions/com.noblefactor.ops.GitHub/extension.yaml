@@ -12,7 +12,7 @@ commands:
       - name: by
         type: string
         default: "epic"
-        help: Section the report by epic, by feature (one row per feature with its counts and state), or by thread
+        help: Section the report by epic, by feature (one row per feature with its counts and state), by thread, or by schedule (lanes in declared order, progress derived)
       - name: view
         type: string
         default: "table"
@@ -25,10 +25,14 @@ commands:
         type: string
         default: ""
         help: Report one thread, by the Name in its Thread:<Name> label
+      - name: schedule
+        type: string
+        default: ""
+        help: Report one schedule, by the name after 'Schedule:' in its title
       - name: state
         type: string
         default: ""
-        help: open, closed, or all; defaults to open by epic and to all by feature and by thread
+        help: open, closed, or all; defaults to open by epic and to all by feature, thread, and schedule
       - name: limit
         type: int
         default: "500"

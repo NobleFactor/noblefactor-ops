@@ -14,7 +14,7 @@ updated: 2026-09-05
 The extension reads the classification scheme from labels across a configured set of repositories,
 renders it by epic, by feature or by thread, names why any level is empty, and treats the thread
 issue's beat table as the source of order. It lands under a `gh` service node in star's command tree,
-whose grammar this plan also writes down. Six phases; the first reproduces today's table from one
+whose grammar this plan also writes down. Seven phases; the first reproduces today's table from one
 repository and is useful on its own.
 
 ## Goals
@@ -197,6 +197,35 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 - [x] **Acceptance:** a throwaway `Thread:Ops:Scratch` created in one repository was reported missing in
       the other, `sync --dry-run` said what it would do and did nothing, `sync` created it, `audit` came
       back clean, the throwaway was deleted from both (no issues carried it), and `audit` stayed clean
+
+### Phase 7: Schedules — complete 2026-09-05
+
+Added after Phase 5. Epics say who owns work; threads say what scenario it serves; **a schedule says
+what we are executing, in what order, and what is next.** The three are peers (#173,
+`issue-standards.md` §Three ways to slice the work). #172 is the task; #171, *Schedule: the four
+lanes*, is 768's Requirement 2 as an issue the report can read.
+
+- [x] Schedules discovered by kind `chore` and title `Schedule:`; `--schedule <name>` narrows by the
+      name after the prefix
+- [x] The lane table parsed: rows whose first cell is a lane number; the item is the `Epic:<Name>`
+      token if the cell has one, else its first issue reference; next and waits-on rendered as written,
+      with `owner/repo#N` shortened for configured repositories
+- [x] Progress derived: a lane naming an epic aggregates its features — *n of m done across k
+      feature(s)*; a lane naming a feature rolls up its children; anything else reports its own state
+- [x] `-o json` rows carry `schedule`, `lane`, `item_ref`, `item_kind`, `done`, `open`, `features`,
+      `state`, `next`, `waits_on`
+- [x] **Acceptance:** `--by schedule` renders #171's four lanes — #740 at 13 of 22 across 4 features,
+      ResourceModel at 32 of 41 across 8, #762 at 0 of 4, #441 at 0 of 7 across 3 — with the declared
+      next and waits-on beside each
+
+**Decisions.** Order, next and waits-on are declared; only progress is derived — the rule threads
+taught, and the reason inferring "next" was rejected. A lane's item prefers `Epic:<Name>` over an
+issue reference when a cell carries both, since that is what 768 meant by "Resource management —
+`Epic:ResourceModel`, #625 at …". No new verb and no new label family: `--by schedule` is a value,
+and schedules are found by title.
+
+**Finding.** buildifier sorts `load()` symbols, so a textual edit that targets the load line as
+written before formatting will not match after it; patch that line structurally.
 
 ### Phase 6: Retire the script
 
