@@ -332,6 +332,12 @@ each is recorded so a later phase or a devlore-cli issue picks it up rather than
 
 ## Decisions recorded
 
+- **Epics, threads and schedules are peers — three ways to slice the same work.** Ruled 2026-09-05
+  (#173). A work item carries exactly one epic; the organizing issue of a thread (`feature`, title
+  `Thread:`) or a schedule (`chore`, title `Schedule:`) is a view of the work, not work, and carries
+  none. The audit exempts both; the rollup stops listing thread issues under epics, so the
+  "a thread; its members report under --by thread" state is now a guard rather than a row.
+
 - **Plan approved 2026-09-05.** Phase 1 begins on the next branch.
 
 - **`gh`, not `github`.** `az` uses its own CLI name as the service token; `gh` is GitHub's, and #15
