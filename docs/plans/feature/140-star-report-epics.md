@@ -224,15 +224,24 @@ issue reference when a cell carries both, since that is what 768 meant by "Resou
 `Epic:ResourceModel`, #625 at …". No new verb and no new label family: `--by schedule` is a value,
 and schedules are found by title.
 
+**#169, done here.** `gh issues audit --unthreaded [--epic]` lists open tasks, bugs and chores
+carrying no `Thread:` label, grouped by epic and feature — a requested validation, not a fault, and
+not part of the default audit. Inference from shared features or body mentions was rejected as
+evidence-free. Across the set today: 152 open issues in 22 epics, and zero under `Ops:Process`,
+where every open child is in `Thread:Ops:PortableTooling`.
+
 **Finding.** buildifier sorts `load()` symbols, so a textual edit that targets the load line as
 written before formatting will not match after it; patch that line structurally.
 
-### Phase 6: Retire the script
+### Phase 6: Retire the script — this repository's half complete 2026-09-05; devlore-cli's half waits on deployment
 
 - [ ] devlore-cli#797: `scripts/Get-EpicReport` deleted; devlore-cli's `star/config.yaml` declares
-      its `gh:` block
-- [ ] `development-process.md` names `star gh issues report` as the report
-- [ ] The PR script template's closing report line becomes `star gh issues report`
+      its `gh:` block. **Gated on the extension being reachable without `XDG_DATA_HOME`** — the user
+      slot holds only devlore's five extensions, and writ's `base` layer is still an empty directory.
+      Three routes, the choice recorded when made: `writ repo add base` and deploy; a symlink into the
+      user slot as writ would place it; or wait for devlore-cli#475
+- [x] `development-process.md` names `star gh issues report` as the report, by epic, feature, thread or schedule
+- [x] The PR script template's closing report line becomes `star gh issues report ... --markdown -o value --silent`; `issue-standards.md` no longer names the script
 
 ## Files to Create/Modify
 

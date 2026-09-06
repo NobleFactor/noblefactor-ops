@@ -51,6 +51,10 @@ assumes a well-classified issue and describes how the work around it is organize
 **A feature groups the issues that serve it.** Many features may be in flight at once. The feature is
 what makes a set of otherwise unrelated issues legible as one intent.
 
+**The report is `star gh issues report`.** By epic, by feature, by thread, or by schedule — the
+same issues read four ways — and every pull request ends with it, scoped to what the pull request
+served ([pr-script-template.md](pr-script-template.md), rule 9).
+
 **A thread is not a fourth row.** It is a narrative — a use case or scenario — whose beats land in
 several features, usually across epics and often across repositories. A session serves a feature; a
 thread is what several sessions add up to. It is a view across units of work, not a unit itself, and

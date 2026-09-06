@@ -154,10 +154,11 @@ git status --short
 
 # --- The standing end-of-PR report (ruled 2026-09-04) ---
 #
-# Every pull request ends with the epic report, table form, all states, scoped to the epic, feature
-# or thread the pull request served. It is how the state the merge just changed is read back. Today
-# the bash script; `star gh issues report ... --markdown -o value` when noblefactor-ops#140 lands.
-~/Workspace/NobleFactor/devlore-cli/scripts/Get-EpicReport --epic <Name> --view table --state all
+# Every pull request ends with the report, table form, all states, scoped to what the pull request
+# served: --epic <Name>, --by feature --epic <Name>, --by thread --thread <Name>, or --by schedule.
+# It is how the state the merge just changed is read back. --markdown -o value because a string
+# result renders quoted under the default json (devlore-cli#826); --silent, not 2>/dev/null.
+star gh issues report --epic <Name> --view table --state all --markdown -o value --silent
 ```
 
 ---

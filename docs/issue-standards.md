@@ -7,7 +7,7 @@ status: Approved
 # Issue Standards
 
 Every issue in a NobleFactor repository carries a **kind**, and the kinds form a hierarchy. The
-scheme is enforced: `Get-EpicReport --audit` names every issue it cannot place, because an issue the
+scheme is enforced: `star gh issues audit` names every issue it cannot place, because an issue the
 scheme cannot place is invisible in every other view.
 
 This document is to issues what [documentation-standards.md](documentation-standards.md) is to
@@ -176,8 +176,8 @@ rows whose first cell is a number are read.
 whether a story is fully told is a judgement, not a label property. One agreement rule, once the
 tooling implements it: every issue carrying `Thread:<Name>` appears in that thread's beat table, and
 every issue in the table carries the label. Both directions are faults. Today nothing checks either —
-`Get-EpicReport` does not read `Thread:` labels at all, and its `--by thread` selects epics by name.
-That gap is [#140](https://github.com/NobleFactor/noblefactor-ops/issues/140).
+`star gh issues report --by thread` reads them and reports the agreement faults under each
+thread's table; `--audit --unthreaded` lists open work in no thread as a question rather than a fault.
 
 **One namespace.** A thread name must not collide with an epic name. Both families render as sections
 of the same report, and `Thread:Process` beside `Epic:Process` is unreadable.
@@ -265,6 +265,7 @@ new work and is invisible to the scheme.
 
 ## What the audit is for
 
-`Get-EpicReport --audit` opens every run with the classification audit, before any view. That order
+`star gh issues audit` is the classification audit, and `star gh issues report --view tree` opens
+with it before any section. That order
 is the point: a report that renders a tidy hierarchy while silently omitting the issues it could not
 place is worse than no report, because it looks complete.

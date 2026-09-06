@@ -54,6 +54,14 @@ commands:
     help: Every open issue the classification scheme cannot place, with the fault
     implementation: commands/gh-issues-audit.star
     flags:
+      - name: unthreaded
+        type: bool
+        default: "false"
+        help: "Instead of the classification audit, list open tasks, bugs and chores carrying no Thread: label, grouped by epic and feature; a question, not a fault"
+      - name: epic
+        type: string
+        default: ""
+        help: "With --unthreaded, narrow to one epic by the Name in its Epic:<Name> label"
       - name: limit
         type: int
         default: "500"
