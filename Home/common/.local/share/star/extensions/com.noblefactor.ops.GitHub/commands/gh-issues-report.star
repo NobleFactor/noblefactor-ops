@@ -9,10 +9,16 @@
 # devlore-cli's scripts/Get-EpicReport. The result is the rows; --markdown returns the document the
 # script prints instead, for the reader and for the parity diff.
 
-load("commands/scheme.star", "audit", "audit_lines", "by_number", "epic_rows", "epic_tag", "exempt_numbers", "fetch_issues", "is_bug", "is_child", "key", "label_space", "line", "parent_feature", "resolve_repos", "table_lines", "tagged", "task_row", "thread_names", "thread_rows", "thread_table_lines")
+load("commands/scheme.star", "audit", "audit_lines", "axis", "by_axis", "by_number", "epic_name", "epic_rows", "epic_tag", "exempt_numbers", "feature_rows", "feature_table_lines", "fetch_issues", "is_bug", "is_child", "key", "label_space", "line", "parent_feature", "resolve_repos", "table_lines", "tagged", "task_row", "thread_names", "thread_rows", "thread_table_lines")
 
 def _epics(all, epic_filter):
-    return by_number([i for i in all if tagged(i, "epic") and (epic_filter == "" or epic_tag(i) == "Epic:" + epic_filter)])
+    return by_axis(by_number([i for i in all if tagged(i, "epic") and (epic_filter == "" or epic_tag(i) == "Epic:" + epic_filter)]), epic_name)
+
+# Between the last product section and the first tooling section, when both are present.
+def _divider(items, name_of, idx):
+    if idx == 0 or axis(name_of(items[idx])) != "tooling" or axis(name_of(items[idx - 1])) != "product":
+        return []
+    return ["\n---\n", "_The Ops: axis — tooling, not product._"]
 
 def _header(state, repos):
     out = ["State filter: **" + state + "**."]
@@ -25,8 +31,9 @@ def _table_document(all, epics, state, repos):
     if len(epics) == 0:
         out.append("\nNo epics matched.")
         return out
-    for e in epics:
-        out.append("\n## " + e["title"] + " [#" + str(e["number"]) + "](" + e["url"] + ")\n")
+    for i, e in enumerate(epics):
+        out.extend(_divider(epics, epic_name, i))
+        out.append("\n## " + e["title"] + " [" + e["ref"] + "](" + e["url"] + ")\n")
         out.extend(table_lines(epic_rows(e, all)))
     return out
 
@@ -37,18 +44,21 @@ def _tree_document(all, epics, state, repos, a):
         out.append("\nNo epics matched.")
         return out
     out.append("\n_" + str(len(epics)) + " epic(s)._")
-    for e in epics:
+    for i, e in enumerate(epics):
+        out.extend(_divider(epics, epic_name, i))
         tag = epic_tag(e)
         features = by_number([i for i in all if tagged(i, "feature") and epic_tag(i) == tag])
         tasks = [i for i in all if is_child(i) and epic_tag(i) == tag]
         feature_keys = [key(f) for f in features]
         out.append("\n## " + line(e))
         out.append("\n_" + str(len(features)) + " feature(s), " + str(len([t for t in tasks if not is_bug(t)])) + " task(s), " + str(len([t for t in tasks if is_bug(t)])) + " bug(s)._")
+        if len(features) == 0:
+            out.append("\n_Awaiting plan and design: no features filed._")
         for f in features:
             out.append("\n### " + line(f))
             mine = by_number([t for t in tasks if parent_feature(t) == key(f)])
             if len(mine) == 0:
-                out.append("\n_No tasks filed._")
+                out.append("\n_Awaiting decomposition: no tasks filed._")
             else:
                 out.append("\n| Done | Issue | Title | Kind | Severity | Priority |")
                 out.append("|---|---|---|---|---|---|")
@@ -66,7 +76,8 @@ def _thread_document(threads, state, repos):
     if len(threads) == 0:
         out.append("\nNo threads matched.")
         return out
-    for t in threads:
+    for i, t in enumerate(threads):
+        out.extend(_divider(threads, lambda x: x["name"], i))
         th = t["thread"]
         if th:
             out.append("\n## " + th["title"] + " [" + th["ref"] + "](" + th["url"] + ")\n")
@@ -77,6 +88,18 @@ def _thread_document(threads, state, repos):
             out.append("")
             for f in t["faults"]:
                 out.append("- **fault:** " + f)
+    return out
+
+def _feature_document(epics, all, state, repos):
+    out = ["# Feature status\n"] + _header(state, repos)
+    if len(epics) == 0:
+        out.append("\nNo epics matched.")
+        return out
+    rows = feature_rows(epics, all)
+    for i, e in enumerate(epics):
+        out.extend(_divider(epics, epic_name, i))
+        out.append("\n## " + e["title"] + " [" + e["ref"] + "](" + e["url"] + ")\n")
+        out.extend(feature_table_lines([r for r in rows if r["epic"] == e["number"] and r["epic_ref"] == e["ref"]]))
     return out
 
 def run(_command, ctx):
@@ -96,14 +119,15 @@ def run(_command, ctx):
     repo_flag = ctx.args.get("repo", "")
     markdown = ctx.args.get("markdown", False)
 
-    if by not in ["epic", "thread"]:
-        fail("--by must be epic or thread; feature arrives in a later phase of noblefactor-ops#140 (got '" + by + "')")
+    if by not in ["epic", "feature", "thread"]:
+        fail("--by must be epic, feature, or thread (got '" + by + "')")
     if view not in ["tree", "table"]:
         fail("--view must be tree or table (got '" + view + "')")
 
-    # --by thread reports status, and status includes what has closed: the state defaults to all.
+    # Status includes what has closed: by thread and by feature the state defaults to all, since a
+    # done-versus-open rollup that cannot see closed issues counts nothing as done.
     if state == "":
-        state = "all" if by == "thread" else "open"
+        state = "all" if by in ["thread", "feature"] else "open"
     if state not in ["open", "closed", "all"]:
         fail("--state must be open, closed, or all (got '" + state + "')")
 
@@ -122,7 +146,7 @@ def run(_command, ctx):
     exempt = exempt_numbers()
 
     if by == "thread":
-        names = thread_names(space)
+        names = by_axis(thread_names(space), lambda n: n)
         if thread_filter:
             if thread_filter not in names:
                 fail("no Thread:" + thread_filter + " label in " + ", ".join(repos) + "; known threads: " + ", ".join(names))
@@ -136,6 +160,10 @@ def run(_command, ctx):
         return rows
 
     epics = _epics(all, epic_filter)
+    if by == "feature":
+        if markdown:
+            return "\n".join(_feature_document(epics, all, state, repos))
+        return feature_rows(epics, all)
     a = audit(all, exempt)
 
     if markdown:

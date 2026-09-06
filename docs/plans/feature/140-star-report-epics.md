@@ -180,12 +180,12 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 - [x] **Acceptance:** `star gh issues report --by thread --thread Ops:PortableTooling` renders the thread
       issue and nine members across two repositories in beat order 0–8, with each member's owning epic
 
-### Phase 4: The scheme's semantics
+### Phase 4: The scheme's semantics — complete 2026-09-05
 
-- [ ] `--by feature`: one row per feature — done, open, and its state
-- [ ] Empty levels named: *awaiting plan and design*, *awaiting decomposition*, *unfiled*
-- [ ] `Ops:` sectioned apart from product in every view
-- [ ] **Acceptance:** #142's report opens with its five features and no blank section anywhere
+- [x] `--by feature`: one row per feature — done, open, and its state; defaults to `--state all`, since a done-versus-open rollup that cannot see closed issues counts nothing as done
+- [x] Empty levels named: *awaiting plan and design*, *awaiting decomposition*, *unfiled* — in the tree, in the epic row's comment, and in the feature rollup's state
+- [x] `Ops:` sectioned apart from product in every view: product first, tooling last, a divider between when both are present; rows carry `axis`
+- [x] **Acceptance:** `--by feature --epic Ops:Process` renders #142's six features with counts and states — 1/0 children done, 4/0 children done, 2 of 4, 0 of 3, awaiting decomposition, and the thread issue named as one — and no blank section anywhere
 
 ### Phase 5: The label set
 
@@ -255,6 +255,22 @@ each is recorded so a later phase or a devlore-cli issue picks it up rather than
   neighbourhood in the shell-provider epic.
 - **`load()` resolves against the extension root**, not the loading file's directory:
   `load("commands/scheme.star", ...)`.
+
+## Phase 4 decisions and findings
+
+- **Parity with the script ends here, by design.** An empty level now has a name where the script
+  was silent: `_Awaiting decomposition: no tasks filed._`, `_Awaiting plan and design: no features
+  filed._`, and `; awaiting plan and design` on an empty epic's table row. The PR script's parity
+  gate narrows to the one invocation that must not change, `--epic Ops:Process --view table`.
+- **`--by feature` defaults to `--state all`.** Found by the acceptance itself: under the by-epic
+  default of `open`, #156's four closed chores were invisible and it read `0 / 0 / awaiting
+  decomposition`.
+- **A thread issue is not a feature awaiting decomposition.** Its members report under `--by
+  thread`; the rollup says so rather than counting zero children against it.
+- **Feature states:** `closed`; `awaiting decomposition`; `children done` (all closed, feature open
+  — the signal to close it); `n of m done`.
+- **A Phase 2 omission fixed here:** the table document's section heading printed `#N` rather than
+  the repository-qualified ref, visible only in the two-repository view.
 
 ## Phase 3 decisions and findings
 
