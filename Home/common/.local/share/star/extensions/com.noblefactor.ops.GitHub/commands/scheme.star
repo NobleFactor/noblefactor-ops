@@ -694,3 +694,56 @@ def schedule_table_lines(rows):
         item = ("[" + r["item_ref"] + "](" + r["item_url"] + ") " if r["item_ref"] else "") + r["item_title"]
         out.append("| " + str(r["lane"]) + " | " + item + " | " + r["state"] + " | " + cell(r["next"]) + " | " + cell(r["waits_on"]) + " |")
     return out
+
+# ── the unthreaded validation ───────────────────────────────────────────────
+#
+# Zero threads is the normal state of most issues, so this is not a fault and not part of the
+# default audit. It is requested: every open tier-three issue carrying no Thread: label, grouped by
+# epic and feature, so "should this be in a thread?" is asked once of someone who can answer it.
+
+def unthreaded(all, epic_filter):
+    """Open tasks, bugs and chores with no Thread: label, as rows carrying their epic and feature."""
+    features = {key(f): f for f in all if tagged(f, "feature")}
+    rows = []
+    for it in all:
+        if it["state"] != "OPEN" or not is_child(it):
+            continue
+        if len([n for n in names(it) if n.startswith("Thread:")]) > 0:
+            continue
+        if epic_filter and epic_name(it) != epic_filter:
+            continue
+        pf = parent_feature(it)
+        f = features.get(pf) if pf else None
+        rows.append({
+            "repo": it["repo"],
+            "ref": it["ref"],
+            "url": it["url"],
+            "title": cell(it["title"]),
+            "kind": kind_of(it),
+            "epic_name": epic_name(it),
+            "feature": f["number"] if f else None,
+            "feature_ref": f["ref"] if f else "",
+            "feature_title": cell(f["title"]) if f else "",
+        })
+    return sorted(rows, key = lambda r: (r["epic_name"], r["feature_ref"], r["ref"]))
+
+def unthreaded_lines(rows):
+    """The validation as a document, grouped by epic and feature."""
+    out = ["## Not in any thread\n"]
+    if len(rows) == 0:
+        out.append("Every open task, bug and chore carries a thread label.")
+        return out
+    out.append("_" + str(len(rows)) + " open issue(s) carry no Thread: label. Zero threads is normal; this is a question, not a fault._")
+    last = None
+    for r in rows:
+        group = (r["epic_name"] or "no epic", r["feature_ref"])
+        if group != last:
+            head = "Epic: " + (r["epic_name"] or "none")
+            if r["feature_ref"]:
+                head += " — " + r["feature_title"] + " (" + r["feature_ref"] + ")"
+            else:
+                head += " — unfiled"
+            out.append("\n### " + head)
+            last = group
+        out.append("- [" + r["ref"] + "](" + r["url"] + ") " + r["title"] + " · " + r["kind"])
+    return out
