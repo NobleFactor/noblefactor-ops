@@ -179,8 +179,12 @@ def epic_rows(e, all):
             rows.append(r)
     for t in by_number([t for t in tasks if parent_feature(t) == None or parent_feature(t) not in feature_keys]):
         rows.append(row(t, "unfiled, no parent feature"))
+    if len(features) == 0 and len(tasks) == 0:
+        rows[0]["comment"] = rows[0]["comment"] + "; awaiting plan and design"
+        rows[0]["placement"] = "awaiting plan and design"
     for r in rows:
         r["epic"] = e["number"]
+        r["axis"] = axis(epic_name(e))
     return rows
 
 def table_lines(rows):
@@ -367,4 +371,91 @@ def thread_table_lines(rows):
     out = ["| Beat | Issue | Title | Status | Epic | Comment |", "|---|---|---|---|---|---|"]
     for r in rows:
         out.append("| " + str(r.get("beat", "")) + " | [" + r["ref"] + "](" + r["url"] + ") | " + r["title"] + " | " + ("✅" if r["done"] else "") + " | " + r.get("epic_name", "") + " | " + r["comment"] + " |")
+    return out
+
+# ── the scheme's semantics: axes, and what an empty level means ────────────
+#
+# docs/issue-standards.md: the Ops: segment marks the tooling axis; an epic with no features is
+# awaiting plan and design; a feature with no tasks is awaiting decomposition; a child with no
+# feature is unfiled. The report says which, rather than rendering blank.
+
+def axis(name):
+    """tooling for a name carrying the Ops: segment, else product."""
+    return "tooling" if name.startswith("Ops:") else "product"
+
+def by_axis(items, name_of):
+    """Product first, then tooling; stable within each."""
+    return [i for i in items if axis(name_of(i)) == "product"] + [i for i in items if axis(name_of(i)) == "tooling"]
+
+def epic_name(it):
+    """The Name in an issue's Epic:<Name> label, or empty."""
+    return _strip(epic_tag(it), "Epic:")
+
+def children_of(f, tasks):
+    """The tier-three issues that name feature f as their parent."""
+    return by_number([t for t in tasks if parent_feature(t) == key(f)])
+
+def feature_state(f, kids):
+    """The named condition of a feature: closed; awaiting decomposition; children done; or n of m done."""
+    if f["state"] == "CLOSED":
+        return "closed"
+    if f["title"].startswith("Thread:"):
+        return "a thread; its members report under --by thread"
+    if len(kids) == 0:
+        return "awaiting decomposition"
+    done = len([k for k in kids if k["state"] == "CLOSED"])
+    if done == len(kids):
+        return "children done"
+    return str(done) + " of " + str(len(kids)) + " done"
+
+def feature_rows(epics, all):
+    """One row per feature across the given epics, with its counts and state; an epic with none contributes a row saying so."""
+    rows = []
+    for e in epics:
+        tag = epic_tag(e)
+        features = by_number([i for i in all if tagged(i, "feature") and epic_tag(i) == tag and not tagged(i, "epic")])
+        tasks = [i for i in all if is_child(i) and epic_tag(i) == tag]
+        if len(features) == 0:
+            rows.append({
+                "epic": e["number"],
+                "epic_ref": e["ref"],
+                "epic_name": epic_name(e),
+                "axis": axis(epic_name(e)),
+                "feature": None,
+                "ref": "",
+                "url": e["url"],
+                "title": "",
+                "done": 0,
+                "open": 0,
+                "state": "awaiting plan and design" if len(tasks) == 0 else "awaiting plan and design; " + str(len(tasks)) + " unfiled",
+            })
+            continue
+        for f in features:
+            kids = children_of(f, tasks)
+            done = len([k for k in kids if k["state"] == "CLOSED"])
+            rows.append({
+                "epic": e["number"],
+                "epic_ref": e["ref"],
+                "epic_name": epic_name(e),
+                "axis": axis(epic_name(e)),
+                "feature": f["number"],
+                "repo": f["repo"],
+                "ref": f["ref"],
+                "url": f["url"],
+                "title": cell(f["title"]),
+                "closed": f["state"] == "CLOSED",
+                "done": done,
+                "open": len(kids) - done,
+                "state": feature_state(f, kids),
+            })
+    return rows
+
+def feature_table_lines(rows):
+    """The feature rollup: feature, done, open, state."""
+    out = ["| Feature | Done | Open | State |", "|---|---|---|---|"]
+    for r in rows:
+        if r["feature"] == None:
+            out.append("| _no features_ |  |  | " + r["state"] + " |")
+        else:
+            out.append("| [" + r["ref"] + "](" + r["url"] + ") " + ("~~" + r["title"] + "~~" if r["closed"] else r["title"]) + " | " + str(r["done"]) + " | " + str(r["open"]) + " | " + r["state"] + " |")
     return out
