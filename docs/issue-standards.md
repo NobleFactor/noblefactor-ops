@@ -105,13 +105,39 @@ happens: features cross repository boundaries. An issue without the marker is re
 `**Epic:** #N · **Feature:** #M`. Prose above it may cite the form as an example, as this very
 repository's #141 does; the report reads the last one and ignores the rest.
 
-### The one exception
+### What carries no epic
 
-**A bug awaiting triage carries no epic.** It has no feature yet, so it has no epic, and the audit
-exempts it. That is the triage queue, not a fault.
+**Work carries an epic; a view of the work does not.** Two kinds of issue are not work items:
 
-There is no second exception. A chore carries `Epic:Ops:Process`, so the one-epic rule holds for
-every kind.
+- **A thread issue** — the narrative of a scenario. Kind `feature`, title beginning `Thread:`,
+  carrying its own `Thread:<Name>` label and no `Epic:`. A scenario has no owner; that is the whole
+  reason it is a thread and not an epic.
+- **A schedule issue** — the declared order of execution. Kind `chore`, title beginning `Schedule:`,
+  carrying no `Epic:`. A sequence has no owner either.
+
+Both are placed by their own convention, so the one-epic rule's purpose — that nothing goes
+unplaced — is served. Ruled 2026-09-05; before that, thread issues carried the epic "that most
+owned the scenario", which was a fiction the rule imposed.
+
+**And one work item carries no epic yet:** a bug awaiting triage. It has no feature, so it has no
+epic, and the audit exempts it. That is the triage queue, not a fault.
+
+A chore carries `Epic:Ops:Process`, so the one-epic rule holds for every other work item.
+
+## Three ways to slice the work
+
+The same issues are read three ways, and the three are **peers** — none is above another, and none
+is an exception to another:
+
+| | Answers | Its organizing issue | Its label |
+| --- | --- | --- | --- |
+| **Epic** | who **owns** this | the epic, kind `epic` | `Epic:<Name>`, exactly one per work item |
+| **Thread** | what **scenario** this serves | the thread issue, kind `feature`, title `Thread:` | `Thread:<Name>`, zero or more |
+| **Schedule** | in what **order** we execute | the schedule issue, kind `chore`, title `Schedule:` | none — lanes are named in the body |
+
+A work item — feature, task, bug, chore — carries exactly one epic and may carry threads. The
+organizing issue of a thread or a schedule carries no epic (§What carries no epic). The report
+renders each slice: `--by epic`, `--by thread`, `--by schedule`.
 
 ## Threads
 
@@ -135,9 +161,9 @@ that owns their machinery?* If yes, it is a thread. `Thread:WritOrigin` needs a 
 addition, a layer registration and a drift report — four owners, one scenario. Minting
 `Epic:WritOrigin` would have stripped each from the epic that owns it.
 
-**The thread issue** is kind `feature`, filed under the epic that most owns the scenario, carrying its
-own thread label. Its body is the narrative, with a beat table naming each member and the epic that
-owns it. **The order is the story's; the ownership is the epics'.** Beats are not filed in the order
+**The thread issue** is kind `feature`, carrying its own thread label and **no `Epic:` label** — a
+scenario has no owner (§The two exceptions). Its body is the narrative, with a beat table naming each
+member and the epic that owns it. **The order is the story's; the ownership is the epics'.** Beats are not filed in the order
 they execute, so neither issue number nor label gives the order — only the table does.
 
 Two conventions the report reads, so they are rules: **the thread issue's title begins `Thread:`**,
@@ -206,11 +232,12 @@ system an issue touches.
 An issue is well classified when it carries:
 
 - **exactly one** kind label,
-- **exactly one** `Epic:<Name>` label, and
+- **exactly one** `Epic:<Name>` label — except a bug awaiting triage, and the organizing issue of a
+  thread or a schedule, which carry none, and
 - **zero or more** `Thread:<Name>` labels — there is no cardinality rule for threads
 
-Anything else is a fault the audit names: no kind, multiple kinds, no epic, multiple epics. The two
-exceptions above apply.
+Anything else is a fault the audit names: no kind, multiple kinds, no epic, multiple epics. Exempt
+from the epic rule: a bug awaiting triage, a thread issue, a schedule issue (§What carries no epic).
 
 Only **open** issues are audited. Closed ones predate the scheme and cannot be reclassified without
 rewriting history nobody will read.

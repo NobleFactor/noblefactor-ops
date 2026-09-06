@@ -82,6 +82,20 @@ def parent_feature(it):
 def awaiting_triage(it):
     return is_bug(it) and len(epic_tags(it)) == 0
 
+# A thread issue is a scenario, and a scenario has no owner: it carries no Epic: label and is placed
+# by its own label family. The second exception (issue-standards.md, The two exceptions).
+def is_thread_issue(it):
+    return tagged(it, "feature") and it["title"].startswith("Thread:") and len([n for n in names(it) if n.startswith("Thread:")]) > 0
+
+# A schedule issue is the declared order of execution -- a view of the work, not work -- and carries
+# no Epic: label either. The three slices are peers (issue-standards.md, Three ways to slice the work).
+def is_schedule_issue(it):
+    return tagged(it, "chore") and it["title"].startswith("Schedule:")
+
+def is_view_issue(it):
+    """A thread or schedule issue: organizes work, is not work, carries no epic."""
+    return is_thread_issue(it) or is_schedule_issue(it)
+
 def faults(it):
     """The classification faults of an open issue: wrong count of kind labels, wrong count of epic labels."""
     if awaiting_triage(it):
@@ -93,7 +107,7 @@ def faults(it):
         out.append("no kind label (epic/feature/task/bug/chore)")
     if len(k) > 1:
         out.append("multiple kind labels: " + ", ".join(k))
-    if len(e) == 0:
+    if len(e) == 0 and not is_view_issue(it):
         out.append("no Epic:<Name> label")
     if len(e) > 1:
         out.append("multiple epics: " + ", ".join(e))
