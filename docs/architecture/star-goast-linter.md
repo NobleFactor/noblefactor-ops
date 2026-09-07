@@ -498,7 +498,7 @@ type CopyrightDoc struct {
 Parses:
 
 ```text
-SPDX-License-Identifier: SSPL-1.0
+SPDX-License-Identifier: Apache-2.0
 Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 ```
 
