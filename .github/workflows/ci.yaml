@@ -43,6 +43,26 @@ jobs:
           ignore_words_file: .github/codespell-ignore
           skip: ./.git,*.svg,*.wasm,*.lock
 
+      # Shell. The same gate the personal repository runs, so a script valid there is valid here:
+      # shfmt for form, shellcheck for substance, and shellcheck follows Declare-BashScript through -P
+      # (.github/scripts/shell-lint.sh). shfmt is pinned to a release and its digest like buildifier
+      # below; upstream publishes no checksum file, so the digest was computed from the release asset
+      # on 2026-09-06. shellcheck comes from apt, as personal takes it.
+      - name: Shell
+        env:
+          SHFMT_VERSION: v3.14.0
+          SHFMT_SHA256: fe42021c7272ef2d67ea36cbc3031683c625d0badec733ef3a57b567246a0b66
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y shellcheck findutils
+          curl -sSfL -o shfmt \
+            "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_amd64"
+          echo "${SHFMT_SHA256}  shfmt" | sha256sum --check --strict
+          chmod +x shfmt
+          mkdir -p "$HOME/.local/bin" && mv shfmt "$HOME/.local/bin/shfmt"
+          PATH="$HOME/.local/bin:$PATH" ./.github/scripts/shell-lint.sh
+
       # Starlark. buildifier is Bazel's formatter and linter for the language and knows nothing of
       # devlore's provider surface; it catches formatting, unused variables, confusing names and
       # missing docstrings, and passes a well-formed call to a method that does not exist. The

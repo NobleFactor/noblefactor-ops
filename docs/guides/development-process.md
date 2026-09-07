@@ -226,6 +226,29 @@ closed stops bounding a single issue.
 The rules in this document are normative on their own. The scripts make them convenient and hard to
 forget; they do not define them, and a team without the scripts is held to the same process.
 
+## Where a script lives
+
+writ layers are repositories — base, team, personal — and a repository's name is a project name. Under
+a repository's `Home/`, `common[.<selector>]` is what it gives every consumer unconditionally, so
+`common` may depend on nothing outside itself. Content that depends on a layer says so by living in a
+project named for that layer, keeping its platform selector: a script in the personal repository that
+sources `Declare-BashScript` lives in `Home/noblefactor-ops.Darwin/`, not `Home/common.Darwin/`, and
+writ deploys that project wherever the base is configured (devlore-cli#850). Two consequences:
+
+- **`Declare-BashScript` and the `git-*` commands are the base's `common`.** A git-supporting script
+  comes with Windows too — Git for Windows brings bash — so it deploys everywhere git does, and its
+  foundation sits beside it in the same `~/.local/bin`. In a consuming layer, a git-supporting script
+  that sources `Declare-BashScript` is `noblefactor-ops` with no selector; any other bash script that
+  does is `noblefactor-ops.<selector>`.
+- **A context project carries no dependency.** A project named for nothing configured — a family's,
+  an employer's — is deployed by name, and its scripts do not source the base's foundation. Ruled
+  2026-09-06 (noblefactor-ops#147).
+
+Lint follows the dependency it declares. Every consumer carries `# shellcheck source=Declare-BashScript`
+— the file's name, never a path — and the gate supplies the directory with `shellcheck -P`: this
+repository's `Home/common/.local/bin`, a consumer's deployed `~/.local/bin`, or in a consumer's CI a
+checkout of this repository at a pinned ref.
+
 ---
 
 ## References
