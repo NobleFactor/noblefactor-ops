@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
 #

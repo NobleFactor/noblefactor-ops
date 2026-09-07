@@ -1,11 +1,13 @@
 ---
 title: "noblefactor-ops"
-description: "The organization's documented standards, and the historical record of the star tooling that moved to devlore-cli"
+description: "The NobleFactor base layer: engineering standards, process tooling and star extensions, deployed by DevLore's writ"
 ---
 
 # noblefactor-ops
 
-**This repository is private.** It holds documents. It builds nothing.
+This is the NobleFactor **base layer**: the organization's engineering standards, the tooling that
+runs its process, and the `star` extensions that ship with them. Every NobleFactor machine deploys
+it with DevLore's `writ`; every NobleFactor repository's `CLAUDE.md` points into it.
 
 ## What is here
 
@@ -23,6 +25,13 @@ description: "The organization's documented standards, and the historical record
 `.github/scripts/Test-Frontmatter.sh` is the reference implementation of the frontmatter standard.
 Repositories adopting the gate should use that script rather than a variant, so a document valid in
 one repository is valid in all of them.
+
+### The layer content
+
+`Home/` is what `writ` deploys, laid out as the home directory it lands in. Today it holds the
+`com.noblefactor.ops.GitHub` star extension — `star gh issues report|audit` and
+`star gh labels audit|sync` — under `Home/common/.local/share/star/extensions/`. `Declare-BashScript`
+and the `git-*` process commands arrive with #147 and #146.
 
 ### The record of the star work
 
@@ -48,6 +57,20 @@ the wrong binary and the failure tracked as devlore-cli#695.
 Release signing and key management remain unimplemented. When they are built, they need an ADR
 before a README.
 
+## Deploying it
+
+`writ` is DevLore's environment deployer, part of [devlore-cli](https://github.com/NobleFactor/devlore-cli).
+Register this repository as the base layer, then deploy the `common` project:
+
+```bash
+writ repo add base https://github.com/NobleFactor/noblefactor-ops.git
+writ deploy common
+```
+
+Layers above it — a team repository, a personal one — are registered the same way and deployed
+together. `writ` merges them into one home directory, and where two layers provide the same path
+the higher layer wins.
+
 ## CI
 
 One job, `quality-gate`: frontmatter validation and spelling. The name is fixed — organization
@@ -56,4 +79,4 @@ check that never arrives.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

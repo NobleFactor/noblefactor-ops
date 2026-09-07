@@ -4,7 +4,7 @@
 
 Every Go file, in exact order:
 
-1. **Copyright header** — `// SPDX-License-Identifier: SSPL-1.0` + `// Copyright (c) 2025-2026 Noble Factor. All rights reserved.`
+1. **Copyright header** — `// SPDX-License-Identifier: Apache-2.0` + `// Copyright (c) 2025-2026 Noble Factor. All rights reserved.`
 2. **Package declaration** — optional package-level doc comment (as in `helpers.go`: `// Package file provides...`)
 3. **Imports** — stdlib block, blank line, internal packages block
 4. **`init()`** — if present (e.g., registering constructors)

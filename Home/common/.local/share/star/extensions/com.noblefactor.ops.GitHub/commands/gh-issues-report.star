@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
 """The epic / feature / task tree from GitHub issues."""
