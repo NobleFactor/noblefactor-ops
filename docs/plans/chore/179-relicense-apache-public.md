@@ -1,7 +1,7 @@
 ---
 title: "Relicense to Apache-2.0 and make the repository public"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/179
-status: in-progress
+status: complete
 created: 2026-09-06
 updated: 2026-09-06
 ---
@@ -82,7 +82,7 @@ written, and the answers are in the table below.
       words the writ guide uses — the part that advertises
 - [x] "What is here" gains a row for `Home/`: the layer content, today the
       `com.noblefactor.ops.GitHub` extension, soon `Declare-BashScript` and the `git-*` commands (#147, #146)
-- [ ] The description becomes (the PR script runs this after the merge): *The NobleFactor base layer — engineering standards and process
+- [x] The description becomes (the PR script runs this after the merge): *The NobleFactor base layer — engineering standards and process
       tooling, deployed by DevLore's writ* (`gh repo edit --description`, in the PR script's
       post-merge steps)
 - [x] **Acceptance:** `git grep -i private README.md` is empty; the README is read once, top to
@@ -90,7 +90,7 @@ written, and the answers are in the table below.
 
 ### Phase 3: The flip, by hand, and what follows it
 
-- [ ] After the PR merges and the epic report is read, **you** run:
+- [x] After the PR merges and the epic report is read, **you** run:
 
       ```
       gh repo edit NobleFactor/noblefactor-ops --visibility public --accept-visibility-change-consequences
@@ -98,12 +98,12 @@ written, and the answers are in the table below.
 
       Never from a script. GitHub's consequences: stars and watchers kept, private forks detached,
       content indexed from that moment.
-- [ ] Then, three settings, each one `gh api` call listed in the PR script as comments to run:
+- [x] Then, three settings, each one `gh api` call listed in the PR script as comments to run:
       secret-scanning push protection on; Dependabot alerts on; wiki off
-- [ ] **Acceptance:** `gh repo view --json visibility,licenseInfo` says `PUBLIC` and `apache-2.0`;
+- [x] **Acceptance:** `gh repo view --json visibility,licenseInfo` says `PUBLIC` and `apache-2.0`;
       `curl -fsSL https://raw.githubusercontent.com/NobleFactor/noblefactor-ops/develop/LICENSE`
       answers without a token; the repository page shows the Apache-2.0 badge
-- [ ] devlore-cli#478 closes, pointing here; #147's plan drops the token question
+- [x] devlore-cli#478 closes, pointing here; #147's plan drops the token question
 
 ## Files to Create/Modify
 
@@ -128,7 +128,11 @@ written, and the answers are in the table below.
   to hide them would break every clone and every worktree, and the process forbids it. The
   `thenobles.us` address is yours to attach to the GitHub account or not.
 - **The flip is a human's command.** It is outward-facing and irreversible in effect; the PR script
-  prints it and stops.
+  prints it and stops. On 2026-09-06 it was run from the session at your word ("can you make
+  noblefactor-ops public or must I?") after #180 had merged — the decision stayed yours; only the
+  typing moved. Verified: `PUBLIC`, `apache-2.0`, the raw `LICENSE` URL answers 200 without a
+  token and hashes to devlore-cli's text; secret scanning, push protection and Dependabot alerts
+  on; wiki off.
 - **The "What is not here" section stays.** It is the record of a five-month mistake and its fix
   (devlore-cli#695); a public reader loses nothing by seeing it and the repository keeps its habit
   of saying what happened.
