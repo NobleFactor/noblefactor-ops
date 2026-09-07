@@ -60,16 +60,18 @@ before a README.
 ## Deploying it
 
 `writ` is DevLore's environment deployer, part of [devlore-cli](https://github.com/NobleFactor/devlore-cli).
-Register this repository as the base layer, then deploy the `common` project:
+Register this repository as the base layer, then deploy. `common` and the projects named for the
+configured layers — here, `noblefactor-ops` — are implicit; nothing is named unless it is extra:
 
 ```bash
-writ repo add base https://github.com/NobleFactor/noblefactor-ops.git
-writ deploy common
+writ repo set base https://github.com/NobleFactor/noblefactor-ops.git
+writ deploy
 ```
 
 Layers above it — a team repository, a personal one — are registered the same way and deployed
 together. `writ` merges them into one home directory, and where two layers provide the same path
-the higher layer wins.
+the higher layer wins. Until devlore-cli#791 and devlore-cli#850 ship, the binary still spells
+these two lines `writ repo add` and `writ deploy common`.
 
 ## CI
 
