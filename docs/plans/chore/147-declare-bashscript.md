@@ -1,7 +1,7 @@
 ---
 title: "Declare-BashScript ships from the base layer, and every script that sources it says so by project"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/147
-status: in-progress
+status: complete
 created: 2026-09-06
 updated: 2026-09-08
 ---
@@ -150,6 +150,16 @@ Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-projec
 
 ## Decisions
 
+- **A context project keeps its scripts, sourcing the base's file where they are.** Ruled
+  2026-09-08: "Keep them where they are and restore the source line. The dependency is implicit. Source
+  Declare-BashScript as you do outside thenobles* and microsoft*." A project deployed by name sits on
+  top of the whole stack, so the base is present by construction. Executed in personal#177, which also
+  ends the `local/` → `.local/` transition the same ruling required.
+- **A git hook is exempt from "every bash script sources it".** Ruled 2026-09-08. Git runs a hook from
+  the hooks path, where there is no sibling to source; sourcing would mean an absolute path into the
+  deployment and would split `.config/git/hooks` across two projects. A hook is git's configuration,
+  not a command. `personal/Home/common.Unix/.config/git/hooks/pre-commit` stays where it is.
+
 - **`New-DevloreKeyVaults` lives in devlore-cli's own `Home/noblefactor-ops.Unix`.** Ruled 2026-09-07
   ("Short-term: do the move. Longer-term: port to star."): devlore-cli is a layer with a `Home`, so its
   content that depends on the base sits in its repository-named project; the port is devlore-cli#861.
@@ -194,9 +204,4 @@ Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-projec
 
 ## Open Questions
 
-- [ ] **The six context scripts.** Every bash script sources `Declare-BashScript`; the six were made
-      self-contained before that was ruled. Literal application of the placement rule moves them to
-      `noblefactor-ops.{Darwin,Unix}` and dissolves `thenobles.Darwin` and `microsoft.Unix`; the other
-      reading has them source the file where they are. Either is a follow-up move.
-- [ ] **A git hook.** `personal/Home/common.Unix/.config/git/hooks/pre-commit` is bash and sources
-      nothing; git invokes it from the hooks path, so it has no sibling to source. Whether a hook counts.
+None. Both were ruled 2026-09-08 and are recorded under Decisions.
