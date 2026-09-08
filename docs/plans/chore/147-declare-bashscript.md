@@ -3,7 +3,7 @@ title: "Declare-BashScript ships from the base layer, and every script that sour
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/147
 status: in-progress
 created: 2026-09-06
-updated: 2026-09-07
+updated: 2026-09-08
 ---
 
 # Plan: Declare-BashScript ships from the base layer, and every script that sources it says so by project
@@ -125,21 +125,34 @@ Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-projec
 
 ### Phase 3: `devlore-cli` — #476, the one script into its own `Home`
 
-- [ ] `git mv scripts/New-DevloreKeyVaults Home/noblefactor-ops.Unix/.local/bin/New-DevloreKeyVaults`;
-      its PATH-form `source "Declare-BashScript"` becomes the sibling form with the bare directive
-- [ ] `star lint shell` follows nothing and passes as today; recorded on devlore-cli#721 as the
-      source-path option the built-in wants
-- [ ] **Acceptance:** devlore-cli's gates green; after `writ deploy`, `~/.local/bin/New-DevloreKeyVaults`
-      is the team layer's; #476 closes
+- [x] `git mv scripts/New-DevloreKeyVaults Home/noblefactor-ops.Unix/.local/bin/New-DevloreKeyVaults`;
+      its PATH-form `source "Declare-BashScript"` becomes the sibling form with the bare directive — and
+      `--help`, a man page and both completions on the way (devlore-cli#862, 2026-09-08)
+- [x] `star lint shell` follows nothing and passes as today; the source-path option is the built-in's
+      (devlore-cli#721, now under the lint provider #837)
+- [x] **Acceptance:** devlore-cli's gates green; after `writ deploy` with devlore-cli registered as the
+      team layer, `~/.local/bin/New-DevloreKeyVaults` is the team layer's and `--help` renders its man
+      page; #476 closed 2026-09-08. The port to `star devlore keyvault create` is devlore-cli#861
 
 ### Phase 4: the record
 
 - [x] #146's "What does not move" paragraph is corrected and the issue is unblocked (2026-09-07)
 - [x] #150 inherits the rename: `Start-Claude` is `noblefactor-ops.Unix` in `personal` until its own
       move; its issue says so
-- [ ] DANOBLE-WD11-3: base and personal pulled and deployed after Phase 2, before anything relies on it
+- [x] DANOBLE-WD11-3, 2026-09-08: the layers there point at writ-owned clones, not the Workspace
+      checkouts, so the sync had not reached them (devlore-cli#812) — pulled all three; writ rebuilt to
+      develop's HEAD under Git Bash (from PowerShell `make` finds no `bash`: personal#176); the old
+      store tossed; the deploy blocked first by the Windows manifest's purl form (devlore-cli#813,
+      detoured on a local branch of the clone) and then by a dangling stow-era `~/.config/git` that
+      `file.mkdir` would not replace (devlore-cli#822); 40 stow-era orphans removed. Result: 74 links,
+      `Declare-BashScript` from the base, `git-open-branch --help` answers under Git Bash, the
+      PowerShell profile resolves again, reconcile clean
 
 ## Decisions
+
+- **`New-DevloreKeyVaults` lives in devlore-cli's own `Home/noblefactor-ops.Unix`.** Ruled 2026-09-07
+  ("Short-term: do the move. Longer-term: port to star."): devlore-cli is a layer with a `Home`, so its
+  content that depends on the base sits in its repository-named project; the port is devlore-cli#861.
 
 - **Scripts stay in their layers; the project declares the dependency.** Ruled 2026-09-06, after two
   earlier readings the same day — inject-and-pin, then move-everything-into-ops — were each measured
@@ -181,9 +194,6 @@ Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-projec
 
 ## Open Questions
 
-- [ ] **devlore-cli's own `Home/noblefactor-ops.Unix` for `New-DevloreKeyVaults`**, rather than the
-      base's. This is the one placement that changed after the echo you confirmed, because devlore-cli
-      turned out to be a layer with a `Home`. Proposed: devlore-cli's.
 - [ ] **The six context scripts.** Every bash script sources `Declare-BashScript`; the six were made
       self-contained before that was ruled. Literal application of the placement rule moves them to
       `noblefactor-ops.{Darwin,Unix}` and dissolves `thenobles.Darwin` and `microsoft.Unix`; the other
