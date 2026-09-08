@@ -21,6 +21,7 @@ it with DevLore's `writ`; every NobleFactor repository's `CLAUDE.md` points into
 | [docs/guides/pr-script-template.md](docs/guides/pr-script-template.md) | The PR script format |
 | [docs/guides/go-style-guidelines.md](docs/guides/go-style-guidelines.md) | Go file layout, naming, comments, tests |
 | [docs/github-branch-protection.md](docs/github-branch-protection.md) | Branch protection and required checks |
+| [docs/guides/agent-rules.md](docs/guides/agent-rules.md) | The agents' document: rules whose only audience is a coding agent, each with the day it was broken |
 
 `.github/scripts/Test-Frontmatter.sh` is the reference implementation of the frontmatter standard.
 Repositories adopting the gate should use that script rather than a variant, so a document valid in
