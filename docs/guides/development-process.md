@@ -5,7 +5,7 @@ type: Process
 audience: Engineers
 status: Approved
 created: 2026-09-01
-updated: 2026-09-07
+updated: 2026-09-08
 ---
 
 # Development Process
@@ -236,7 +236,9 @@ The rule, as ruled 2026-09-07 (noblefactor-ops#147):
   `common[.<selector>]` — so `common` depends on nothing outside itself.
 - Every bash script sources `Declare-BashScript`. It is what gives a script `--help`, a man page and
   exit codes; a script without it is below spec, not portable. So every bash script depends on the base,
-  and no bash script lives under `common*`.
+  and no bash script lives under `common*`. **A git hook is exempt** (ruled 2026-09-08): git runs it from
+  the hooks path, where there is no sibling to source, and a hook is configuration git carries rather
+  than a command anyone runs.
 
 writ makes the first bullet enforceable: layers are repositories, a repository's name is a project name,
 and a repository-named project is implicit wherever that repository is a configured layer
@@ -248,9 +250,11 @@ registered — a script that sources the base's file cannot land on a machine wi
   foundation sits beside it in the same `~/.local/bin`. In a consuming layer, a git-supporting script
   that sources `Declare-BashScript` is `noblefactor-ops` with no selector; any other bash script is
   `noblefactor-ops.<selector>`, keeping the selector it had.
-- **Context projects** — a family's, an employer's, deployed by name — are under ruling: whether their
-  scripts source the base's file where they are, or move. Until ruled, personal's six are self-contained
-  (personal#172).
+- **A context project keeps its scripts, and they source the base's file where they are.** Ruled
+  2026-09-08. A project named for nothing configured — a family's, an employer's — is deployed by name
+  on top of the whole stack, so the base is present by construction; the dependency is implicit, and
+  naming a directory for the base is for dependencies that would otherwise be invisible. The project
+  name keeps its own meaning, which is who the scripts are for (personal#177).
 
 Lint follows the dependency it declares. Every consumer carries `# shellcheck source=Declare-BashScript`
 — the file's name, never a path — directly above its `source` line, and the gate supplies the directory
