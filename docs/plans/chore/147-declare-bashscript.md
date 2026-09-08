@@ -3,7 +3,7 @@ title: "Declare-BashScript ships from the base layer, and every script that sour
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/147
 status: in-progress
 created: 2026-09-06
-updated: 2026-09-06
+updated: 2026-09-07
 ---
 
 # Plan: Declare-BashScript ships from the base layer, and every script that sources it says so by project
@@ -32,6 +32,11 @@ its own PR cycle, and it names every file that moves.
    resolves before and after.
 
 ## The rule this plan applies
+
+As ruled 2026-09-07, verbatim: *"If I have code that takes a dependency on or contributes to some repo
+stack (e.g., noblefactor-ops), I put that code into a directory named `Home/noblefactor-ops`. If not, I
+put it elsewhere. If I want what I have to be deployed unconditionally wherever I go, I put it into
+`common`."* And the same day: every bash script sources `Declare-BashScript`.
 
 Layers are repositories, and a repository's name is a project name: `noblefactor-ops` for the base,
 `devlore-cli` for the team layer in the worked example, `personal` for the personal layer.
@@ -78,9 +83,9 @@ this plan, depends on nothing outside itself either.
       dependency)
 - [x] `docs/guides/pr-script-template.md`'s CI table: the `noblefactor-ops` row gains the shell gate;
       the `personal` row names `DECLARE_BASHSCRIPT_DIR`
-- [ ] **Acceptance:** the ops gate is green with the file in-tree; after `writ deploy` here and on
-      DANOBLE-WD11-3, `readlink ~/.local/bin/Declare-BashScript` still names `personal`'s copy —
-      precedence — and nothing observable changes yet
+- [x] **Acceptance:** the ops gate is green with the file in-tree (#182); after `writ deploy` here,
+      `readlink ~/.local/bin/Declare-BashScript` still named `personal`'s copy — precedence — and nothing
+      observable changed. DANOBLE-WD11-3 is still to deploy
 
 **Files**: `Home/common/.local/bin/Declare-BashScript`, three assets, `.github/scripts/shell-lint.sh` — Create;
 `.github/workflows/ci.yaml`, `docs/guides/development-process.md`, `docs/guides/pr-script-template.md` — Modify
@@ -90,26 +95,33 @@ this plan, depends on nothing outside itself either.
 Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-project.md`, labels `chore`,
 `Epic:Process`). One PR; `git mv` throughout so history follows.
 
-- [ ] `Home/noblefactor` → `Home/noblefactor-ops`; `Home/noblefactor.Unix` → `Home/noblefactor-ops.Unix`
-      (12 scripts, `install`, `templates/`, assets); `install`'s two header URLs follow
-- [ ] The 44 `common*` consumers and their assets, into `.local/{bin,share/…}`: `common.Darwin` 21 +
-      `Get-JavaInfo` → `noblefactor-ops.Darwin`; `common.Linux` 8 → `noblefactor-ops.Linux`;
-      `common.Debian` 1 → `noblefactor-ops.Debian`; `common.Unix`'s 9 + `ConvertTo-Pdf` →
-      `noblefactor-ops.Unix`; `git-new-workspace`, `git-protect-encrypted-files` → `noblefactor-ops`
-- [ ] Every mover carries the bare directive; the 10 repo-relative ones are rewritten; `az-ssh`'s
-      SC2154 fixed
-- [ ] The six context scripts stop sourcing it: `require_darwin`/`require_nix`/`error`/`success`
-      inlined where used; `Backup-TimeCapsule` gets its own `getopt` and usage text
-- [ ] `Home/common/.local/bin/Declare-BashScript`, the bridge symlink, and the three assets deleted
-- [ ] `Home/common/.claude/CLAUDE.md` lines 120–121 — the stale `dotfiles/Configs` guidance — replaced
+- [x] `Home/noblefactor` → `Home/noblefactor-ops`; `Home/noblefactor.Unix` → `Home/noblefactor-ops.Unix`
+      (12 scripts, `install`, `templates/`, assets); `install`'s two header URLs follow — personal#174
+- [x] The 42 `common*` consumers and their 96 assets, into `.local/{bin,share/…}`: `common.Darwin` 21 →
+      `noblefactor-ops.Darwin`; `common.Linux` 8 → `noblefactor-ops.Linux`; `common.Debian` 1 →
+      `noblefactor-ops.Debian`; `common.Unix`'s 9 + `ConvertTo-Pdf` → `noblefactor-ops.Unix`;
+      `git-new-workspace`, `git-protect-encrypted-files` → `noblefactor-ops`. `Get-JavaInfo` sourced
+      nothing; under the every-bash-script ruling it was brought to spec (directive, `--help`, man page,
+      both completions) and moved with them
+- [x] Every consumer carries the bare directive directly above its `source`; the 10 repo-relative ones
+      are gone; `az-ssh`'s SC2154 annotated with its reason
+- [x] The six context scripts stop sourcing it: `require_darwin`/`require_nix`/`error`/`success`
+      inlined where used; `Backup-TimeCapsule` gets its own `getopt` and usage text — done before the
+      every-bash-script ruling; see Open Questions
+- [x] `Home/common/.local/bin/Declare-BashScript`, the bridge symlink, and the three assets deleted
+- [x] `Home/common/.claude/CLAUDE.md` lines 120–122 — the stale `dotfiles/Configs` guidance — replaced
       by the rule
-- [ ] `quality-gate.yaml`: `actions/checkout` of `NobleFactor/noblefactor-ops` at a pinned `ref` into
+- [x] `quality-gate.yaml`: `actions/checkout` of `NobleFactor/noblefactor-ops` at `dee8e84e5` into
       `.base/`, `DECLARE_BASHSCRIPT_DIR` exported; `shell-lint.sh` prunes `.base` and passes
-      `-P "${DECLARE_BASHSCRIPT_DIR:-$HOME/.local/bin}"`. The ref is the pin; moving it is a visible commit
-- [ ] **Acceptance:** CI green with the file absent from the repository; locally, lint follows the
-      deployed file; after `writ deploy`, `readlink ~/.local/bin/Declare-BashScript` names the base,
-      every moved command answers on PATH, `git close-branch --help` renders; `Fixup-MusicLibrary.applescript`
-      and the Windows files are the only things left under `common*/local/bin`
+      `-P "${DECLARE_BASHSCRIPT_DIR:-$HOME/.local/bin}"`. The ref is the pin; moving it is a visible commit.
+      CI was green on its first run with the file absent
+- [x] **Acceptance:** CI green with the file absent; locally lint follows the deployed file; after the
+      deploy, `readlink ~/.local/bin/Declare-BashScript` names the base, every moved command answers
+      on PATH, `git open-branch` runs; `Fixup-MusicLibrary.applescript` and the Windows files are what
+      is left under `common*/local/bin`. What the merge cost: 183 links dangled until the deploy ran,
+      121 orphans under `~/local` were removed by hand, and `writ reconcile` still lists 110 store
+      entries as missing (devlore-cli#845). Five tuckr-era root packagers that sourced the file by
+      repository path were re-pointed at the deployed copy; personal#173 retires them
 
 ### Phase 3: `devlore-cli` — #476, the one script into its own `Home`
 
@@ -122,8 +134,8 @@ Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-projec
 
 ### Phase 4: the record
 
-- [ ] #146's "What does not move" paragraph is corrected and the issue is unblocked
-- [ ] #150 inherits the rename: `Start-Claude` is `noblefactor-ops.Unix` in `personal` until its own
+- [x] #146's "What does not move" paragraph is corrected and the issue is unblocked (2026-09-07)
+- [x] #150 inherits the rename: `Start-Claude` is `noblefactor-ops.Unix` in `personal` until its own
       move; its issue says so
 - [ ] DANOBLE-WD11-3: base and personal pulled and deployed after Phase 2, before anything relies on it
 
@@ -172,3 +184,9 @@ Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-projec
 - [ ] **devlore-cli's own `Home/noblefactor-ops.Unix` for `New-DevloreKeyVaults`**, rather than the
       base's. This is the one placement that changed after the echo you confirmed, because devlore-cli
       turned out to be a layer with a `Home`. Proposed: devlore-cli's.
+- [ ] **The six context scripts.** Every bash script sources `Declare-BashScript`; the six were made
+      self-contained before that was ruled. Literal application of the placement rule moves them to
+      `noblefactor-ops.{Darwin,Unix}` and dissolves `thenobles.Darwin` and `microsoft.Unix`; the other
+      reading has them source the file where they are. Either is a follow-up move.
+- [ ] **A git hook.** `personal/Home/common.Unix/.config/git/hooks/pre-commit` is bash and sources
+      nothing; git invokes it from the hooks path, so it has no sibling to source. Whether a hook counts.
