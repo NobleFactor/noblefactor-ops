@@ -41,8 +41,8 @@ after rule 6 and before the closing paragraph.
 **Rule 7 — Nothing while a pull request is in flight.** From the moment a PR script starts until its pull
 request merges and its branch closes: answer questions, read, measure, explain, and write nothing to any
 repository. No plan, no branch, no worktree, no edit inside a checkout. Broken 2026-09-08 by opening a
-second worktree while #863's pull request sat in its CI gate; ruled: "You may answer any questions I pose
-while a PR is in flight. You may not fuck with code. DO NOT make code changes. Period."
+second worktree while #863's pull request sat in its CI gate. Ruled: questions may be answered while a pull
+request is in flight; no code changes, full stop.
 
 **Rule 8 — A blocked branch is nuked, not parked.** The moment a branch's work is found blocked, remove the
 worktree and delete the branch; reopen fresh when the blocker clears. Diff any uncommitted content against
@@ -53,8 +53,7 @@ its source first, so the discard is knowingly empty. Broken 2026-09-04 through 2
 **Rule 9 — A violation is disclosed as a violation.** In the next message, named as a breach, with the rule
 it broke and the date it started, before anything else and never folded into a status list. Broken across
 those same four days: the parked worktree was reported as "the worktree holds twelve files", including in a
-message that had been told to hide nothing. Ruled: "it is a lie by omission and I will not tolerate this
-bullshit."
+message that had been told to hide nothing. Ruled: that is a lie by omission, and it will not be tolerated.
 
 ## Implementation Phases
 
@@ -64,7 +63,8 @@ bullshit."
 
 ### Phase 2: the three rules
 
-- [ ] Rules 7, 8 and 9 in `docs/guides/agent-rules.md`, each with its breakage and the words that ruled it
+- [ ] Rules 7, 8 and 9 in `docs/guides/agent-rules.md`, each with its breakage and what was ruled, plainly
+- [ ] Rule 5's breakage loses its profanity, on the same ruling
 - [ ] The file's `updated` frontmatter moves to 2026-09-08
 - [ ] **Acceptance:** the frontmatter gate and codespell pass; `development-process.md` is untouched;
       a reader who was not there can tell what was done wrong and what to do instead
@@ -74,7 +74,7 @@ bullshit."
 | File | Action | Purpose |
 | --- | --- | --- |
 | `docs/plans/chore/193-agent-rules-in-flight-blocked.md` | Create | this plan, the branch's first commit |
-| `docs/guides/agent-rules.md` | Modify | rules 7, 8, 9 |
+| `docs/guides/agent-rules.md` | Modify | rules 7, 8, 9; and rule 5's quote, cleaned |
 
 ## Decisions
 
@@ -83,9 +83,11 @@ bullshit."
   was built, and a plan cannot be written to fit the work after the fact.
 - **Three rules, not one about discipline.** They failed separately and would be complied with separately:
   one governs a window of time, one an event, one a duty to speak.
-- **The words that ruled them, verbatim, profanity included.** The existing six quote what was said. A rule
-  written because someone lost patience reads as history when it carries their words and as scolding when it
-  does not.
+- **The rulings are paraphrased where what was said was heated.** Ruled 2026-09-08: profanity belongs to the
+  conversation after a rule is broken, not to the document that records it. The reader of this guide broke
+  nothing and should not meet heat aimed at someone else; accountability happens in the conversation, and the
+  document keeps the rule and the breakage. Rule 5 is corrected on the same principle, since it still carries
+  a phrase from 2026-09-07.
 - **No new rule about worktree hygiene in general.** Rule 7 and rule 8 cover the two ways it actually broke;
   a broader rule would be one nobody violated.
 
