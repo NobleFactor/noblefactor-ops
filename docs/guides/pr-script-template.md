@@ -102,6 +102,10 @@ gh pr create \
 
 - [x] Verified item
 - [ ] TODO item
+
+## Time
+
+_Filled by the merge step below._
 EOF
 )"
 
@@ -147,6 +151,27 @@ esac
 # both halves intact.
 gh pr merge "${pr_number}" --squash --admin
 
+# --- The span: every pull request records its time (rule 11) ---
+#
+# Three markers from GitHub's own timestamps, elapsed hours to one decimal, appended to the PR body and
+# verified. AFTER the merge, not before: mergedAt does not exist until the merge lands. Carried verbatim
+# here until `star gh pr span` exists (noblefactor-ops#188); then this block is one call to it.
+span=$(gh pr view "${pr_number}" --json createdAt,mergedAt,commits --jq '
+  (.commits[0].committedDate) as $opened | .createdAt as $submitted | .mergedAt as $merged |
+  def hrs(a; b): (((b | fromdate) - (a | fromdate)) / 3600 * 10 | round) / 10;
+  "## Time\n\n| Marker | UTC | Elapsed |\n| --- | --- | --- |\n" +
+  "| opened (first commit) | \($opened) | — |\n" +
+  "| submitted (PR opened) | \($submitted) | \(hrs($opened; $submitted)) h after opened |\n" +
+  "| merged | \($merged) | \(hrs($submitted; $merged)) h after submitted; \(hrs($opened; $merged)) h in all |\n" +
+  "\nComputed by the algorithm of noblefactor-ops#188 at merge."')
+body=$(gh pr view "${pr_number}" --json body --jq .body | sed '/^## Time$/,$d')
+printf '%s\n%s\n' "${body}" "${span}" | gh pr edit "${pr_number}" --body-file -
+gh pr view "${pr_number}" --json body --jq .body | grep -q '^## Time' || {
+    echo "the PR body carries no ## Time section"
+    exit 1
+}
+printf '%s\n' "${span}"
+
 # Clean up (works from both worktrees and regular branches)
 git close-branch
 
@@ -189,3 +214,12 @@ star gh issues report --epic <Name> --view table --state all --markdown -o value
 10. **Nothing left behind.** After `git add` by name, `git diff --quiet` must pass. A modified tracked
     file the script did not stage is a change the PR silently omits; #161 merged without the rule
     above for exactly this reason.
+
+11. **Every pull request records its time.** A `## Time` section in the pull request's own body, written by
+    the merge step from GitHub's own timestamps and verified there: `opened` (the branch's first commit),
+    `submitted` (the pull request's creation), `merged`, and the elapsed hours between them to one decimal.
+    Ruled 2026-09-08. One algorithm for every pull request -- a number computed differently each time is
+    noise, and the value is in the series. It measures how long the work was **open**, review gaps and nights
+    included; it is not effort and must not be read as one. Where a coding agent estimates active time from
+    its own session transcript, that estimate goes in the agent's end-of-PR message, labeled an estimate, and
+    never into the pull request as fact.

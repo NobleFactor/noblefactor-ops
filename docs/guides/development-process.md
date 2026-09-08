@@ -55,6 +55,12 @@ what makes a set of otherwise unrelated issues legible as one intent.
 same issues read four ways — and every pull request ends with it, scoped to what the pull request
 served ([pr-script-template.md](pr-script-template.md), rule 9).
 
+**And every pull request records its time.** A `## Time` section in its own body, written by the merge step:
+the branch's first commit, the pull request's creation, the merge, and the hours between them — one algorithm
+for every pull request, so the numbers can be read as a series (rule 11). It is how long the work was open,
+not how long it took to do; effort, where anyone estimates it, is said elsewhere and labeled an estimate. The
+report and the span are what a merged pull request leaves behind.
+
 **A thread is not a fourth row.** It is a narrative — a use case or scenario — whose beats land in
 several features, usually across epics and often across repositories. A session serves a feature; a
 thread is what several sessions add up to. It is a view across units of work, not a unit itself, and

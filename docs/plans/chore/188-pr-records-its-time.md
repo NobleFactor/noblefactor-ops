@@ -1,7 +1,7 @@
 ---
 title: "Every pull request records its time"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/188
-status: draft
+status: complete
 created: 2026-09-08
 updated: 2026-09-08
 ---
@@ -24,10 +24,10 @@ there." This plan is the documents half. Closed by this plan's pull request.
 
 ## Goals
 
-- [ ] The PR-script template's body skeleton carries a `## Time` section.
-- [ ] Its merge step computes the section and refuses to finish without it.
-- [ ] A rule states the practice, its three markers, and that effort is not recorded in the pull request.
-- [ ] `development-process.md` names it beside the end-of-PR report.
+- [x] The PR-script template's body skeleton carries a `## Time` section.
+- [x] Its merge step computes the section and refuses to finish without it.
+- [x] A rule states the practice, its three markers, and that effort is not recorded in the pull request.
+- [x] `development-process.md` names it beside the end-of-PR report.
 
 ## Current State
 
@@ -82,15 +82,15 @@ a rule that waits for a tool is a rule nobody follows. The template carries the 
 
 ## Implementation Phases
 
-### Phase 1: The template
+### Phase 1: The template -- COMPLETE (2026-09-08)
 
-- [ ] The PR body skeleton gains `## Time` with a placeholder line saying the merge step fills it.
-- [ ] The merge step gains the computation, the append, and the verification, after `gh pr merge`.
-- [ ] Rule 11 states the practice, the three markers, and the effort exclusion.
+- [x] The PR body skeleton gains `## Time` with a placeholder line saying the merge step fills it.
+- [x] The merge step gains the computation, the append, and the verification, after `gh pr merge`.
+- [x] Rule 11 states the practice, the three markers, and the effort exclusion.
 
-### Phase 2: The process document
+### Phase 2: The process document -- COMPLETE (2026-09-08)
 
-- [ ] `development-process.md` names it beside the end-of-PR report.
+- [x] `development-process.md` names it beside the end-of-PR report.
 
 **Files:** `docs/guides/pr-script-template.md`, `docs/guides/development-process.md`.
 
