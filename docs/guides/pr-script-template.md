@@ -5,7 +5,7 @@ type: Process
 audience: Engineers, Claude Code
 status: Approved
 created: 2026-03-16
-updated: 2026-08-30
+updated: 2026-09-07
 ---
 
 # PR Script Template
@@ -37,6 +37,9 @@ Read the workflow each time rather than trusting this table. It went stale durin
 introduced it: `noblefactor-ops` dropped its Go trees and re-based its gate on documents while this
 edit was in the working tree, turning a `go build` pre-flight into a command with nothing to
 build.
+
+A command from a tool this organization builds — `writ`, `star` — is verified against develop and
+installed before it appears in a script or a message: [agent-rules.md](agent-rules.md), rule 1.
 
 This step exists because a hand-rolled subset of the gate will differ from it eventually. On
 2026-08-30 a `personal` PR pre-flighted with `shellcheck` alone and failed CI on `shfmt`, after the
