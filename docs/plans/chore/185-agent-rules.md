@@ -1,7 +1,7 @@
 ---
 title: "Rules that exist only because an agent broke them get a document of their own"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/185
-status: in-progress
+status: complete
 created: 2026-09-07
 updated: 2026-09-07
 ---
@@ -57,7 +57,7 @@ engineers' documents beyond a pointer.
 - [x] `pr-script-template.md`: its pre-flight section gains one sentence pointing at rule 1
 - [x] Filed in personal as David-Noble-at-work/personal#175: `Home/common/.claude/CLAUDE.md` (deployed as
       `~/.claude/CLAUDE.md`) and the Codex mirror point at the guide — the personal-layer change
-- [ ] **Acceptance:** `development-process.md` unchanged; the epic report at the end of the PR
+- [x] **Acceptance:** `development-process.md` unchanged; the epic report ran at the end of #186
 
 ## Files to Create/Modify
 
