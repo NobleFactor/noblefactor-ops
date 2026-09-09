@@ -241,21 +241,26 @@ The rule, as ruled 2026-09-07 (noblefactor-ops#147):
 - If not, it goes elsewhere. What is to be deployed unconditionally, wherever you go, goes into
   `common[.<selector>]` — so `common` depends on nothing outside itself.
 - Every bash script sources `Declare-BashScript`. It is what gives a script `--help`, a man page and
-  exit codes; a script without it is below spec, not portable. So every bash script depends on the base,
-  and no bash script lives under `common*`. **A git hook is exempt** (ruled 2026-09-08): git runs it from
-  the hooks path, where there is no sibling to source, and a hook is configuration git carries rather
-  than a command anyone runs.
+  exit codes; a script without it is below spec, not portable. So a bash script in a **consuming**
+  repository depends on the base, and lives under `Home/noblefactor-ops[.<selector>]` rather than
+  `common*`. What `common` forbids is a dependency pointing *out* of it, which is why two things are
+  exempt:
+  - **`Declare-BashScript` and the `git-*` commands**, in this repository's `common` (ruled 2026-09-09).
+    Git for Windows brings bash, so the `git-*` commands must be present wherever git is used, whatever
+    layers are selected — which is what `common` is for — and the helper they source sits beside them in
+    the same `~/.local/bin`, so the dependency stays inside `common`. They are the only bash scripts that
+    belong there.
+  - **A git hook** (ruled 2026-09-08): git runs it from the hooks path, where there is no sibling to
+    source, and a hook is configuration git carries rather than a command anyone runs.
 
 writ makes the first bullet enforceable: layers are repositories, a repository's name is a project name,
 and a repository-named project is implicit wherever that repository is a configured layer
 (devlore-cli#850). `personal/Home/noblefactor-ops.Darwin` therefore deploys only where the base is
 registered — a script that sources the base's file cannot land on a machine without it. Consequences:
 
-- **`Declare-BashScript` and the `git-*` commands are the base's `common`.** A git-supporting script
-  comes with Windows too — Git for Windows brings bash — so it deploys everywhere git does, and its
-  foundation sits beside it in the same `~/.local/bin`. In a consuming layer, a git-supporting script
-  that sources `Declare-BashScript` is `noblefactor-ops` with no selector; any other bash script is
-  `noblefactor-ops.<selector>`, keeping the selector it had.
+- **In a consuming layer, the selector says what the script needs.** A git-supporting script that
+  sources `Declare-BashScript` is `noblefactor-ops` with no selector, because it comes with Windows too;
+  any other bash script is `noblefactor-ops.<selector>`, keeping the selector it had.
 - **A context project keeps its scripts, and they source the base's file where they are.** Ruled
   2026-09-08. A project named for nothing configured — a family's, an employer's — is deployed by name
   on top of the whole stack, so the base is present by construction; the dependency is implicit, and
