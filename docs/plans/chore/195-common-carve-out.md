@@ -1,7 +1,7 @@
 ---
 title: "The placement rule names its exemptions, so common* stops being both forbidden and occupied"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/195
-status: in-progress
+status: complete
 created: 2026-09-09
 updated: 2026-09-09
 ---
@@ -56,9 +56,12 @@ The consequence bullet at line 252 then reads as elaboration, and is trimmed of 
 
 ### Phase 2: the rule
 
-- [ ] The third bullet of "Where a script lives" rewritten as above
-- [ ] The consequence bullet at line 252 trimmed so it elaborates rather than repeats
-- [ ] No other normative document makes the blanket claim — verified by sweep, not assumed
+- [x] The third bullet of "Where a script lives" rewritten as above, with both exemptions named as
+      sub-bullets and the reason stated once: what `common` forbids is a dependency pointing out of it
+- [x] The consequence bullet trimmed to "In a consuming layer, the selector says what the script needs",
+      which is what it uniquely said; the duplicated claim is gone
+- [x] Swept `README.md` and `docs/` for the blanket phrasing: the only other occurrence is
+      `docs/plans/chore/147-declare-bashscript.md`, a completed plan and therefore a record, not edited
 
 ### Phase 3: the downstream copy
 
