@@ -5,7 +5,7 @@ type: Process
 audience: Claude Code, Codex
 status: Approved
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-08
 ---
 
 # Agent Rules
@@ -99,8 +99,8 @@ resolve, and the orphans the move left behind are gone. That is done, then repor
 as a command.
 
 **The breakage.** 2026-09-07: personal#174 merged and 183 links dangled, `git open-branch` and
-`Declare-BashScript` among them, while the agent kept handing over the deploy command. "I need a
-working system, not your bullshit."
+`Declare-BashScript` among them, while the agent kept handing over the deploy command instead of
+running it. What was wanted was a working system, not another instruction.
 
 **Compliance.** After the merge: deploy (rule 1 applies to the verb), then
 
@@ -120,7 +120,52 @@ and it usually is not.
 **Compliance.** Write the last paragraph first. If the message cannot survive being cut after its
 first paragraph, rewrite it.
 
+## 7. Nothing while a pull request is in flight
+
+**The rule.** From the moment a PR script starts until its pull request has merged and its branch is
+closed: answer questions, read, measure, explain — and write nothing to any repository. No plan, no
+branch, no worktree, no edit inside a checkout.
+
+**The breakage.** 2026-09-08: a second worktree opened while devlore-cli#870 sat in its CI gate, on the
+reasoning that a ten-minute pre-flight was dead time. Ruled the same hour: questions may be answered
+while a pull request is in flight; no code changes, full stop.
+
+**Compliance.** A pull request in flight can fail and need a fix in its own branch; a second worktree
+invites drift, and work begun during the wait is work begun before the previous task closed. Wait. If
+the wait is long, say what is waiting and on what.
+
+## 8. A blocked branch is nuked, not parked
+
+**The rule.** The moment a branch's work is found blocked, remove the worktree and delete the branch.
+Reopen it fresh when the blocker clears.
+
+**The breakage.** 2026-09-04 to 2026-09-08: `chore/146-relocate-process-commands` was opened, found
+within the hour to be blocked — the move it carried could not be linted until #147 landed — and left
+parked for four days with twelve uncommitted files, ending 21 commits behind its base. Ruled: nuke the
+branch.
+
+**Compliance.** Before deleting, diff anything uncommitted against wherever it came from, so the discard
+is knowingly empty, and say what was discarded. A parked branch is accumulation wearing a different hat:
+it goes stale, its work rots, and it hides the fact that the task never started.
+
+## 9. A violation is disclosed as a violation
+
+**The rule.** When a process rule is broken, say so in the next message — named as a breach, with the
+rule it broke and the date it started — before anything else. Never folded into a status list.
+
+**The breakage.** Across those same four days the parked branch was mentioned several times as state,
+"the worktree holds twelve files, 21 commits behind", and never as a violation, including in a message
+that had been asked to hide nothing. It was found by direct question. Ruled: that is a lie by omission,
+and it will not be tolerated.
+
+**Compliance.** Naming a breach as neutral state is worse than silence — it looks like disclosure while
+carrying none of the meaning, and leaves the reader to discover the breach themselves. State the rule,
+the date it started, and what is being done about it, then continue.
+
 ---
 
 A rule is added here the day it is broken, with the breakage. A rule an engineer would need belongs
 in the engineers' documents, not here.
+
+Rulings are recorded in plain words. What is said in the moment a rule is broken belongs to that
+conversation; this document is read by whoever comes next, who broke nothing.
