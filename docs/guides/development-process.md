@@ -5,7 +5,7 @@ type: Process
 audience: Engineers
 status: Approved
 created: 2026-09-01
-updated: 2026-09-08
+updated: 2026-09-10
 ---
 
 # Development Process
@@ -212,6 +212,15 @@ In particular:
   which**, not in a later cleanup.
 - **A document that describes removed code is corrected or deleted**, not left as history unless it says
   in its own text that history is what it is.
+- **The last commit of a pull request sets the plan's status to `complete`**, when every other box is
+  ticked. The closure box is that commit's; the merge is not a state the plan records.
+
+A plan's status is `draft` until it is reviewed, `chartered` from the review until the last commit of its
+pull request, `complete` from that commit, and `abandoned` when the work is dropped. A plan whose boxes are
+not all ticked at the last commit stays `chartered`, and the pull request says why. Ruled 2026-09-10
+([#199](https://github.com/NobleFactor/noblefactor-ops/issues/199)) after devlore-cli#814's plan merged at
+`chartered` with one open box, because closure had been understood to come at merge, which no commit can
+record.
 
 ---
 

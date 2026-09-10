@@ -1,7 +1,7 @@
 ---
 title: "A plan reaches complete in its pull request's last commit"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/199
-status: chartered
+status: complete
 created: 2026-09-10
 updated: 2026-09-10
 ---
@@ -26,11 +26,11 @@ own second commit ticks its boxes and sets `complete`.
 
 ## Goals
 
-- [ ] `development-process.md` states the rule: the last commit of a pull request sets `complete` when every
+- [x] `development-process.md` states the rule: the last commit of a pull request sets `complete` when every
       other box is ticked; the merge is not a state the plan records.
-- [ ] The same paragraph states the ladder: `draft` until reviewed, `chartered` from the review, `complete`
+- [x] The same paragraph states the ladder: `draft` until reviewed, `chartered` from the review, `complete`
       from that last commit, `abandoned` when the work is dropped.
-- [ ] `docs/plans/TEMPLATE.md` names the same four statuses; `in-progress` goes.
+- [x] `docs/plans/TEMPLATE.md` names the same four statuses; `in-progress` goes.
 
 ## Current State
 
@@ -62,9 +62,9 @@ the same four, so a plan copied from it cannot start with a status the process d
 
 ### Phase 2: The rule and the ladder
 
-- [ ] `development-process.md`: the bullet, the paragraph, `updated: 2026-09-10`.
-- [ ] `docs/plans/TEMPLATE.md`: the status line.
-- [ ] **Acceptance:** the frontmatter gate and codespell pass; this plan's second commit ticks every box above
+- [x] `development-process.md`: the bullet, the paragraph, `updated: 2026-09-10`.
+- [x] `docs/plans/TEMPLATE.md`: the status line.
+- [x] **Acceptance:** the frontmatter gate and codespell pass; this plan's second commit ticks every box above
       and sets `complete`, which is the rule applied to itself.
 
 ## Files to Create/Modify
