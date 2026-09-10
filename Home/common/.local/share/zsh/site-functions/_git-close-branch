@@ -1,0 +1,23 @@
+#compdef git-close-branch
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+_git-close-branch() {
+    local -a opts branches
+
+    branches=(${(f)"$(git branch -a 2>/dev/null | sed 's/^[* ]*//' | sed 's|remotes/origin/||' | sort -u)"})
+
+    opts=(
+        '(-h --help)'{-h,--help}'[Show usage information and exit]'
+        '(-b --branch)'{-b,--branch}'[Feature branch to close; repeatable]:branch:($branches)'
+        '(-t --target)'{-t,--target}'[Parent branch to switch to]:branch:($branches)'
+        '(-m --merged)'{-m,--merged}'[Close every local branch whose PR GitHub reports as MERGED]'
+        '(-n --dry-run)'{-n,--dry-run}'[Print what would be closed and exit]'
+        '(-f --force)'{-f,--force}'[Close branches the safety checks refuse, saying what is discarded]'
+        '*:branch:($branches)'
+    )
+
+    _arguments -s -S $opts
+}
+
+_git-close-branch "$@"

@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+# git-reset-branch - Reset a branch to match another after a squash merge
+# for documentation: man git-reset-branch
+
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/Declare-BashScript" "$0" "help,reset:,from:" "hr:f:" "$@"
+require_nix
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="git-reset-branch --reset <branch> --from <source>"
+eval set -- "$script_arguments"
+
+[[ $* != -- ]] || usage "$synopsis"
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis"
+            ;;
+        -r | --reset)
+            reset_branch="$2"
+            shift 2
+            ;;
+        -f | --from)
+            from_branch="$2"
+            shift 2
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
+    esac
+done
+
+# --reset (branch to reset, e.g., develop)
+[[ -n ${reset_branch:-} ]] || error $EX_USAGE "A value for --reset is required."
+readonly reset_branch
+
+# --from (source of truth, e.g., master)
+[[ -n ${from_branch:-} ]] || error $EX_USAGE "A value for --from is required."
+readonly from_branch
+
+######
+# Main
+######
+
+note "Resetting '${reset_branch}' from '${from_branch}'"
+
+git fetch origin
+
+# Verify source of truth exists on remote
+git rev-parse --verify "origin/${from_branch}" >/dev/null 2>&1 ||
+    error $EX_DATAERR "Remote branch 'origin/${from_branch}' does not exist."
+
+git checkout "${reset_branch}"
+git reset --hard "origin/${from_branch}"
+git push --force origin "${reset_branch}"
+
+success "'${reset_branch}' is now synced to '${from_branch}'"

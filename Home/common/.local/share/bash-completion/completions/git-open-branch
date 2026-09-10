@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2207,SC2034 # COMPREPLY and standard completion variables
+
+# bash completion for git-open-branch
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+_git_open_branch() {
+    local cur prev opts types branches issues
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD - 1]}"
+
+    opts="-h --help -i --issue --name -t --target -T --type -W --no-worktree -n --dry-run"
+    types="chore doc feature fix hotfix refactor release"
+
+    case "${prev}" in
+        -t | --target)
+            branches=$(git branch -r 2>/dev/null | sed 's|^[* ]*origin/||' | grep -v '^HEAD' | sort -u)
+            COMPREPLY=($(compgen -W "${branches}" -- "${cur}"))
+            return 0
+            ;;
+        -T | --type)
+            # The alternation organization ruleset 12515090 enforces. Completing it here is the earliest
+            # place a wrong prefix can be caught; the script catches it next, and the push would catch it
+            # last.
+            COMPREPLY=($(compgen -W "${types}" -- "${cur}"))
+            return 0
+            ;;
+        --name)
+            # Free text: the caller names the work. No candidates to offer.
+            return 0
+            ;;
+    esac
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+        return 0
+    fi
+
+    # The operand is an issue number. Offering the open ones turns "which issue was that?" into a keystroke,
+    # and an issue is the one argument this command cannot run without.
+    issues=$(gh issue list --state open --limit 50 --json number --jq '.[].number' 2>/dev/null)
+    COMPREPLY=($(compgen -W "${issues}" -- "${cur}"))
+    return 0
+}
+
+complete -F _git_open_branch git-open-branch

@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+# git-open-branch - Open a branch and its worktree for a GitHub issue
+# for documentation: man git-open-branch
+
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/Declare-BashScript" "$0" "help,issue:,name:,target:,type:,dry-run,no-worktree" "hi:t:T:nW" "$@"
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="git-open-branch [-i] <issue> [--name <name>] [-t <target>] [-T <type>] [-W|--no-worktree] [-n|--dry-run]"
+eval set -- "$script_arguments"
+
+# An issue is not optional, and this is the whole point of the command. A branch names work; work is tracked;
+# an untracked branch is a claim nobody can find later. The inverse — git-close-branch — verifies a pull
+# request before it deletes anything, and this is the same discipline at the other end of the life.
+issue=""
+
+# The same origin/HEAD lookup git-close-branch makes, and for the same reason: `|| true` keeps the fallback
+# reachable, because Declare-BashScript sets errexit and pipefail together and git exits 128 without it.
+target_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
+target_branch="${target_branch:-main}"
+branch_type=""
+name=""
+dry_run=""
+
+# Long enough to recognize the work, short enough to type. The issue number carries identity.
+declare -r name_limit=32
+want_worktree="yes"
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis"
+            ;;
+        -i | --issue)
+            issue="$2"
+            shift 2
+            ;;
+        --name)
+            name="$2"
+            shift 2
+            ;;
+        -t | --target)
+            target_branch="$2"
+            shift 2
+            ;;
+        -T | --type)
+            branch_type="$2"
+            shift 2
+            ;;
+        -n | --dry-run)
+            dry_run="yes"
+            shift 1
+            ;;
+        -W | --no-worktree)
+            want_worktree=""
+            shift 1
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
+    esac
+done
+
+# The issue may be positional, so `git open-branch 762` reads the way it is spoken.
+[[ -z "${issue}" ]] && (($# > 0)) && {
+    issue="$1"
+    shift 1
+}
+(($# == 0)) || error $EX_USAGE "Unexpected argument: $1"
+[[ -n "${issue}" ]] || error $EX_USAGE "An issue is required. ${synopsis}"
+
+issue="${issue#\#}"
+[[ "${issue}" =~ ^[0-9]+$ ]] || error $EX_USAGE "Issue must be a number, not '${issue}'."
+
+###########
+# Functions
+###########
+
+# branch_type_for maps an issue's labels onto the prefix the branch must carry.
+#
+# Organization ruleset 12515090 constrains every ref to ^(chore|doc|feature|fix|hotfix|refactor|release)/.+$
+# with no bypass actors, so the prefix is not a preference — a name outside that alternation is rejected at
+# push time, which is a long way from here. The mapping is deliberately small: an issue that is none of these
+# is work whose kind nobody has decided, and `feature` is the honest default rather than a guess dressed up.
+function branch_type_for {
+
+    local labels="$1"
+
+    case ",${labels}," in
+        *,bug,*) printf 'fix' ;;
+        *,documentation,*) printf 'doc' ;;
+        *,enhancement,* | *,feature,* | *,epic,*) printf 'feature' ;;
+        *) printf 'feature' ;;
+    esac
+}
+
+# name_from reduces an issue title to the readable half of a branch name.
+#
+# Lowercase, alphanumerics and hyphens, collapsed, leading articles dropped, then truncated at a WORD
+# boundary. A branch name is typed, tab-completed, and read in `git log --oneline`, and a whole title serves
+# none of those. The issue number carries the identity; this only has to be recognizable — and a name ending
+# in "remainin" is less recognizable than a shorter one ending where a word does.
+#
+# A title is written to be read in a list of issues, not to be typed at a shell, so this is a fallback. When
+# it produces something awkward, --name says what to call the work instead.
+function name_from {
+
+    local derived
+    derived="$(printf '%s' "$1" |
+        tr '[:upper:]' '[:lower:]' |
+        sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/^(a|an|the)-//')"
+
+    if ((${#derived} > name_limit)); then
+
+        # A cut landing exactly on a separator already ends on a word; anything else has bisected one, and
+        # trimming back to the last separator is what puts it right.
+        if [[ "${derived:${name_limit}:1}" != "-" ]]; then
+            derived="${derived:0:${name_limit}}"
+            derived="${derived%-*}"
+        else
+            derived="${derived:0:${name_limit}}"
+        fi
+    fi
+
+    printf '%s' "${derived}"
+}
+
+##########
+# Validate
+##########
+
+command -v gh >/dev/null 2>&1 || error $EX_UNAVAILABLE "gh is required to read issue #${issue}."
+
+# One call, three facts, taken through gh's own --jq so no second dependency is introduced. A closed issue
+# is the interesting refusal: the branch would be opened for work already finished, and the mistake is
+# nearly always a transposed number.
+issue_facts="$(gh issue view "${issue}" --json title,state,labels \
+    --jq '[.title, .state, ([.labels[].name] | join(","))] | @tsv' 2>/dev/null)" ||
+    error $EX_NOINPUT "No issue #${issue} in this repository."
+
+IFS=$'\t' read -r issue_title issue_state issue_labels <<<"${issue_facts}"
+
+[[ "${issue_state}" == "OPEN" ]] ||
+    error $EX_USAGE "Issue #${issue} is ${issue_state}. Re-open it, or name the issue this work belongs to."
+
+[[ -n "${branch_type}" ]] || branch_type="$(branch_type_for "${issue_labels}")"
+
+[[ "${branch_type}" =~ ^(chore|doc|feature|fix|hotfix|refactor|release)$ ]] ||
+    error $EX_USAGE "Type '${branch_type}' is outside ruleset 12515090: chore, doc, feature, fix, hotfix, refactor, release."
+
+# --name wins: the caller has read the issue and knows what the work is called. Falling back to the title is
+# for when they have not bothered, which is most of the time and fine.
+[[ -n "${name}" ]] && name="$(name_from "${name}")"
+[[ -n "${name}" ]] || name="$(name_from "${issue_title}")"
+[[ -n "${name}" ]] || error $EX_DATAERR "Issue #${issue} has no title to derive a name from."
+
+branch="${branch_type}/${issue}-${name}"
+
+# The main worktree names the repository, and a linked worktree is its sibling: <repo>.<issue>-<name>. The
+# type prefix is dropped, because a directory listing is read by a human who already knows what the work is
+# and needs to tell one worktree from another.
+main_worktree="$(git worktree list --porcelain | awk 'NR == 1 { print substr($0, 10) }')"
+[[ -n "${main_worktree}" ]] || error $EX_OSFILE "Cannot locate the main worktree."
+worktree="${main_worktree}.${issue}-${name}"
+
+#########
+# Refusals
+#########
+
+# Computed BEFORE the preview branches, and after a fetch, because both signals read remote-tracking refs
+# and a stale ref produces a confident wrong answer. git-close-branch states the rule its own dry run
+# follows: a preview that disagrees with the run it previews is worse than no preview. This one previews the
+# refusal rather than reporting a branch it would decline to create.
+
+git fetch --prune --quiet origin || error $EX_TEMPFAIL "Cannot fetch from origin."
+
+refusal=""
+
+if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null; then
+    refusal="branch '${branch}' already exists; work it, or close it with git-close-branch"
+elif git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+    refusal="branch '${branch}' exists on origin; fetch and check it out rather than opening a second one"
+elif ! git rev-parse --verify --quiet "refs/remotes/origin/${target_branch}" >/dev/null; then
+    refusal="no 'origin/${target_branch}' to branch from"
+elif [[ -n "${want_worktree}" ]] && [[ -e "${worktree}" ]]; then
+    refusal="'${worktree}' already exists; remove it, or work in it as it stands"
+fi
+
+#########
+# Preview
+#########
+
+if [[ -n "${dry_run}" ]]; then
+
+    if [[ -n "${refusal}" ]]; then
+        note "Would REFUSE for #${issue} (${issue_title})"
+        printf '  %-12s %s\n' "reason" "${refusal}" >&2
+        exit 0
+    fi
+
+    note "Would open for #${issue} (${issue_title})"
+    printf '  %-12s %s\n' "branch" "${branch}" >&2
+    printf '  %-12s %s\n' "from" "origin/${target_branch}" >&2
+    [[ -n "${want_worktree}" ]] && printf '  %-12s %s\n' "worktree" "${worktree}" >&2
+    exit 0
+fi
+
+######
+# Open
+######
+
+[[ -z "${refusal}" ]] || error $EX_USAGE "$(printf '%s' "${refusal}" | sed 's/^./\U&/')"
+
+if [[ -z "${want_worktree}" ]]; then
+    git checkout -b "${branch}" "origin/${target_branch}" ||
+        error $EX_SOFTWARE "Cannot create '${branch}'."
+    success "Opened ${branch} for #${issue}"
+    exit 0
+fi
+
+# `git worktree add` touches no other worktree: no checkout elsewhere, no index change, no stash. Whatever
+# the caller is standing in is left exactly as it was found, uncommitted changes and all — which is the
+# property that makes opening a branch safe while another is mid-edit.
+git worktree add --no-checkout "${worktree}" -b "${branch}" "origin/${target_branch}" ||
+    error $EX_CANTCREAT "Cannot create the worktree '${worktree}'."
+
+# git-crypt reads its key from $GIT_DIR/git-crypt/keys, and a linked worktree's GIT_DIR is
+# .git/worktrees/<name> rather than the common .git -- so the smudge filter finds no key and the checkout
+# dies on the first encrypted file it meets. That is why the checkout is deferred: the link has to exist
+# before any content is written. devlore does the same thing for its snapshot worktrees of this repository,
+# and the link is absolute there, so it is absolute here -- and physical, because `pwd` alone would
+# record the path the caller happened to arrive by. This repository is normally reached through
+# ~/Workspace/Personal, a symlink outside the repository, and a key link pointing through it would
+# dangle if that convenience ever went away while the repository stayed.
+#
+# A repository without git-crypt has no such directory, and the checkout below simply proceeds.
+common_git_dir="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+worktree_git_dir="$(git -C "${worktree}" rev-parse --absolute-git-dir)"
+
+if [[ -d "${common_git_dir}/git-crypt" ]] && [[ ! -e "${worktree_git_dir}/git-crypt" ]]; then
+    ln -s "${common_git_dir}/git-crypt" "${worktree_git_dir}/git-crypt"
+fi
+
+# A failed checkout used to leave the branch behind, because `worktree add` creates the branch first and
+# cleans up only the directory. Undoing both is the difference between a retry that works and one that
+# refuses because the branch it wants already exists. `-d` rather than `-D`: the branch was created moments
+# ago at origin/<target> and carries nothing, so a refusal here means something else made commits on it,
+# and that is a branch to keep.
+if ! git -C "${worktree}" checkout; then
+    git worktree remove --force "${worktree}" 2>/dev/null || true
+    git branch -d "${branch}" 2>/dev/null || true
+    error $EX_CANTCREAT "Cannot check out '${branch}' into '${worktree}'."
+fi
+
+# `worktree add -b <branch> origin/<target>` sets the new branch's upstream to origin/<target>, not to
+# itself. With push.default=simple a bare `git push` then refuses rather than pushing to the target — safe,
+# and confusing enough to be worth preempting. The first push wants `-u`.
+note "First push: git -C '${worktree}' push -u origin '${branch}'"
+
+success "Opened ${branch} for #${issue} at ${worktree}"

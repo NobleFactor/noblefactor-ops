@@ -1,0 +1,593 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+# git-close-branch - Switch to the target branch, pull, and delete merged feature branches
+# for documentation: man git-close-branch
+
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/Declare-BashScript" "$0" "help,branch:,target:,merged,dry-run,force" "hb:t:mnf" "$@"
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="git-close-branch [-b <branch>] [-t <target>] [-m|--merged] [-n|--dry-run] [-f|--force] [<branch>...]"
+eval set -- "$script_arguments"
+
+declare -a branches=()
+# `|| true` is what makes the fallback on the next line reachable. Declare-BashScript sets errexit and
+# pipefail together: without origin/HEAD, git exits 128, pipefail promotes that over sed's success, the
+# assignment inherits it, and errexit ends the script before the fallback is ever evaluated — silently,
+# with status 128 and no output. Clones of a then-empty repository are the case that has no origin/HEAD.
+target_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
+target_branch="${target_branch:-main}" # fallback when origin/HEAD is absent
+select_merged=""
+dry_run=""
+force=""
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis"
+            ;;
+        -b | --branch)
+            branches+=("$2")
+            shift 2
+            ;;
+        -t | --target)
+            target_branch="$2"
+            shift 2
+            ;;
+        -m | --merged)
+            select_merged="yes"
+            shift 1
+            ;;
+        -f | --force)
+            force="yes"
+            shift 1
+            ;;
+
+        -n | --dry-run)
+            dry_run="yes"
+            shift 1
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
+    esac
+done
+
+# Trailing operands are branch names, so a set can be named directly or produced by a command substitution.
+
+branches+=("$@")
+
+readonly target_branch select_merged dry_run force
+
+git rev-parse --git-dir >/dev/null 2>&1 || error $EX_DATAERR "Not in a git repository."
+
+###########
+# Functions
+###########
+
+# worktree_for prints the path of the LINKED worktree holding a branch, or nothing when none does.
+#
+# The main worktree is deliberately excluded: it is never removed, it is switched to the target branch before
+# any deletion happens, so a branch checked out there needs nothing done to it. Reporting it would invite a
+# `git worktree remove` that git refuses outright, failing a branch that is perfectly closeable.
+function worktree_for {
+    local branch="$1" main="$2"
+    git worktree list --porcelain | awk -v want="refs/heads/${branch}" -v main="${main}" '
+        /^worktree /  { path = substr($0, 10) }
+        /^branch /    { if ($2 == want && path != main) { print path; exit } }
+    '
+}
+
+# main_worktree_branch prints the branch checked out in the MAIN worktree, or nothing when it is detached.
+#
+# The complement of worktree_for, which excludes the main worktree because it is switched rather than
+# removed. Knowing what it holds is what makes that switch conditional: only a branch checked out here
+# requires it, because git refuses to delete a branch from a worktree that has it checked out.
+function main_worktree_branch {
+    local main="$1"
+    git worktree list --porcelain | awk -v main="${main}" '
+        /^worktree /  { path = substr($0, 10) }
+        /^branch /    { if (path == main) { sub(/^refs\/heads\//, "", $2); print $2; exit } }
+    '
+}
+
+# merged_branches prints every local branch whose pull request GitHub reports as MERGED.
+function merged_branches {
+    local branch state
+
+    command -v gh >/dev/null 2>&1 || error $EX_UNAVAILABLE "--merged requires the gh CLI."
+
+    while read -r branch; do
+        [[ "${branch}" == "${target_branch}" ]] && continue
+        state="$(gh pr view "${branch}" --json state --jq '.state' 2>/dev/null || true)"
+        [[ "${state}" == "MERGED" ]] && printf '%s\n' "${branch}"
+    done < <(git for-each-ref --format='%(refname:short)' refs/heads/)
+}
+
+# landed_on_target reports whether the target branch carries the squash commit for a pull request.
+#
+# GitHub appends "(#<number>)" to the subject of a squash merge, and that reference is the only trace the
+# branch's work leaves in the target's history — the commits themselves never appear, because a squash creates
+# one new commit with a different SHA. Searched with a fixed string so the parentheses stay literal.
+function landed_on_target {
+    local number="$1" search_ref="origin/${target_branch}"
+
+    git rev-parse --verify --quiet "${search_ref}" >/dev/null 2>&1 || search_ref="${target_branch}"
+
+    [[ -n "$(git log "${search_ref}" --fixed-strings --grep="(#${number})" --max-count=1 --format='%H' 2>/dev/null)" ]]
+}
+
+# forced_cost describes what --force would discard for a branch delete_flag refused, in that branch's own
+# terms. The refusal exists because something is about to be lost; force changes who decides, never whether
+# it is said. Reasons match delete_flag's return codes.
+#
+# Parameters:
+#   - `$1`: the branch.
+#   - `$2`: delete_flag's return code -- 1 local-only commits, 2 the two merge signals disagreeing.
+#
+# Returns:
+#   - stdout: one clause naming the cost.
+function forced_cost {
+    local branch="$1" reason="$2" ahead
+
+    if ((reason == 2)); then
+        printf 'GitHub reports it merged and %s carries no commit for its pull request' "${target_branch}"
+        return 0
+    fi
+
+    if ! git rev-parse --verify --quiet "refs/remotes/origin/${branch}" >/dev/null; then
+        printf 'the remote has no branch, so every commit here is the only copy'
+        return 0
+    fi
+
+    ahead="$(git rev-list --count "refs/remotes/origin/${branch}..refs/heads/${branch}" 2>/dev/null || echo '?')"
+    printf 'discards %s commit(s) that exist only here' "${ahead}"
+}
+
+# worktree_dirt prints the number of changed or untracked entries in a worktree, or nothing when it is clean.
+#
+# `git worktree remove` refuses a dirty worktree and names --force in its own message. Passing the flag
+# through is the point of --force; counting first is what keeps the discard from being silent.
+#
+# Parameters:
+#   - `$1`: the worktree path.
+#
+# Returns:
+#   - stdout: the entry count, or nothing when the worktree is clean or unreadable.
+function worktree_dirt {
+    local worktree="$1" count
+
+    count="$(git -C "${worktree}" status --porcelain --untracked-files=all 2>/dev/null | wc -l | tr -d ' ')" || return 0
+
+    if ((count > 0)); then
+        printf '%s' "${count}"
+    fi
+
+    return 0
+}
+
+# delete_flag prints the flag git branch should use to delete a branch, or nothing when deletion is unsafe.
+#
+# A squash merge leaves the branch tip unreachable from the target, so -d refuses a branch GitHub considers
+# merged; -D is correct there. Forcing requires TWO independent signals to agree, because either one alone can
+# be wrong:
+#
+#   1. GitHub reports the pull request MERGED, and the target's history carries that pull request's squash
+#      commit. A stale or misresolved gh answer cannot force a delete on its own.
+#   2. Nothing exists only locally: the tip matches origin's, or origin's branch is already gone. Otherwise
+#      forcing discards the only copy of commits the remote never received.
+function delete_flag {
+    local branch="$1" local_tip remote_tip state number
+
+    local_tip="$(git rev-parse --verify --quiet "refs/heads/${branch}")" || return 1
+    remote_tip="$(git rev-parse --verify --quiet "refs/remotes/origin/${branch}" || true)"
+
+    # Three cases used to be one silent fall-through: gh absent, gh present but failing, and a
+    # branch with no pull request. Only the last is unremarkable. A failing gh -- unauthenticated,
+    # rate-limited, offline -- looked exactly like a branch nobody had opened a pull request for,
+    # and the verification #124 and #126 built simply vanished without a word.
+
+    if ((gh_usable)); then
+
+        local status=0
+        state="$(gh pr view "${branch}" --json state --jq '.state' 2>/dev/null)" || status=$?
+
+        # gh exits non-zero both for "no pull request found" and for a genuine failure. An empty
+        # stdout with a non-zero status and anything on stderr is the failure; no pull request
+        # prints nothing and is expected.
+
+        if ((status != 0)) && gh auth status >/dev/null 2>&1; then
+            state=""
+        elif ((status != 0)); then
+            error 0 "'${branch}': gh could not be queried; closing without GitHub verification."
+            state=""
+        fi
+
+        if [[ -n "${state}" ]]; then
+            number="$(gh pr view "${branch}" --json number --jq '.number' 2>/dev/null || true)"
+        fi
+    fi
+
+    if [[ "${state:-}" == "MERGED" ]]; then
+
+        if [[ -z "${number:-}" ]] || ! landed_on_target "${number}"; then
+            return 2 # GitHub says merged, the target's history does not agree
+        fi
+
+        if [[ -n "${remote_tip}" && "${local_tip}" != "${remote_tip}" ]]; then
+            return 1 # commits exist only locally
+        fi
+
+        printf -- '-D\n'
+        return 0
+    fi
+
+    printf -- '-d\n'
+}
+
+######
+# Main
+######
+
+if [[ -n "${select_merged}" ]]; then
+    while read -r branch; do
+        branches+=("${branch}")
+    done < <(merged_branches)
+fi
+
+# No selection at all means the branch you are standing on, which is the single-branch behavior this
+# command has always had.
+
+if ((${#branches[@]} == 0)); then
+    current="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    [[ -n "${current}" ]] || error $EX_DATAERR "Unable to determine the current branch."
+    branches+=("${current}")
+fi
+
+# Deduplicate while preserving order, and never delete the branch everything returns to.
+
+declare -a selected=()
+declare -A seen=()
+
+for branch in "${branches[@]}"; do
+    [[ -n "${branch}" ]] || continue
+    [[ -n "${seen[${branch}]:-}" ]] && continue
+    seen["${branch}"]=1
+    if [[ "${branch}" == "${target_branch}" ]]; then
+        error 0 "Refusing to delete the target branch '${target_branch}'."
+        continue
+    fi
+    selected+=("${branch}")
+done
+
+((${#selected[@]} > 0)) || error $EX_USAGE "No branches to close."
+
+# Refresh the remote-tracking refs before judging anything. BOTH safety signals read them — whether the
+# target carries a branch's squash commit, and whether a local tip has commits origin never saw — so a stale
+# ref produces a confident wrong answer. The live run happens to pull the target before its checks; --dry-run
+# does not, and a preview that disagrees with the run it previews is worse than no preview.
+
+git fetch --prune --quiet origin || error $EX_TEMPFAIL "Cannot fetch from origin."
+
+# The main worktree is where the target gets checked out and where branches are deleted from; linked
+# worktrees are removed. Resolved once, and needed by both the preview and the live run.
+#
+# awk over `head -1`, and deliberately without `exit`: a consumer that stops early closes the pipe, and
+# under pipefail git's resulting SIGPIPE becomes the pipeline's status, which errexit then acts on. That
+# needs output larger than the pipe buffer to bite — a thousand-odd worktrees — so it is a latent race
+# rather than a live defect, but reading the stream to its end costs nothing and removes the question.
+#
+# `|| true` would be the wrong remedy here, unlike the origin/HEAD lookup above: an empty value feeds
+# `cd ""`, which succeeds and lands in $HOME. This must fail loudly if it ever fails at all.
+
+main_worktree="$(git worktree list --porcelain | awk 'NR == 1 { print substr($0, 10) }')"
+
+# gh is optional: it adds verification, it is not required to close a branch. Deciding once keeps a
+# six-branch run from printing the same note six times.
+#
+# It is decided ABOVE the dry-run fork because delete_flag reads it and both paths call delete_flag. On the
+# live path only, every dry run died on an unbound variable inside delete_flag's command substitution and
+# read the dead subshell's status as a refusal -- so the preview called every branch REFUSED, whatever its
+# state, and disagreed with the run it previews.
+
+declare -i gh_usable=0
+
+if command -v gh >/dev/null 2>&1; then
+    gh_usable=1
+else
+    note "gh is not installed; closing without GitHub verification."
+fi
+
+if [[ -n "${dry_run}" ]]; then
+
+    # Whether the main worktree gets switched is now a decision rather than a given, so the preview says
+    # which it will be. A preview that disagrees with the run it previews is worse than no preview.
+
+    preview_main_branch="$(main_worktree_branch "${main_worktree}")"
+
+    if [[ -n "${preview_main_branch}" ]] && [[ " ${selected[*]} " == *" ${preview_main_branch} "* ]]; then
+        note "Would switch '${main_worktree}' from '${preview_main_branch}' to '${target_branch}' and close: ${selected[*]}"
+    else
+        note "Would close: ${selected[*]} (leaving '${main_worktree}' on '${preview_main_branch:-a detached HEAD}')"
+    fi
+
+    for branch in "${selected[@]}"; do
+
+        # A branch with no local ref is remote-only: CI opened it, pushed it, and nothing here ever
+        # checked it out. The live run handles that — it guards the local delete and falls through to
+        # the remote — but delete_flag cannot, because it opens by resolving refs/heads and returns
+        # "commits exist only locally" when that fails. For this branch that message is the exact
+        # inverse of the truth, and it previewed a refusal the run would not have made. A preview
+        # that disagrees with the run it previews is worse than no preview.
+        if ! git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null; then
+            if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+                flag="-D (remote only)"
+            else
+                flag="REFUSED: no local branch and no branch on origin"
+            fi
+
+            printf '  %-40s %s\n' "${branch}" "${flag}" >&2
+            continue
+        fi
+
+        flag=""
+        reason=0
+        flag="$(delete_flag "${branch}")" || reason=$?
+
+        case ${reason} in
+            1) flag="REFUSED: commits exist only locally" ;;
+            2) flag="REFUSED: merged on GitHub, but '${target_branch}' has no commit for its pull request" ;;
+        esac
+
+        # --force previews -D for every branch, because that is what the run does: --force means -D
+        # unconditionally, not only where delete_flag objected. A branch delete_flag calls safe (-d)
+        # is still refused by git when it is not merged into HEAD -- the cherry-picked and squash-merged
+        # cases -- and --force overrides that refusal too. A preview that disagrees with its run is
+        # worse than no preview.
+        if [[ -n "${force}" ]]; then
+            if ((reason != 0)); then
+                flag="-D (forced: $(forced_cost "${branch}" "${reason}"))"
+            else
+                flag="-D (forced)"
+            fi
+        fi
+
+        worktree="$(worktree_for "${branch}" "${main_worktree}")"
+
+        # The preview names a dirty worktree, because removing one is what the run refuses or forces.
+        dirt=""
+
+        if [[ -n "${worktree}" ]]; then
+            dirt="$(worktree_dirt "${worktree}")"
+        fi
+
+        if [[ -n "${dirt}" && -z "${force}" ]]; then
+            flag="REFUSED: worktree holds ${dirt} changed or untracked file(s)"
+        fi
+
+        printf '  %-40s %s%s\n' "${branch}" "${flag}" \
+            "${worktree:+  (removes worktree ${worktree}${dirt:+, discarding ${dirt} file(s)})}" >&2
+    done
+
+    exit 0
+fi
+
+# Operate from the main worktree. Not because every close needs it — see below — but because the caller
+# may be standing inside a linked worktree this run is about to remove, and git refuses to remove the
+# worktree you occupy. Leaving first makes the caller's location irrelevant.
+
+cd "${main_worktree}" || error $EX_OSFILE "Cannot enter the main worktree '${main_worktree}'."
+
+# The main worktree is switched only when it holds one of the selected branches, because that is the only
+# case the switch is for: git will not delete a branch from a worktree that has it checked out. A branch
+# living in a LINKED worktree needs no switch — the worktree is removed, then the branch is deleted — so an
+# unrelated main worktree is left exactly as it was found, uncommitted changes and all.
+#
+# Switching unconditionally made a dirty main worktree fatal to closing a branch it had nothing to do with.
+
+main_branch="$(main_worktree_branch "${main_worktree}")"
+
+declare -A blocked=()
+declare -a needs_switch=()
+
+for branch in "${selected[@]}"; do
+    [[ "${branch}" == "${main_branch}" ]] && needs_switch+=("${branch}")
+done
+
+declare -a closed=() failed=()
+
+if ((${#needs_switch[@]} > 0)); then
+
+    note "Switching '${main_worktree}' to '${target_branch}' and closing: ${selected[*]}"
+
+    # -C is not optional. git checkout acts on the worktree it is run from, and under the
+    # worktree-based process this command is usually run from inside the branch being closed --
+    # where an unqualified checkout would switch the wrong tree while the message named the right
+    # one.
+
+    # Only the branches that needed the switch are lost. Every other per-branch failure here reports
+    # and continues, and there is no reason this one should end the run for branches it never
+    # touched.
+
+    if ! git -C "${main_worktree}" checkout "${target_branch}"; then
+
+        error 0 "Cannot switch '${main_worktree}' from '${main_branch}' to '${target_branch}': commit or stash its changes, then re-run."
+
+        for branch in "${needs_switch[@]}"; do
+            blocked["${branch}"]=1
+        done
+    fi
+else
+    note "Closing: ${selected[*]}"
+fi
+
+for branch in "${selected[@]}"; do
+
+    if [[ -n "${blocked[${branch}]:-}" ]]; then
+        failed+=("${branch}")
+        continue
+    fi
+
+    # Deletability is decided before anything is removed. delete_flag only reads -- rev-parse, a gh
+    # query, and the target's history -- so it costs nothing to ask first, and asking second meant
+    # both of its refusals reported against a worktree the run had already deleted.
+
+    flag=""
+    reason=0
+    declare -i has_local=0
+
+    if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null; then
+
+        has_local=1
+        flag="$(delete_flag "${branch}")" || reason=$?
+
+        # --force means -D, unconditionally. delete_flag answers whether a delete is *safe*; git branch
+        # -d then asks whether the branch is *merged* and refuses on its own account -- which is every
+        # branch whose work reached the target by cherry-pick or squash rather than by merge. That
+        # refusal is not one of delete_flag's, so forcing only where delete_flag objected (reason != 0)
+        # left it to strike after the worktree was already gone. The flag is read here for every branch,
+        # and where a refusal did stand its cost is still named.
+        if [[ -n "${force}" ]]; then
+            if ((reason != 0)); then
+                note "'${branch}': --force $(forced_cost "${branch}" "${reason}")."
+            fi
+            flag="-D"
+            reason=0
+        fi
+
+        if ((reason == 1)); then
+            error 0 "'${branch}': commits exist only locally; refusing to force-delete. Pass --force to override."
+            failed+=("${branch}")
+            continue
+        fi
+
+        if ((reason == 2)); then
+            error 0 "'${branch}': GitHub reports it merged, but no commit on '${target_branch}' references its pull request. Pass --force to override."
+            failed+=("${branch}")
+            continue
+        fi
+    else
+        note "'${branch}': no local branch, checking the remote."
+    fi
+
+    worktree="$(worktree_for "${branch}" "${main_worktree}")"
+    declare -i worktree_removed=0
+
+    if [[ -n "${worktree}" ]]; then
+
+        # git refuses a worktree with changed or untracked files and names --force itself. The flag is a
+        # passthrough: it reaches git worktree remove as well as the deletability checks above, and the
+        # count is read before the removal so what was discarded can still be named afterwards.
+        dirt="$(worktree_dirt "${worktree}")"
+
+        if [[ -n "${dirt}" && -z "${force}" ]]; then
+            error 0 "'${branch}': worktree '${worktree}' holds ${dirt} changed or untracked file(s); refusing to remove it. Pass --force to override."
+            failed+=("${branch}")
+            continue
+        fi
+
+        declare -a remove_options=()
+
+        if [[ -n "${force}" ]]; then
+            remove_options+=(--force)
+        fi
+
+        if ! git worktree remove "${remove_options[@]}" "${worktree}"; then
+            error 0 "'${branch}': worktree '${worktree}' could not be removed; skipping."
+            failed+=("${branch}")
+            continue
+        fi
+
+        worktree_removed=1
+
+        if [[ -n "${dirt}" ]]; then
+            note "'${branch}': --force discarded ${dirt} changed or untracked file(s) with the worktree."
+        fi
+    fi
+
+    # The remote goes first because it is the half that fails for reasons having nothing to do with
+    # the branch: no network, an expired credential, a protected-ref rule. Failing there now leaves
+    # BOTH halves intact, which is a state the caller already understands -- nothing was closed,
+    # re-run once the cause is fixed.
+    #
+    # Deleting locally first had no such property. A failed push left the branch gone locally and
+    # alive on origin, which is the split this command exists to prevent, and recovering needs the
+    # remote branch fetched back before it can be deleted again.
+
+    declare -i remote_deleted=0
+    if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+        if ! git push origin --delete "${branch}"; then
+            error 0 "'${branch}': remote delete failed; nothing was deleted. Re-run when it succeeds."
+            failed+=("${branch}")
+            continue
+        fi
+        remote_deleted=1
+    fi
+
+    # The reorder moves the exposure rather than removing it: git offers no transaction spanning a
+    # remote ref and a local one. This is the benign direction -- the remote is gone and the local
+    # branch remains, which git branch -D finishes with no network -- but the message has to say so,
+    # because "local delete failed" reads as though nothing happened.
+
+    if ((has_local)); then
+        if ! git branch "${flag}" "${branch}"; then
+            # The message is built from what the run actually did, trace by trace, never from an assumed
+            # path: the old wording claimed "the remote branch is deleted" for a branch that never existed
+            # on origin, and "nothing was changed" while the worktree had already been removed.
+            done_msg=""
+            ((remote_deleted)) && done_msg+="the remote branch was deleted; "
+            ((worktree_removed)) && done_msg+="the worktree was removed; "
+            [[ -z "${done_msg}" ]] && done_msg="nothing else was changed; "
+            error 0 "'${branch}': 'git branch ${flag}' could not delete the local branch (${done_msg%; }). Finish with: git branch -D ${branch}, or re-run with --force."
+            failed+=("${branch}")
+            continue
+        fi
+    fi
+
+    closed+=("${branch}")
+done
+
+((${#closed[@]} == 0)) || success "Closed: ${closed[*]}"
+
+## Leave the main worktree on the default branch, current
+#
+# Not conditional on anything the close did. Freeing a branch for deletion and leaving the
+# repository where the next piece of work starts are two jobs; conflating them meant closing a
+# branch that lived in a linked worktree -- the normal case under git-open-branch -- left the main
+# worktree wherever it happened to be, at whatever commit it happened to hold.
+#
+# Run even when branches failed to close: being current is independent of whether anything was
+# deleted.
+
+main_branch="$(main_worktree_branch "${main_worktree}")"
+
+if [[ "${main_branch}" != "${target_branch}" ]]; then
+    if [[ -n "$(git -C "${main_worktree}" status --porcelain)" ]]; then
+        note "'${main_worktree}' has uncommitted changes; left on '${main_branch}'."
+    elif ! git -C "${main_worktree}" checkout --quiet "${target_branch}"; then
+        note "Cannot switch '${main_worktree}' to '${target_branch}'; left on '${main_branch}'."
+    fi
+fi
+
+# The fetch at the top of the run already refreshed origin/<target>. Fast-forwarding from it avoids
+# a second network round trip, and --ff-only refuses rather than inventing a merge commit if the
+# main worktree has diverged.
+
+if [[ "$(main_worktree_branch "${main_worktree}")" == "${target_branch}" ]]; then
+    git -C "${main_worktree}" merge --ff-only --quiet "origin/${target_branch}" 2>/dev/null ||
+        note "'${target_branch}' could not be fast-forwarded to origin/${target_branch}."
+fi
+
+if ((${#failed[@]} > 0)); then
+    error $EX_DATAERR "Failed: ${failed[*]}"
+fi

@@ -1,0 +1,188 @@
+.\" SPDX-License-Identifier: Apache-2.0
+.\" Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+.TH GIT-CLOSE-BRANCH 1 "August 2026" "Noble Factor" "User Commands"
+.SH NAME
+git-close-branch \- switch to the target branch, pull, and delete merged feature branches
+.SH SYNOPSIS
+.B git-close-branch
+.RB [ \-h | \-\-help ]
+.RB [ \-b
+.IR branch ]
+.RB [ \-t
+.IR target ]
+.RB [ \-m | \-\-merged ]
+.RB [ \-n | \-\-dry\-run ]
+.RI [ branch ...]
+.SH DESCRIPTION
+.B git-close-branch
+automates the cleanup after feature branches have been merged.
+It deletes each selected branch locally and on the remote, switching the main
+worktree to the target branch only when that worktree holds one of them.
+.PP
+Branches may be named as trailing operands, selected repeatedly with
+.BR \-b ,
+or discovered with
+.BR \-\-merged .
+With no selection at all the command closes the branch you are standing on,
+which is its original single-branch behavior.
+.PP
+The command performs the following steps:
+.IP 1. 3
+Resolves the set of branches to close, excluding the target branch
+.IP 2. 3
+Moves to the main worktree, so the caller's own location cannot block the removal of a worktree
+.IP 3. 3
+Checks out the target branch there and pulls once, but
+.B only
+when one of the selected branches is checked out in the main worktree. Git refuses to delete a branch
+from a worktree holding it, and that is the sole reason for the switch. A branch living in a linked
+worktree needs none: the worktree is removed, then the branch is deleted. An unrelated main worktree is
+left as found, uncommitted changes and all.
+.IP 4. 3
+For each branch: removes its worktree if one holds it, deletes it locally, then deletes it on the remote
+.IP 5. 3
+Reports what was closed and what failed
+.PP
+When the main worktree does hold a selected branch and cannot be switched \(em uncommitted changes \(em
+only the branches that needed the switch fail. The rest are closed, and the message names the worktree and
+the branch it is holding.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage information and exit.
+.TP
+.BR \-b ", " \-\-branch " " \fIbranch\fR
+A feature branch to close. May be repeated. Equivalent to naming the branch as a trailing operand.
+.TP
+.BR \-t ", " \-\-target " " \fIbranch\fR
+The parent branch to switch to. Defaults to the repository's default branch (e.g., main or master).
+.TP
+.BR \-m ", " \-\-merged
+Add every local branch whose pull request GitHub reports as
+.BR MERGED .
+Requires the
+.BR gh (1)
+CLI and issues one query per local branch.
+.TP
+.BR \-n ", " \-\-dry\-run
+Print the branches that would be closed, the delete flag each would receive, and any worktree that would be
+removed. Changes nothing.
+.SH FAILURE HANDLING
+Each branch is closed independently. A branch that cannot be closed is reported and the run continues, so one
+unmerged branch in a set does not strand the rest. The exit status is non-zero if any branch failed.
+.SH FORCE DELETION
+A squash merge creates one new commit on the target with a different SHA, so the branch's own commits never
+enter the target's history and
+.B git branch \-d
+refuses a branch that was in fact merged. Reachability cannot answer the question, and neither can
+.BR "git cherry" ,
+whose patch\-id comparison only matches when the branch held a single commit.
+.PP
+This command therefore escalates to
+.B \-D
+only when
+.B two independent signals agree:
+.IP 1. 3
+.BR gh (1)
+reports the pull request
+.BR MERGED ,
+.B and
+the target's history carries a commit whose subject references that pull request \- the "(#<number>)" suffix
+GitHub appends when it squashes. A stale or misresolved
+.B gh
+answer cannot force a delete by itself.
+.IP 2. 3
+Nothing exists only locally: the tip matches
+.IR origin/<branch> ,
+or the remote branch is already gone. If the remote exists and differs, the local branch holds commits origin
+never received, and forcing would discard the only copy.
+.PP
+A branch failing either signal is refused and reported, with the reason distinguishing the two cases, and the
+run continues to the next branch.
+.TP
+.BR \-f ", " \-\-force
+Close a branch the safety checks refuse. With this flag the branch is deleted with
+.BR "git branch \-D" ,
+unconditionally: it overrides the command's own refusals \(en commits that exist only here, or a pull
+request GitHub reports merged that the target branch carries no commit for \(en and it also overrides
+.BR "git branch \-d" 's
+refusal of a branch not merged into HEAD, which is every branch whose work reached the target by
+cherry-pick or squash rather than by merge. The run says what it discards before it does. Without the flag
+those branches are skipped and reported.
+.IP
+The flag also passes through to
+.BR git\-worktree (1),
+which refuses a worktree holding changed or untracked files. Without
+.BR \-\-force
+that worktree is left alone and its branch is reported as failed, naming the number of files in the way;
+with it the worktree is removed and the same number is reported as discarded.
+.SH EXIT STATUS
+.TP
+.B 0
+Success \- every selected branch closed.
+.TP
+.B 64
+Usage error \- missing or invalid options, or no branches to close.
+.TP
+.B 65
+Data error \- one or more branches could not be closed.
+.TP
+.B 69
+Unavailable \-
+.B \-\-merged
+was requested without the
+.BR gh (1)
+CLI.
+.TP
+.B 75
+Temporary failure \- the target branch could not be pulled.
+.SH EXAMPLES
+Close the current branch after merging:
+.PP
+.nf
+git-close-branch
+.fi
+.PP
+Close several branches at once:
+.PP
+.nf
+git-close-branch fix/nullglob-shell-rc docs/plan-phase-3 xdg-package
+.fi
+.PP
+See what a cleanup would do before doing it:
+.PP
+.nf
+git-close-branch --merged --dry-run
+.fi
+.PP
+Close every merged branch:
+.PP
+.nf
+git-close-branch --merged
+.fi
+.PP
+Close a branch and switch to a specific target branch:
+.PP
+.nf
+git-close-branch -b hotfix/urgent-fix -t staging
+.fi
+.SH WORKFLOW
+Typical usage after a feature PR is squash-merged:
+.IP 1. 3
+Create feature branch off the default branch
+.IP 2. 3
+Push feature branch, create PR
+.IP 3. 3
+Squash-merge PR on GitHub
+.IP 4. 3
+Run: git-close-branch \-\-merged
+.SH SEE ALSO
+.BR git (1),
+.BR gh (1),
+.BR git-sync-branch (1)
+.SH AUTHOR
+Noble Factor
+.SH COPYRIGHT
+Copyright \(co 2025-2026 Noble Factor.
+.br
+Licensed under the Apache License, Version 2.0.

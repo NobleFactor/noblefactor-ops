@@ -223,6 +223,11 @@ is a consequence of the work rather than of the typist, and creates the worktree
 verifies a pull request is merged before it deletes anything, removes the worktree, and deletes the
 branch locally and on the remote.
 
+All three — `git-reset-branch` travels with them — ship from this repository's `Home/common/.local/bin`,
+beside the `Declare-BashScript` they source, each with its man page and bash and zsh completions. They
+deploy wherever git does: Git for Windows brings bash, so the process commands are present on every
+platform the process runs on (#146).
+
 `Start-Claude` implements the session rules. It opens a session named
 `<repository> | <branch> | <feature>`, takes the feature from `--issue`, and resumes the conversation
 belonging to that repository and branch. It is what makes a session disposable in practice rather than
