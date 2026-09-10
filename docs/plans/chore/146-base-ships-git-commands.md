@@ -1,7 +1,7 @@
 ---
 title: "The base layer ships the git-* process commands"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/146
-status: in-progress
+status: complete
 created: 2026-09-10
 updated: 2026-09-10
 ---
@@ -71,19 +71,27 @@ is gone: the sibling resolves directly, and personal's copy is no longer the lin
 ### Phase 1: the plan
 - [x] This document, the branch's first commit
 
-### Phase 2: the twelve files
-- [ ] Copy the current trio (with #181/#183/#186) from personal into `Home/common/.local/{bin,share/...}`
-- [ ] `chmod +x` the three scripts; the four-artifact layout matches the other base commands
-- [ ] Cross-repository, so history cannot follow by `git mv`; the commit message records provenance
-      (personal `main` at the fixes). personal#180 does the `git rm` on its side
+### Phase 2: the twelve files — complete
+- [x] Copied the current trio from personal `main` @ `c153d90e` (carries #181/#183/#186) into
+      `Home/common/.local/{bin,share/...}`
+- [x] `chmod +x` the three scripts; the four-artifact layout matches the other base commands
+- [x] Cross-repository, so history cannot follow by `git mv`; provenance is in the commit message.
+      personal#180 does the `git rm` on its side
+- [x] Relicensed all twelve to this repository's convention — see Decisions
 
-### Phase 3: it passes in its new home
-- [ ] `.github/scripts/shell-lint.sh` clean (shfmt + `shellcheck -x`, helper resolved as sibling)
-- [ ] `mandoc -T lint` clean on the three man pages
-- [ ] `bash -n` on each script
+### Phase 3: it passes in its new home — complete
+- [x] `.github/scripts/shell-lint.sh` clean on all six shell files (shfmt + `shellcheck -x`, the helper
+      resolved as a sibling in `Home/common/.local/bin` — the cross-repository problem that blocked this
+      issue is gone)
+- [x] `mandoc -T lint` clean on the three man pages, after the header and COPYRIGHT edits; renders
+- [x] `bash -n` on each script
+- [x] Repo-wide `codespell` with CI's flags clean; `Test-Frontmatter` 46 checked, 0 errors; buildifier clean
+- [x] No `MIT` residue anywhere in the twelve — headers *and* the man pages' closing license sections
 
-### Phase 4: the guide names the new location
-- [ ] `development-process.md`'s reference-implementation reference points at `Home/common/.local/bin`
+### Phase 4: the guide names the new location — complete
+- [x] `development-process.md`'s "Reference implementation" section stated **no** location, so this is an
+      addition, not a replacement: one paragraph naming `Home/common/.local/bin`, the sibling
+      `Declare-BashScript`, the four artifacts, and why it deploys wherever git does
 
 ## Files to Create/Modify
 
@@ -95,6 +103,7 @@ is gone: the sibling resolves directly, and personal's copy is no longer the lin
 | `Home/common/.local/share/bash-completion/completions/git-{open,close,reset}-branch` | Create (3) |
 | `Home/common/.local/share/zsh/site-functions/_git-{open,close,reset}-branch` | Create (3) |
 | `docs/guides/development-process.md` | Modify — the reference-implementation location |
+| `.github/codespell-ignore` | Modify — three words, with reasons |
 
 ## Decisions
 
@@ -106,6 +115,15 @@ is gone: the sibling resolves directly, and personal's copy is no longer the lin
   too (ruled 2026-09-09), but a pull request carries files; moving issues (`gh issue transfer`) and copying
   plan documents are separate, and #180 plus a documentation pass are where they land. This PR is the twelve
   files and the one guide reference.
+- **The twelve are relicensed Apache-2.0 on arrival.** They carried `SPDX-License-Identifier: MIT` and an
+  MIT redistribution sentence from personal. #179 relicensed this repository to Apache-2.0; landing
+  MIT-headed files in it would make it mixed-license. Headers now match the sibling `Declare-BashScript`
+  exactly (`Apache-2.0`, `2025-2026`, no redistribution line). Content is otherwise a copy.
+- **Three codespell words are ignored, with reasons, not skipped by file.** `remainin` is `git-open-branch`'s
+  own example of a name truncated mid-word — correcting it destroys the illustration, the precedent already
+  recorded for `runn`. `te` and `bu` are roff macros (`.TE`, `.IP \(bu`) codespell tokenizes as words; ops
+  had not met them because its one prior man page uses neither. Skipping `*.1` would hide real man-page
+  typos, so the words are listed instead. One genuine respelling in `git-open-branch`: `preempting`, from its British hyphenated form.
 - **#185 (`remove_branch`) waits for this.** The refactor lands in the trio's new home, so the seam is fixed
   once, here, not in personal and then moved.
 

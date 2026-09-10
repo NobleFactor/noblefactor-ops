@@ -1,0 +1,75 @@
+.\" SPDX-License-Identifier: Apache-2.0
+.\" Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+.TH GIT-RESET-BRANCH 1 "December 2025" "Noble Factor" "User Commands"
+.SH NAME
+git-reset-branch \- reset a branch to match another after a squash merge
+.SH SYNOPSIS
+.B git-reset-branch
+.RB [ \-h | \-\-help ]
+.B \-r
+.I branch
+.B \-f
+.I source
+.SH DESCRIPTION
+.B git-reset-branch
+resets a branch to match a source of truth on the remote.
+This is typically used after squash-merging a PR to synchronize branches.
+.PP
+The command performs the following steps:
+.IP 1. 3
+Fetches the latest state from the remote
+.IP 2. 3
+Verifies the source branch exists on the remote
+.IP 3. 3
+Checks out the branch to reset
+.IP 4. 3
+Resets it to match origin/<source>
+.IP 5. 3
+Force-pushes the reset branch to the remote
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage information and exit.
+.TP
+.BR \-r ", " \-\-reset " " \fIbranch\fR
+The branch to reset (e.g., develop). Required.
+.TP
+.BR \-f ", " \-\-from " " \fIbranch\fR
+The source of truth to reset from (e.g., master). Required.
+.SH EXIT STATUS
+.TP
+.B 0
+Success \- branch synchronized.
+.TP
+.B 64
+Usage error \- missing or invalid options.
+.TP
+.B 65
+Data error \- source branch does not exist on remote.
+.SH EXAMPLES
+Reset develop from master after squash-merging a develop\[->]master PR:
+.PP
+.nf
+git-reset-branch --reset develop --from master
+.fi
+.SH WORKFLOW
+This command is part of a squash-merge workflow:
+.IP 1. 3
+Create feature branches off develop
+.IP 2. 3
+Squash-merge feature branches into develop (via PR)
+.IP 3. 3
+Squash-merge develop into master (via PR)
+.IP 4. 3
+Run: git-reset-branch --reset develop --from master
+.PP
+This keeps both branches at the same commit after each release.
+.SH SEE ALSO
+.BR git (1),
+.BR git-close-branch (1)
+.SH AUTHOR
+Noble Factor
+.SH COPYRIGHT
+Copyright \(co 2025-2026 Noble Factor.
+.br
+Licensed under the Apache License, Version 2.0.

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2207,SC2034 # COMPREPLY and standard completion variables
+
+# bash completion for git-close-branch
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+_git_close_branch() {
+    local cur prev opts branches
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD - 1]}"
+
+    opts="-h --help -b --branch -t --target -m --merged -n --dry-run -f --force"
+    branches=$(git branch -a 2>/dev/null | sed 's/^[* ]*//' | sed 's|remotes/origin/||' | sort -u)
+
+    case "${prev}" in
+        -b | --branch | -t | --target)
+            COMPREPLY=($(compgen -W "${branches}" -- "${cur}"))
+            return 0
+            ;;
+    esac
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+        return 0
+    fi
+
+    # Trailing operands are branch names, so complete them the same way.
+    COMPREPLY=($(compgen -W "${branches}" -- "${cur}"))
+    return 0
+}
+
+complete -F _git_close_branch git-close-branch

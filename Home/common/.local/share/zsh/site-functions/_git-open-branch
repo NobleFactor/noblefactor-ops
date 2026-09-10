@@ -1,0 +1,32 @@
+#compdef git-open-branch
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+_git-open-branch() {
+    local -a opts types branches issues
+
+    # The alternation organization ruleset 12515090 enforces. Completing it here is the earliest place a
+    # wrong prefix can be caught; the script catches it next, and the push would catch it last.
+    types=(chore doc feature fix hotfix refactor release)
+
+    branches=(${(f)"$(git branch -r 2>/dev/null | sed 's|^[* ]*origin/||' | grep -v '^HEAD' | sort -u)"})
+
+    # An issue is the one argument this command cannot run without, so the open ones are worth a query.
+    issues=(${(f)"$(gh issue list --state open --limit 50 --json number,title \
+        --jq '.[] | "\(.number):\(.title)"' 2>/dev/null)"})
+
+    opts=(
+        '(-h --help)'{-h,--help}'[Show usage information and exit]'
+        '(-i --issue)'{-i,--issue}'[Issue this branch resolves]:issue:((${issues}))'
+        '--name[Readable half of the branch name, replacing the one derived from the title]:name:'
+        '(-t --target)'{-t,--target}'[Branch to branch from]:branch:($branches)'
+        '(-T --type)'{-T,--type}'[Branch prefix, overriding the one derived from the labels]:type:($types)'
+        '(-W --no-worktree)'{-W,--no-worktree}'[Create the branch in the current worktree, adding none]'
+        '(-n --dry-run)'{-n,--dry-run}'[Print what would be opened, or refused, and exit]'
+        '1:issue:((${issues}))'
+    )
+
+    _arguments -s -S $opts
+}
+
+_git-open-branch "$@"

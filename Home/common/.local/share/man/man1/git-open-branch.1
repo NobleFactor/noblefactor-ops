@@ -1,0 +1,302 @@
+.\" SPDX-License-Identifier: Apache-2.0
+.\" Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+.TH GIT-OPEN-BRANCH 1 "August 2026" "Noble Factor" "User Commands"
+.SH NAME
+git-open-branch \- open a branch and its worktree for a GitHub issue
+.SH SYNOPSIS
+.B git-open-branch
+.RB [ \-h | \-\-help ]
+.RB [ \-i ]
+.I issue
+.RB [ \-\-name
+.IR name ]
+.RB [ \-t
+.IR target ]
+.RB [ \-T
+.IR type ]
+.RB [ \-W | \-\-no\-worktree ]
+.RB [ \-n | \-\-dry\-run ]
+.SH DESCRIPTION
+.B git-open-branch
+is the inverse of
+.BR git-close-branch (1).
+It creates a branch, and by default a linked worktree to hold it, from an issue.
+.PP
+.B An issue is required.
+A branch names work, work is tracked, and an untracked branch is a claim nobody
+can find later. The command reads the issue before it creates anything, so a
+number that names nothing, or names finished work, is refused rather than
+committed to a branch name.
+.PP
+The command performs the following steps:
+.IP 1. 3
+Reads the issue's title, state, and labels in a single
+.BR gh (1)
+call
+.IP 2. 3
+Derives the branch type from the labels, unless
+.B \-\-type
+names one
+.IP 3. 3
+Derives the readable half of the branch name from the title, unless
+.B \-\-name
+supplies one
+.IP 4. 3
+Fetches from origin, then evaluates every refusal
+.IP 5. 3
+Creates the branch from
+.IR origin/<target> ,
+in a new worktree unless
+.B \-\-no\-worktree
+was given
+.SH NAMING
+The branch is
+.IR type / issue - name .
+The worktree is the main worktree's path with
+.RI . issue - name
+appended \(em a sibling directory, the type prefix dropped, because a directory
+listing is read by someone who already knows what the work is and needs to tell
+one worktree from another.
+.PP
+Organization ruleset 12515090 constrains every ref to
+.PP
+.nf
+^(chore|doc|feature|fix|hotfix|refactor|release)/.+$
+.fi
+.PP
+with no bypass actors, so the prefix is not a preference. A name outside that
+alternation is rejected at push time, which is a long way from here, and the
+mapping from labels exists to make that impossible rather than merely unlikely:
+.PP
+.TS
+tab(;);
+l l.
+\fBLabel\fR;\fBType\fR
+bug;fix
+documentation;doc
+enhancement, feature, epic;feature
+anything else;feature
+.TE
+.PP
+An issue carrying none of these is work whose kind nobody has decided, and
+.B feature
+is the honest default rather than a guess dressed up.
+.PP
+The name derived from a title is lowercased, reduced to alphanumerics and
+hyphens, stripped of a leading article, and truncated at 32 characters \(em at a
+.B word
+boundary, because a name ending in "remainin" is less recognizable than a
+shorter one ending where a word does. The issue number carries the identity; the
+name only has to be recognizable. A title is written to be read in a list of
+issues rather than typed at a shell, so when the derivation is awkward,
+.B \-\-name
+says what to call the work instead.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show usage information and exit.
+.TP
+.BR \-i ", " \-\-issue " " \fIissue\fR
+The issue this branch resolves. Equivalent to naming it as the operand, which is
+the usual form: the flag exists so the operand has a name to be documented by. A
+leading
+.B #
+is accepted and stripped.
+.TP
+.BI \-\-name " " name
+The readable half of the branch name, replacing the one derived from the title.
+Normalized the same way, so it may be written as prose. No short form: the long
+name is typed rarely and reads clearly at the point of use.
+.TP
+.BR \-t ", " \-\-target " " \fIbranch\fR
+The branch to branch from. Defaults to the repository's default branch, resolved
+through
+.IR origin/HEAD .
+.TP
+.BR \-T ", " \-\-type " " \fItype\fR
+The branch prefix, overriding the one derived from the labels. Must be one of
+.BR chore ,
+.BR doc ,
+.BR feature ,
+.BR fix ,
+.BR hotfix ,
+.BR refactor ,
+or
+.BR release .
+.TP
+.BR \-W ", " \-\-no\-worktree
+Create the branch in the current worktree with
+.B git checkout \-b
+instead of adding a linked worktree. Use it when the work is small enough that a
+second directory is overhead.
+.TP
+.BR \-n ", " \-\-dry\-run
+Print the branch, the target, and the worktree that would be created \(em or the
+refusal that would be raised \(em and exit. Changes nothing.
+.SH REFUSALS
+Four conditions stop the command, all evaluated after a fetch and all evaluated
+.B before
+the dry run branches, so the preview predicts them:
+.IP \(bu 3
+The branch already exists locally. Work it, or close it with
+.BR git-close-branch (1).
+.IP \(bu 3
+The branch exists on origin. Fetch and check it out rather than opening a second
+one.
+.IP \(bu 3
+There is no
+.I origin/<target>
+to branch from.
+.IP \(bu 3
+The worktree path already exists. Remove it, or work in it as it stands.
+.PP
+The fetch comes first because both branch signals read remote\-tracking
+refs, and a stale ref produces a confident wrong answer.
+.BR git-close-branch (1)
+states the rule this follows: a preview that disagrees with the run it previews
+is worse than no preview.
+.PP
+A closed issue is refused separately, and earlier. It is the interesting
+refusal, because the mistake is nearly always a transposed number.
+.SH SAFETY
+.B git worktree add
+touches no other worktree: no checkout elsewhere, no index change, no stash.
+Whatever the caller is standing in is left exactly as it was found, uncommitted
+changes and all. That is the property that makes opening a branch safe while
+another is mid\-edit.
+.PP
+.B \-\-no\-worktree
+does not share it.
+.B git checkout \-b
+switches the worktree the caller is standing in.
+.PP
+A checkout that fails removes both the worktree and the branch. Git creates the
+branch before it writes any file, so a half\-made worktree would otherwise leave
+a branch behind and the retry would refuse it as already existing. The branch is
+deleted with
+.B \-d
+rather than
+.BR \-D :
+it was created moments earlier at
+.I origin/<target>
+and carries nothing, so a refusal means something else has committed to it, and
+that is a branch worth keeping.
+.SH ENCRYPTED REPOSITORIES
+.BR git-crypt (1)
+reads its key from
+.IR $GIT_DIR/git\-crypt/keys ,
+and a linked worktree's
+.I $GIT_DIR
+is
+.I .git/worktrees/<name>
+rather than the common
+.IR .git .
+A worktree created the ordinary way therefore has no key, and its checkout dies
+on the first encrypted file it meets \(em which, in a repository that encrypts
+.IR *.env
+or
+.IR *.pem ,
+is nearly always the first one.
+.PP
+This command creates the worktree with
+.B \-\-no\-checkout
+so that nothing is written yet, links the common key directory into the new
+worktree's
+.IR $GIT_DIR ,
+and only then checks out. A repository that does not use
+.B git\-crypt
+has no such directory, and the checkout proceeds unchanged.
+.SH THE FIRST PUSH
+.B git worktree add \-b \fIbranch\fB origin/\fItarget\fR
+sets the new branch's upstream to
+.IR origin/<target> ,
+not to itself. With
+.B push.default=simple
+a bare
+.B git push
+then refuses rather than pushing to the target \(em safe, and confusing enough
+that the command prints the first push for you:
+.PP
+.nf
+git \-C \fIworktree\fR push \-u origin \fIbranch\fR
+.fi
+.SH EXIT STATUS
+.TP
+.B 0
+Success \- the branch, and any worktree, was created.
+.TP
+.B 64
+Usage error \- no issue, a non\-numeric issue, a closed issue, a type
+outside the ruleset, an unrecognized option, or a refusal.
+.TP
+.B 65
+Data error \- the issue has no title to derive a name from.
+.TP
+.B 66
+Cannot open input \- no such issue in this repository.
+.TP
+.B 69
+Unavailable \- the
+.BR gh (1)
+CLI is not installed.
+.TP
+.B 70
+Internal error \- the branch could not be created.
+.TP
+.B 72
+Critical file missing \- the main worktree could not be located.
+.TP
+.B 73
+Cannot create \- the worktree could not be created.
+.TP
+.B 75
+Temporary failure \- origin could not be fetched.
+.SH EXAMPLES
+Open a branch for issue 762, taking the type from its labels and the name from
+its title:
+.PP
+.nf
+git\-open\-branch 762
+.fi
+.PP
+See what that would do, without doing it:
+.PP
+.nf
+git\-open\-branch 762 \-\-dry\-run
+.fi
+.PP
+Name the work yourself, when the title does not reduce well:
+.PP
+.nf
+git\-open\-branch 762 \-\-name "writ lifecycle surface"
+.fi
+.PP
+Open a hotfix off a release branch, in the current worktree:
+.PP
+.nf
+git\-open\-branch 803 \-T hotfix \-t release/2.4 \-\-no\-worktree
+.fi
+.SH WORKFLOW
+The life of a branch, opened at one end and closed at the other:
+.IP 1. 3
+File the issue
+.IP 2. 3
+Run: git\-open\-branch <issue>
+.IP 3. 3
+Work in the new worktree; push with \-u the first time
+.IP 4. 3
+Open the PR, and squash\-merge it
+.IP 5. 3
+Run: git\-close\-branch \-\-merged
+.SH SEE ALSO
+.BR git (1),
+.BR git-worktree (1),
+.BR gh (1),
+.BR git-close-branch (1),
+.BR git-reset-branch (1)
+.SH AUTHOR
+Noble Factor
+.SH COPYRIGHT
+Copyright \(co 2025-2026 Noble Factor.
+.br
+Licensed under the Apache License, Version 2.0.
