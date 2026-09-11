@@ -7,3 +7,7 @@ gh:
   repositories:
     - NobleFactor/devlore-cli
     - NobleFactor/noblefactor-ops
+    # A different owner (a user account, not the organization) and a different labelling scheme
+    # (Epic:Process, no epic issue behind it, no **Feature:** markers as of 2026-09-10). The audit
+    # and the schedules see it; the epic tree will not show it until it carries the scheme (#202).
+    - David-Noble-at-work/personal

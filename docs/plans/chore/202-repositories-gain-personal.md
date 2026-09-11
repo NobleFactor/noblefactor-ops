@@ -1,9 +1,9 @@
 ---
 title: "gh.repositories names David-Noble-at-work/personal, so the report and the audit see all three repositories"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/202
-status: in-progress
+status: complete
 created: 2026-09-10
-updated: 2026-09-10
+updated: 2026-09-11
 ---
 
 # Plan: gh.repositories gains personal
@@ -51,17 +51,19 @@ and not a lane of #206.
 ### Phase 1: the plan
 - [x] This document, the branch's first commit
 
-### Phase 2: the configuration, and the documents that counted to two
-- [ ] `star/config.yaml`: `David-Noble-at-work/personal` joins `gh.repositories`, with a comment on the
+### Phase 2: the configuration, and the documents that counted to two — complete
+- [x] `star/config.yaml`: `David-Noble-at-work/personal` joins `gh.repositories`, with a comment on the
       different owner and scheme
-- [ ] Documents that say "two repositories" say three (swept, not assumed)
+- [x] Swept `README.md`, `docs/**`, the extension: the only "two repositories" text is in
+      `docs/plans/feature/140-star-report-epics.md` — a completed plan, a record, not edited (the #147
+      ruling); the extension's help text was already generic. Nothing else to change
 
-### Phase 3: acceptance, live — the table above, without `--repo`
-- [ ] `star gh issues audit` lists personal#147, #151, #173 as faults and #152, #157 awaiting triage
-- [ ] `star gh issues report --by schedule --schedule "process tooling"` renders nine lanes with the
-      three-repository header
-- [ ] `star gh issues report --by epic` header names three; the epic set is unchanged (no personal epic
-      issue exists — stated, not hidden)
+### Phase 3: acceptance, live — the table above, without `--repo` — complete
+- [x] `star gh issues audit`: 5 faults — personal#147, #151 (no kind, no epic), #173 (no epic) join ops#60
+      and devlore#65; #152 and #157 awaiting triage
+- [x] `star gh issues report --by schedule --schedule "process tooling"`: nine lanes, header names three
+- [x] `star gh issues report --by epic`: header names three; 22 epics, the same 22 — no personal epic
+      issue exists, as stated
 
 ## Files to Create/Modify
 
