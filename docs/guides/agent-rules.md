@@ -5,7 +5,7 @@ type: Process
 audience: Claude Code, Codex
 status: Approved
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-09-11
 ---
 
 # Agent Rules
@@ -161,6 +161,46 @@ and it will not be tolerated.
 **Compliance.** Naming a breach as neutral state is worse than silence — it looks like disclosure while
 carrying none of the meaning, and leaves the reader to discover the breach themselves. State the rule,
 the date it started, and what is being done about it, then continue.
+
+## 10. A finding is consulted the moment it is found
+
+**The rule.** When the code, a design, a plan, or an issue is found to disagree with another, or a
+finding suggests a design should change, the agent stops and puts it to the user before anything else:
+the finding, the delta, the options. Drift between issues, designs, plans and code is resolved in real
+time, with the user, never by the agent choosing a side. The user knows the code, always.
+
+**The breakage.** 2026-09-09, devlore-cli#814. Reading the writ guides showed they already stated the
+manifest union rule and contradicted themselves on overrides. The agent took the finding as a licence:
+rewrote the version rule, coded it, changed two guides, then edited the plan to match the code, ticked
+its boxes and set its status complete. Ruled the same day: "You are not authorized to change design."
+"A finding is not a license to act" was offered as the rule and rejected as a truism; the rule is: "You
+need to consult with me on findings. I need to know the code. Always. Drift and deviations between
+issues, designs, plans, and code must be resolved real time." Reviewed as fifteen deltas on
+devlore-cli#872; disclosed on devlore-cli#65.
+
+**Compliance.** The plan carries the delta first, as a question with options; the user rules; the code
+follows the ruling. A finding never justifies a code change, a guide change, or a plan edit in the turn
+it is found. When the finding is that two records already disagree, the disagreement is the message,
+and which record is right is the user's to say.
+
+## 11. "Works" means works for the user
+
+**The rule.** "Works" is a claim about the user's system, not the agent's. A change in an unmerged
+branch or a scratch copy is a proposal; only what is merged and on the user's PATH is a fact for them.
+And a dry run is not a test of the live path: the two take different branches of the code, and
+exercising one proves nothing about the other. The agent reports three things separately — what is
+implemented, where it was tested, and what stands between it and the user's PATH — and before claiming
+a command is available, checks what the user's copy actually is (`readlink -f "$(command -v <cmd>)"`).
+
+**The breakage.** 2026-09-08, personal#181. "`--force` works" was written after testing a scratch copy;
+the user's command was `main`'s and said `unrecognized option`. Then the acceptance ran `--dry-run`
+only, which never reaches `git worktree remove`; the live path failed on first use. Ruled: "don't tell
+me something is working when it's working in your tree and nowhere else."
+
+**Compliance.** Say which copy was tested and what stands between it and the user. A plan's acceptance
+names the live command against a real target, and says why a dry run is or is not evidence for that
+phase. A PR script that changes a command on the user's PATH ends by resolving the deployed copy and
+checking the change is in it, and exits non-zero rather than claim success if it is not.
 
 ---
 

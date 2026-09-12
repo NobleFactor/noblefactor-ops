@@ -1,7 +1,7 @@
 ---
 title: "Rules 10 and 11 join the agents' document: a finding is consulted when found; \"works\" means works for the user"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/196
-status: in-progress
+status: complete
 created: 2026-09-11
 updated: 2026-09-11
 ---
@@ -48,15 +48,17 @@ A rule that exists only in an issue is not read by the agent that starts tomorro
 ### Phase 1: the plan
 - [x] This document, the branch's first commit
 
-### Phase 2: the two rules
-- [ ] `## 10.` and `## 11.` appended after `## 9.`, before the closing note, each with the three parts
-- [ ] Frontmatter `updated: 2026-09-11`
-- [ ] The rule text is the issues' text — the words that ruled it, not a paraphrase
+### Phase 2: the two rules — complete
+- [x] `## 10.` and `## 11.` appended after `## 9.`, before the closing note, each with the three parts
+- [x] Frontmatter `updated: 2026-09-11`
+- [x] The rule text is the issues' text — the words that ruled it, not a paraphrase. Rule 11's
+      **Compliance** is the one part written here rather than in #203: what a plan's acceptance and a PR
+      script must do to satisfy the rule
 
-### Phase 3: acceptance
-- [ ] `Test-Frontmatter.sh` clean; `codespell` clean
-- [ ] `grep -c '^## ' docs/guides/agent-rules.md` = 11
-- [ ] The closing note is unchanged and still last
+### Phase 3: acceptance — complete
+- [x] `Test-Frontmatter.sh` 49 checked, 0 errors; `codespell` clean
+- [x] `grep -c '^## ' docs/guides/agent-rules.md` = 11
+- [x] The closing note is unchanged and still last
 
 ## Files to Create/Modify
 
