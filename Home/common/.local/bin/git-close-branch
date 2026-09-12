@@ -235,6 +235,232 @@ function delete_flag {
     printf -- '-d\n'
 }
 
+# survey_branch fills a record with every fact the close of one branch depends on, and decides.
+#
+# It is the ONLY reader of --force, delete_flag and worktree_dirt. Everything downstream -- the preview and
+# remove_branch -- acts on the record and decides nothing. That is what makes "the preview disagrees with the
+# run" unwritable: both read the same record. Nothing is removed until this has run, so a refusal touches no
+# trace; the seam that produced six fixes (personal#124, #148, #153, #154, #181, #183, #186) was that each of
+# the three traces decided for itself, in two places.
+#
+# Parameters:
+#   - `$1`: the branch.
+#   - `$2`: the name of an associative array to fill (nameref).
+#   - `$3`: "blocked" when the main-worktree switch this branch needed was refused; else empty.
+#
+# The record:
+#   - `local_branch`   "yes" when refs/heads/<branch> exists. Independent of the worktree: git worktree
+#                      remove does not delete the ref.
+#   - `remote_branch`  "yes" when origin has the branch.
+#   - `worktree_path`  the linked worktree holding it, or empty.
+#   - `dirt_count`     changed and untracked entries in that worktree, counted NOW -- after removal there is
+#                      nothing left to count -- or empty when clean.
+#   - `worktree_force` "yes" when git worktree remove needs --force (dirty, and --force was given).
+#   - `branch_flag`    -d or -D for git branch; -D under --force.
+#   - `forced`         "yes" when --force decided something here.
+#   - `cost`           what --force discarded, when it overrode a refusal; else empty.
+#   - `refusal`        why the close will not proceed; empty when it will.
+#   - `hint`           "Pass --force to override." when the flag would have changed the answer; else empty.
+function survey_branch {
+    local branch="$1"
+
+    # A nameref defeats the linter, which calls it a string. Keys are quoted throughout for the same
+    # reason: unquoted, a bare word in an index reads as an arithmetic variable reference.
+    # shellcheck disable=SC2178
+    local -n rec="$2"
+    local blocked_flag="${3:-}"
+    local reason=0 flag=""
+
+    rec["local_branch"]=""
+    rec["remote_branch"]=""
+    rec["worktree_path"]=""
+    rec["dirt_count"]=""
+    rec["worktree_force"]=""
+    rec["branch_flag"]=""
+    rec["forced"]=""
+    rec["cost"]=""
+    rec["refusal"]=""
+    rec["hint"]=""
+
+    if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null; then
+        rec["local_branch"]="yes"
+    fi
+
+    if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
+        rec["remote_branch"]="yes"
+    fi
+
+    rec["worktree_path"]="$(worktree_for "${branch}" "${main_worktree}")"
+
+    if [[ -n "${rec["worktree_path"]}" ]]; then
+        rec["dirt_count"]="$(worktree_dirt "${rec["worktree_path"]}")"
+    fi
+
+    if [[ -n "${blocked_flag}" ]]; then
+        rec["refusal"]="the main worktree holds it and could not be switched to '${target_branch}'"
+        return 0
+    fi
+
+    # A branch with no local ref is remote-only: CI opened it, pushed it, and nothing here ever checked it
+    # out. delete_flag cannot judge it -- it opens by resolving refs/heads -- so it is decided here.
+    if [[ -z "${rec["local_branch"]}" ]]; then
+        if [[ -z "${rec["remote_branch"]}" ]]; then
+            rec["refusal"]="no local branch and no branch on origin"
+        fi
+        return 0
+    fi
+
+    flag="$(delete_flag "${branch}")" || reason=$?
+
+    # --force means -D, unconditionally. delete_flag answers whether a delete is safe; git branch -d then
+    # asks whether the branch is merged and refuses on its own account -- every branch whose work reached
+    # the target by cherry-pick or squash -- and --force overrides that refusal too.
+    if [[ -n "${force}" ]]; then
+        rec["forced"]="yes"
+
+        if ((reason != 0)); then
+            rec["cost"]="$(forced_cost "${branch}" "${reason}")"
+        fi
+
+        flag="-D"
+        reason=0
+    fi
+
+    rec["branch_flag"]="${flag}"
+
+    case ${reason} in
+        1)
+            rec["refusal"]="commits exist only locally"
+            rec["hint"]="Pass --force to override."
+            return 0
+            ;;
+        2)
+            rec["refusal"]="GitHub reports it merged, but '${target_branch}' has no commit for its pull request"
+            rec["hint"]="Pass --force to override."
+            return 0
+            ;;
+    esac
+
+    # delete_flag answers whether a delete is SAFE; `git branch -d` then asks whether the branch is MERGED
+    # and refuses on its own account -- every branch whose work reached the target by cherry-pick or squash.
+    # That refusal used to strike after the worktree was already removed (#186 made --force survive it; this
+    # makes the refusal itself land before anything is touched). Asked against the target branch, because the
+    # remote is deleted first and `git branch -d`'s other test, the upstream, is gone by then.
+    if [[ "${rec["branch_flag"]}" == "-d" ]] &&
+        ! git merge-base --is-ancestor "refs/heads/${branch}" "refs/heads/${target_branch}" 2>/dev/null; then
+        rec["refusal"]="'git branch -d' will refuse it: its commits are not in '${target_branch}'"
+        rec["hint"]="Pass --force to override."
+        return 0
+    fi
+
+    # git worktree remove refuses a dirty worktree and names --force itself; the flag passes through.
+    if [[ -n "${rec["dirt_count"]}" ]]; then
+        if [[ -n "${force}" ]]; then
+            rec["worktree_force"]="yes"
+        else
+            rec["refusal"]="worktree '${rec["worktree_path"]}' holds ${rec["dirt_count"]} changed or untracked file(s)"
+            rec["hint"]="Pass --force to override."
+        fi
+    fi
+
+    return 0
+}
+
+# remove_branch removes every trace the record names, in the one safe order, and stops at the first failure.
+#
+# Remote first: it is the trace that fails for reasons having nothing to do with the branch -- no network, an
+# expired credential, a protected ref -- and failing here leaves all three traces intact, a state the caller
+# already understands: nothing was closed, re-run once the cause is fixed. Worktree second: the one
+# irreversible act, after the flaky step has passed. Local last: git branch -d refuses a branch a worktree
+# holds. git offers no transaction across the three, so the order is the whole safety; it is stated here and
+# nowhere else.
+#
+# Parameters:
+#   - `$1`: the branch.
+#   - `$2`: the name of the record survey_branch filled (nameref).
+#
+# Returns:
+#   - 0 when every trace the record names is gone; 1 otherwise, having reported which trace failed and what
+#     had already been done -- built from what happened, never from an assumed path.
+function remove_branch {
+    local branch="$1"
+
+    # shellcheck disable=SC2178 # a nameref to an associative array; see survey_branch
+    local -n rec="$2"
+    local did="" done=""
+    local -a remove_options=()
+
+    if [[ -n "${rec["remote_branch"]}" ]]; then
+        if ! git push origin --delete "${branch}"; then
+            error 0 "'${branch}': remote delete failed; nothing was removed. Re-run when it succeeds."
+            return 1
+        fi
+
+        did+="the remote branch was deleted; "
+    fi
+
+    if [[ -n "${rec["worktree_path"]}" ]]; then
+        if [[ -n "${rec["worktree_force"]}" ]]; then
+            remove_options+=(--force)
+        fi
+
+        if ! git worktree remove "${remove_options[@]}" "${rec["worktree_path"]}"; then
+            done="${did:-nothing else was changed; }"
+            error 0 "'${branch}': worktree '${rec["worktree_path"]}' could not be removed (${done%; }). Finish by hand, then re-run."
+            return 1
+        fi
+
+        did+="the worktree was removed; "
+
+        if [[ -n "${rec["dirt_count"]}" ]]; then
+            note "'${branch}': --force discarded ${rec["dirt_count"]} changed or untracked file(s) with the worktree."
+        fi
+    fi
+
+    if [[ -n "${rec["local_branch"]}" ]]; then
+        if ! git branch "${rec["branch_flag"]}" "${branch}"; then
+            done="${did:-nothing else was changed; }"
+            error 0 "'${branch}': 'git branch ${rec["branch_flag"]}' could not delete the local branch (${done%; }). Finish with: git branch -D ${branch}, or re-run with --force."
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# preview_line prints a record as the dry run's line for one branch -- the same record the run would act on.
+#
+# Parameters:
+#   - `$1`: the branch.
+#   - `$2`: the name of the record (nameref).
+function preview_line {
+    local branch="$1"
+
+    # shellcheck disable=SC2178 # a nameref to an associative array; see survey_branch
+    local -n rec="$2"
+    local what=""
+
+    # A refusal removes nothing, so it names no removal. Saying "removes worktree X" beside REFUSED was
+    # true when a refusal could still strike after the worktree was gone; it is false now.
+    if [[ -n "${rec["refusal"]}" ]]; then
+        printf '  %-40s %s\n' "${branch}" "REFUSED: ${rec["refusal"]}" >&2
+        return 0
+    fi
+
+    if [[ -z "${rec["local_branch"]}" ]]; then
+        what="-D (remote only)"
+    elif [[ -n "${rec["cost"]}" ]]; then
+        what="${rec["branch_flag"]} (forced: ${rec["cost"]})"
+    elif [[ -n "${rec["forced"]}" ]]; then
+        what="${rec["branch_flag"]} (forced)"
+    else
+        what="${rec["branch_flag"]}"
+    fi
+
+    printf '  %-40s %s%s\n' "${branch}" "${what}" \
+        "${rec["worktree_path"]:+  (removes worktree ${rec["worktree_path"]}${rec["dirt_count"]:+, discarding ${rec["dirt_count"]} file(s)})}" >&2
+}
+
 ######
 # Main
 ######
@@ -321,62 +547,14 @@ if [[ -n "${dry_run}" ]]; then
         note "Would close: ${selected[*]} (leaving '${main_worktree}' on '${preview_main_branch:-a detached HEAD}')"
     fi
 
+    # The preview prints the record the run would act on. It derives nothing of its own, so it cannot
+    # disagree with the run -- the class of defect #128 and #183 were.
+    # shellcheck disable=SC2034 # read through the nameref in survey_branch and preview_line
+    declare -A preview=()
+
     for branch in "${selected[@]}"; do
-
-        # A branch with no local ref is remote-only: CI opened it, pushed it, and nothing here ever
-        # checked it out. The live run handles that — it guards the local delete and falls through to
-        # the remote — but delete_flag cannot, because it opens by resolving refs/heads and returns
-        # "commits exist only locally" when that fails. For this branch that message is the exact
-        # inverse of the truth, and it previewed a refusal the run would not have made. A preview
-        # that disagrees with the run it previews is worse than no preview.
-        if ! git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null; then
-            if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-                flag="-D (remote only)"
-            else
-                flag="REFUSED: no local branch and no branch on origin"
-            fi
-
-            printf '  %-40s %s\n' "${branch}" "${flag}" >&2
-            continue
-        fi
-
-        flag=""
-        reason=0
-        flag="$(delete_flag "${branch}")" || reason=$?
-
-        case ${reason} in
-            1) flag="REFUSED: commits exist only locally" ;;
-            2) flag="REFUSED: merged on GitHub, but '${target_branch}' has no commit for its pull request" ;;
-        esac
-
-        # --force previews -D for every branch, because that is what the run does: --force means -D
-        # unconditionally, not only where delete_flag objected. A branch delete_flag calls safe (-d)
-        # is still refused by git when it is not merged into HEAD -- the cherry-picked and squash-merged
-        # cases -- and --force overrides that refusal too. A preview that disagrees with its run is
-        # worse than no preview.
-        if [[ -n "${force}" ]]; then
-            if ((reason != 0)); then
-                flag="-D (forced: $(forced_cost "${branch}" "${reason}"))"
-            else
-                flag="-D (forced)"
-            fi
-        fi
-
-        worktree="$(worktree_for "${branch}" "${main_worktree}")"
-
-        # The preview names a dirty worktree, because removing one is what the run refuses or forces.
-        dirt=""
-
-        if [[ -n "${worktree}" ]]; then
-            dirt="$(worktree_dirt "${worktree}")"
-        fi
-
-        if [[ -n "${dirt}" && -z "${force}" ]]; then
-            flag="REFUSED: worktree holds ${dirt} changed or untracked file(s)"
-        fi
-
-        printf '  %-40s %s%s\n' "${branch}" "${flag}" \
-            "${worktree:+  (removes worktree ${worktree}${dirt:+, discarding ${dirt} file(s)})}" >&2
+        survey_branch "${branch}" preview ""
+        preview_line "${branch}" preview
     done
 
     exit 0
@@ -431,130 +609,34 @@ else
     note "Closing: ${selected[*]}"
 fi
 
-for branch in "${selected[@]}"; do
+# Every branch is surveyed and decided before any trace of it is touched, then removed in the one safe
+# order. What used to be three guarded commands and a second copy of the decision is one record and one
+# remover -- see survey_branch and remove_branch.
+# shellcheck disable=SC2034 # read through the nameref in survey_branch and remove_branch
+declare -A record=()
 
-    if [[ -n "${blocked[${branch}]:-}" ]]; then
+for branch in "${selected[@]}"; do
+    survey_branch "${branch}" record "${blocked[${branch}]:-}"
+
+    if [[ -n "${record["refusal"]}" ]]; then
+        error 0 "'${branch}': ${record["refusal"]}; nothing was removed.${record["hint"]:+ ${record["hint"]}}"
         failed+=("${branch}")
         continue
     fi
 
-    # Deletability is decided before anything is removed. delete_flag only reads -- rev-parse, a gh
-    # query, and the target's history -- so it costs nothing to ask first, and asking second meant
-    # both of its refusals reported against a worktree the run had already deleted.
+    if [[ -z "${record["local_branch"]}" ]]; then
+        note "'${branch}': no local branch, closing the remote one."
+    fi
 
-    flag=""
-    reason=0
-    declare -i has_local=0
+    if [[ -n "${record["cost"]}" ]]; then
+        note "'${branch}': --force ${record["cost"]}."
+    fi
 
-    if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null; then
-
-        has_local=1
-        flag="$(delete_flag "${branch}")" || reason=$?
-
-        # --force means -D, unconditionally. delete_flag answers whether a delete is *safe*; git branch
-        # -d then asks whether the branch is *merged* and refuses on its own account -- which is every
-        # branch whose work reached the target by cherry-pick or squash rather than by merge. That
-        # refusal is not one of delete_flag's, so forcing only where delete_flag objected (reason != 0)
-        # left it to strike after the worktree was already gone. The flag is read here for every branch,
-        # and where a refusal did stand its cost is still named.
-        if [[ -n "${force}" ]]; then
-            if ((reason != 0)); then
-                note "'${branch}': --force $(forced_cost "${branch}" "${reason}")."
-            fi
-            flag="-D"
-            reason=0
-        fi
-
-        if ((reason == 1)); then
-            error 0 "'${branch}': commits exist only locally; refusing to force-delete. Pass --force to override."
-            failed+=("${branch}")
-            continue
-        fi
-
-        if ((reason == 2)); then
-            error 0 "'${branch}': GitHub reports it merged, but no commit on '${target_branch}' references its pull request. Pass --force to override."
-            failed+=("${branch}")
-            continue
-        fi
+    if remove_branch "${branch}" record; then
+        closed+=("${branch}")
     else
-        note "'${branch}': no local branch, checking the remote."
+        failed+=("${branch}")
     fi
-
-    worktree="$(worktree_for "${branch}" "${main_worktree}")"
-    declare -i worktree_removed=0
-
-    if [[ -n "${worktree}" ]]; then
-
-        # git refuses a worktree with changed or untracked files and names --force itself. The flag is a
-        # passthrough: it reaches git worktree remove as well as the deletability checks above, and the
-        # count is read before the removal so what was discarded can still be named afterwards.
-        dirt="$(worktree_dirt "${worktree}")"
-
-        if [[ -n "${dirt}" && -z "${force}" ]]; then
-            error 0 "'${branch}': worktree '${worktree}' holds ${dirt} changed or untracked file(s); refusing to remove it. Pass --force to override."
-            failed+=("${branch}")
-            continue
-        fi
-
-        declare -a remove_options=()
-
-        if [[ -n "${force}" ]]; then
-            remove_options+=(--force)
-        fi
-
-        if ! git worktree remove "${remove_options[@]}" "${worktree}"; then
-            error 0 "'${branch}': worktree '${worktree}' could not be removed; skipping."
-            failed+=("${branch}")
-            continue
-        fi
-
-        worktree_removed=1
-
-        if [[ -n "${dirt}" ]]; then
-            note "'${branch}': --force discarded ${dirt} changed or untracked file(s) with the worktree."
-        fi
-    fi
-
-    # The remote goes first because it is the half that fails for reasons having nothing to do with
-    # the branch: no network, an expired credential, a protected-ref rule. Failing there now leaves
-    # BOTH halves intact, which is a state the caller already understands -- nothing was closed,
-    # re-run once the cause is fixed.
-    #
-    # Deleting locally first had no such property. A failed push left the branch gone locally and
-    # alive on origin, which is the split this command exists to prevent, and recovering needs the
-    # remote branch fetched back before it can be deleted again.
-
-    declare -i remote_deleted=0
-    if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-        if ! git push origin --delete "${branch}"; then
-            error 0 "'${branch}': remote delete failed; nothing was deleted. Re-run when it succeeds."
-            failed+=("${branch}")
-            continue
-        fi
-        remote_deleted=1
-    fi
-
-    # The reorder moves the exposure rather than removing it: git offers no transaction spanning a
-    # remote ref and a local one. This is the benign direction -- the remote is gone and the local
-    # branch remains, which git branch -D finishes with no network -- but the message has to say so,
-    # because "local delete failed" reads as though nothing happened.
-
-    if ((has_local)); then
-        if ! git branch "${flag}" "${branch}"; then
-            # The message is built from what the run actually did, trace by trace, never from an assumed
-            # path: the old wording claimed "the remote branch is deleted" for a branch that never existed
-            # on origin, and "nothing was changed" while the worktree had already been removed.
-            done_msg=""
-            ((remote_deleted)) && done_msg+="the remote branch was deleted; "
-            ((worktree_removed)) && done_msg+="the worktree was removed; "
-            [[ -z "${done_msg}" ]] && done_msg="nothing else was changed; "
-            error 0 "'${branch}': 'git branch ${flag}' could not delete the local branch (${done_msg%; }). Finish with: git branch -D ${branch}, or re-run with --force."
-            failed+=("${branch}")
-            continue
-        fi
-    fi
-
-    closed+=("${branch}")
 done
 
 ((${#closed[@]} == 0)) || success "Closed: ${closed[*]}"
