@@ -39,9 +39,20 @@ from a worktree holding it, and that is the sole reason for the switch. A branch
 worktree needs none: the worktree is removed, then the branch is deleted. An unrelated main worktree is
 left as found, uncommitted changes and all.
 .IP 4. 3
-For each branch: removes its worktree if one holds it, deletes it locally, then deletes it on the remote
+Surveys each branch \(em what exists, what it would cost, and whether the close may proceed \(em and
+decides. Nothing is removed until every check has passed, so a refusal leaves every trace of the branch
+where it was.
 .IP 5. 3
-Reports what was closed and what failed
+Removes what the survey found, in one order:
+.BR origin ,
+then the worktree, then the local branch. The remote goes first because it is the trace that fails for
+reasons having nothing to do with the branch \(em no network, an expired credential, a protected ref \(em
+and failing there leaves all three intact. The worktree follows, because discarding it is the one
+irreversible act. The local branch is last, because
+.B git branch \-d
+refuses a branch a worktree holds.
+.IP 6. 3
+Reports what was closed and what failed, naming which trace failed and what had already been removed
 .PP
 When the main worktree does hold a selected branch and cannot be switched \(em uncommitted changes \(em
 only the branches that needed the switch fail. The rest are closed, and the message names the worktree and
@@ -65,8 +76,10 @@ Requires the
 CLI and issues one query per local branch.
 .TP
 .BR \-n ", " \-\-dry\-run
-Print the branches that would be closed, the delete flag each would receive, and any worktree that would be
-removed. Changes nothing.
+Print, for each selected branch, what the run would do: the delete flag it would receive and any worktree it
+would remove, or the refusal that would stop it. The preview is the same survey the run acts on, printed
+rather than executed, so it cannot disagree with the run. A refused branch names no removal, because a
+refusal removes nothing. Changes nothing.
 .SH FAILURE HANDLING
 Each branch is closed independently. A branch that cannot be closed is reported and the run continues, so one
 unmerged branch in a set does not strand the rest. The exit status is non-zero if any branch failed.
@@ -101,7 +114,8 @@ A branch failing either signal is refused and reported, with the reason distingu
 run continues to the next branch.
 .TP
 .BR \-f ", " \-\-force
-Close a branch the safety checks refuse. With this flag the branch is deleted with
+Close a branch the safety checks refuse. The flag is read once, while the branch is surveyed, so every
+refusal it overrides is resolved before anything is removed. With this flag the branch is deleted with
 .BR "git branch \-D" ,
 unconditionally: it overrides the command's own refusals \(en commits that exist only here, or a pull
 request GitHub reports merged that the target branch carries no commit for \(en and it also overrides
