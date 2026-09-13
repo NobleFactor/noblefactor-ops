@@ -25,6 +25,10 @@ is organized once an issue exists.
 | `bug` | three | Work that **repairs** a feature |
 | `chore` | three | Work on the **process**, not the product; the tooling axis, `Epic:Ops:Process` |
 
+**Tier three is a lane.** A lane is a leaf node in the epic hierarchy — a `task`, a `bug`, or a `chore` —
+and it is what a schedule sequences and what a pull request closes. An epic or a feature is never a lane:
+those close when their lanes do. The word matters because schedules are written in it (§Schedules).
+
 `task` and `bug` are peers and **mutually exclusive**. An issue carrying both is misclassified, and
 this is the most common fault the audit reports. The question that separates them is not difficulty
 or size: does this build something the feature did not have, or restore something it was supposed to
@@ -133,9 +137,9 @@ is an exception to another:
 | --- | --- | --- | --- |
 | **Epic** | who **owns** this | the epic, kind `epic` | `Epic:<Name>`, exactly one per work item |
 | **Thread** | what **scenario** this serves | the thread issue, kind `feature`, title `Thread:` | `Thread:<Name>`, zero or more |
-| **Schedule** | in what **order** we execute | the schedule issue, kind `chore`, title `Schedule:` | none — lanes are named in the body |
+| **Schedule** | in what **order** we execute | the schedule issue, kind `chore`, title `Schedule:` | none — lanes are named in the body (§Schedules) |
 
-A work item — feature, task, bug, chore — carries exactly one epic and may carry threads. The
+A work item — a feature, or a lane: a task, bug or chore — carries exactly one epic and may carry threads. The
 organizing issue of a thread or a schedule carries no epic (§What carries no epic). The report
 renders each slice: `--by epic`, `--by thread`, `--by schedule`.
 
@@ -181,6 +185,56 @@ thread's table; `--audit --unthreaded` lists open work in no thread as a questio
 
 **One namespace.** A thread name must not collide with an epic name. Both families render as sections
 of the same report, and `Thread:Process` beside `Epic:Process` is unreadable.
+
+## Schedules
+
+**A schedule is a sequence of lanes, in the order someone has committed to working them.** It answers *what
+is being executed, in what order, and what is next* — which neither an epic (ownership) nor a thread
+(scenario) can express, because both are about what work *is* rather than when it will be done.
+
+Its lanes are **leaves**: tasks, bugs and chores, drawn from any epic and any feature, in any repository the
+report is configured to read. An epic or a feature in a lane row is a fault, not a shorthand.
+
+| | `Epic:<Name>` | `Thread:<Name>` | A schedule |
+| --- | --- | --- | --- |
+| Answers | which body of work **owns** this | which scenario this **serves** | in what **order** we execute |
+| Its members | features, then lanes | lanes, across epics | lanes, across epics and features |
+| Its organizing issue | the epic, kind `epic` | kind `feature`, title `Thread:` | kind `chore`, title `Schedule:` |
+| Its label | one per work item | zero or more | none — lanes are named in the body |
+
+**The schedule issue** is kind `chore`, its title begins `Schedule:`, and it carries no `Epic:` label — a
+sequence has no owner (§What carries no epic). Two conventions the report reads, so they are rules: the
+title prefix, and **a lane table whose first cell is the lane number and whose first issue reference on the
+row is the lane** — `#N` within the schedule's own repository, `owner/repo#N` across repositories. Prose may
+cite issues freely; only rows whose first cell is a number are read.
+
+**Lanes are numbered 1..N with no gaps, and a closed lane keeps its number.** The same table reappears as
+the work proceeds, gaining a closed lane at a time, which is how progress is read.
+
+### What a schedule commits to
+
+A schedule is a commitment, not a proposal:
+
+- **The lanes are executed in the declared order.** One pull request may close several lanes.
+- **No lane is split, and none is added, once the schedule is committed.** The owner may amend the
+  deliverable; whoever is executing it may not. Discovering that a lane must be split is a planning failure,
+  not a discovery — the lanes were not understood before they were committed to.
+- **Work found along the way does not join a running schedule.** It is filed as a lane and placed on a
+  later one.
+
+### The deliverable
+
+**A schedule states its deliverable as before → after** — what the owner has today, and what they will have
+when the last lane closes. The lanes are how it is delivered; the deliverable is what was promised.
+
+If delivering it turns out to need something outside the lanes, **the deliverable has changed**: stop, say
+so, and replan together. That is the moment a schedule is allowed to change, and the only one.
+
+### What the audit checks
+
+Nothing yet. A schedule carries no label, so the audit cannot find its members the way it finds an epic's;
+`star gh issues report --by schedule` reads the table and renders each lane's state. Two agreements worth
+enforcing when the tooling is there: every lane row names a leaf, and no lane appears on two live schedules.
 
 ## The Ops axis
 

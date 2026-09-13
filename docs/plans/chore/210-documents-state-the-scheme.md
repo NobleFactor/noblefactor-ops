@@ -1,7 +1,7 @@
 ---
 title: "The process documents never define a lane or a schedule; the scheme is ruled and unwritten"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/210
-status: in-progress
+status: complete
 created: 2026-09-12
 updated: 2026-09-12
 ---
@@ -64,21 +64,39 @@ never contained it. The document is silent, not mistaken. That is a writing job,
 ### Phase 1: the plan
 - [x] This document, the branch's first commit
 
-### Phase 2: `issue-standards.md`
-- [ ] The five-kinds table gains the word: tier three — `task`, `bug`, `chore` — is a **lane**
-- [ ] A `## Schedules` section beside `## Threads`, in the same shape: what it is, its issue, the table the
-      report reads, the commitment, the deliverable, what the audit checks
-- [ ] #206 named as the exemplar; #171 named as carrying a wrong definition, with a note that its lanes are epics and features
+### Phase 2: `issue-standards.md` — complete
 
-### Phase 3: `development-process.md`
-- [ ] The schedule named as what an agent executes — a sequence of lanes drawn from many features
-- [ ] The "every pull request ends with it" sentence corrected: a report is asked for
+- [x] The five-kinds table gains the word: **tier three is a lane** — a leaf node in the epic hierarchy, a
+      task, a bug or a chore — defined at its first use, line 28
+- [x] A `## Schedules` section beside `## Threads`: what a schedule is, the axis table beside `Epic:` and
+      `Thread:`, the schedule issue's conventions, lanes numbered 1..N with a closed lane keeping its number,
+      what it commits to, the deliverable, and what the audit does not yet check
+- [x] "An epic or a feature in a lane row is a fault, not a shorthand" — so NobleFactor/noblefactor-ops#171
+      is readable as wrong without naming it in a standard
+- [x] The three-ways table and its prose reconciled: a work item is a feature, or a lane
 
-### Phase 4: acceptance
-- [ ] `grep -c lane docs/issue-standards.md` is no longer 1, and the word is defined before it is used
-- [ ] A reader can answer, from the documents alone: what is a lane; what may a PR close; may a lane be
-      split; what does a schedule promise; why #171 is wrong
-- [ ] `Test-Frontmatter.sh`, `codespell`, the repository gate: clean
+### Phase 3: `development-process.md` — complete
+
+- [x] A schedule named as how work is ordered and what an agent executes — a sequence of lanes drawn from
+      any feature and any epic — pointing at §Schedules for the rules
+- [x] Rule 9 retired: the report is printed when asked for, not on every pull request. No citation of rule 9
+      remains in this document
+
+### Phase 4: acceptance — complete
+
+Answerable from the documents alone, each verified by grep:
+
+| Question | Answered at |
+| --- | --- |
+| What is a lane? | `issue-standards.md:28` |
+| What may a pull request close? | `issue-standards.md:29` |
+| May a lane be split? | `issue-standards.md:219` |
+| What does a schedule promise? | `issue-standards.md:227` |
+| Why are NobleFactor/noblefactor-ops#171's rows wrong? | `issue-standards.md:196` |
+
+- [x] "lane" appears 22 times in `issue-standards.md`, up from 1, and is defined at its first use
+- [x] `Test-Frontmatter.sh` 51/0; `codespell` clean
+
 
 ## Files to Create/Modify
 

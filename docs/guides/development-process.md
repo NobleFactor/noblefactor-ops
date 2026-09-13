@@ -52,14 +52,21 @@ assumes a well-classified issue and describes how the work around it is organize
 what makes a set of otherwise unrelated issues legible as one intent.
 
 **The report is `star gh issues report`.** By epic, by feature, by thread, or by schedule — the
-same issues read four ways — and every pull request ends with it, scoped to what the pull request
-served ([pr-script-template.md](pr-script-template.md), rule 9).
+same issues read four ways. A pull request ends with it when one is asked for, scoped to what the pull
+request served; it is not automatic. Ruled 2026-09-12, retiring the standing rule that every pull request
+print one.
 
 **And every pull request records its time.** A `## Time` section in its own body, written by the merge step:
 the branch's first commit, the pull request's creation, the merge, and the hours between them — one algorithm
 for every pull request, so the numbers can be read as a series (rule 11). It is how long the work was open,
 not how long it took to do; effort, where anyone estimates it, is said elsewhere and labeled an estimate. The
 report and the span are what a merged pull request leaves behind.
+
+**A schedule is how the work is ordered, not another size of it.** A feature, a worktree and a session are
+nested; a schedule cuts across them. It is a sequence of **lanes** — leaf issues, tasks, bugs and chores,
+drawn from any feature and any epic — in the order someone has committed to working them, and it is what an
+agent actually executes: one lane after the next, in the declared order, until the last one closes. Its
+shape, its commitment and its deliverable are [issue-standards.md](../issue-standards.md) §Schedules.
 
 **A thread is not a fourth row.** It is a narrative — a use case or scenario — whose beats land in
 several features, usually across epics and often across repositories. A session serves a feature; a
