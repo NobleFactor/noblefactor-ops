@@ -1,7 +1,7 @@
 ---
 title: "The development process is practiced but unwritten"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/133
-status: in-progress
+status: active
 created: 2026-09-01
 updated: 2026-09-01
 ---

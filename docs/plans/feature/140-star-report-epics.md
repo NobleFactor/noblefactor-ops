@@ -1,7 +1,7 @@
 ---
 title: "star gh issues report: the epic report as a base-layer extension"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/140
-status: in-progress
+status: active
 created: 2026-09-05
 updated: 2026-09-05
 ---

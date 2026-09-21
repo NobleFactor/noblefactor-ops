@@ -34,11 +34,9 @@ readonly CATALOGUE_PATHS=()
 readonly REQUIRED_ALWAYS=(title)
 readonly REQUIRED_CATALOGUE=(type)
 
-# Working-document lifecycle, from docs/plans/TEMPLATE.md -- the template CLAUDE.md mandates
-# org-wide, and which devlore-cli's plans follow. `approved`/`Approved` and `active` are also in
-# this tree; both cases are accepted rather than normalized, because settling that is an editorial
-# decision and not this script's to make.
-readonly VALID_STATUS_WORKING=(draft in-progress complete abandoned approved Approved active)
+# Working-document lifecycle: the five statuses docs/plans/TEMPLATE.md lists and
+# docs/guides/development-process.md draws (#219). Change them there first, then here.
+readonly VALID_STATUS_WORKING=(draft approved active complete abandoned)
 
 # Catalogue decision statuses. `status: "Superseded by ADR-019"` is prose in a field otherwise
 # treated as an enumeration; the `Superseded by <ref>` form is matched as a shape below, because it
