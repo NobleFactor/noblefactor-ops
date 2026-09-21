@@ -66,9 +66,10 @@ boxes. This is the rule of `development-process.md § Where a script lives`.
 - [x] The base's gate: frontmatter passes locally (51 checked, 0 errors); codespell runs on the PR;
       shell-lint and buildifier are untouched, since no shell or Starlark file changes
 - [x] PSScriptAnalyzer 1.25.0, default rules: 0 findings -- 2026-09-21
-- [ ] After merge and deploy: `Get-Command Remove-BrokenLinks` resolves into the base on
+- [x] After merge and deploy: `Get-Command Remove-BrokenLinks` resolves into the base on
       DANOBLE-WD11-3, and `Remove-BrokenLinks -WhatIf` lists the eight links personal#191's merge
-      left dangling
+      left dangling -- verified 2026-09-21: it resolves into the base's `common.Windows`; the list was
+      nine, the eight deletions plus `.minttyrc`'s move, and the real run removed all nine
 
 ## Files
 
