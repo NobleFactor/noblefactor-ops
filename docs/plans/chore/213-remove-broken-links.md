@@ -1,7 +1,7 @@
 ---
 title: "Remove-BrokenLinks.ps1 ships from the base layer's common.Windows"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/213
-status: draft
+status: chartered
 created: 2026-09-21
 updated: 2026-09-21
 ---
@@ -54,7 +54,7 @@ boxes. This is the rule of `development-process.md § Where a script lives`.
 ### Phase 1: Commit
 
 - [x] The script at `Home/common.Windows/.local/bin/Remove-BrokenLinks.ps1` (Requirement 1)
-- [ ] This plan, then the script, in that order
+- [x] This plan, then the script, in that order
 
 ### Phase 2: Verify
 
@@ -63,8 +63,9 @@ boxes. This is the rule of `development-process.md § Where a script lives`.
 - [x] `-WhatIf` against `~/.local` on DANOBLE-WD11-3 lists exactly the links `find -xtype l`
       reports for NTFS links; the real run on 2026-09-21 removed 44 and left zero -- verified with
       a second `-WhatIf`
-- [ ] The base's gate: frontmatter and codespell pass on this plan; shell-lint and buildifier are
-      untouched, since no shell or Starlark file changes
+- [x] The base's gate: frontmatter passes locally (51 checked, 0 errors); codespell runs on the PR;
+      shell-lint and buildifier are untouched, since no shell or Starlark file changes
+- [x] PSScriptAnalyzer 1.25.0, default rules: 0 findings -- 2026-09-21
 - [ ] After merge and deploy: `Get-Command Remove-BrokenLinks` resolves into the base on
       DANOBLE-WD11-3, and `Remove-BrokenLinks -WhatIf` lists the eight links personal#191's merge
       left dangling
@@ -79,15 +80,11 @@ boxes. This is the rule of `development-process.md § Where a script lives`.
 
 - Retiring the function from personal's `Install-WindowsUserConfiguration.ps1`. A personal lane
   once this ships.
-- A PowerShell step in the base's CI gate. See Open Questions; the answer decides whether it is a
-  lane of its own.
+- A PowerShell step in the base's CI gate. Ruled 2026-09-21: its own lane, after #216 settles the
+  guide's shebang rule, so the gate enforces the finished rule. That is lane 10 of #217. Until it
+  lands this file is validated by hand and by PSScriptAnalyzer 1.25.0, which reports 0 findings.
 
 ## Open Questions
 
-- [ ] **Does the base's CI gate gain a PowerShell step?** `ci.yaml` checks frontmatter, spelling,
-      shell and Starlark. This file ships ungated: no parser check, no style check. The minimum that
-      would catch what the style guide asks for is a parse of every `.ps1` plus the guide's
-      validation list, in a script under `.github/scripts/`. Options: (a) add it in this lane, so
-      the first PowerShell file arrives with its gate; (b) a separate lane, after #216 settles the
-      guide's shebang rule, so the gate checks the final rule; (c) no gate, PowerShell stays
-      hand-validated.
+- [x] **Does the base's CI gate gain a PowerShell step?** Yes, in its own lane after #216 -- ruled
+      2026-09-21, option (b).
