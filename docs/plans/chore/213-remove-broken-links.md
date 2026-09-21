@@ -1,7 +1,7 @@
 ---
 title: "Remove-BrokenLinks.ps1 ships from the base layer's common.Windows"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/213
-status: chartered
+status: in-progress
 created: 2026-09-21
 updated: 2026-09-21
 ---
