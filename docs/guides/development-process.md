@@ -222,12 +222,35 @@ In particular:
 - **The last commit of a pull request sets the plan's status to `complete`**, when every other box is
   ticked. The closure box is that commit's; the merge is not a state the plan records.
 
-A plan's status is `draft` until it is reviewed, `chartered` from the review until the last commit of its
-pull request, `complete` from that commit, and `abandoned` when the work is dropped. A plan whose boxes are
-not all ticked at the last commit stays `chartered`, and the pull request says why. Ruled 2026-09-10
-([#199](https://github.com/NobleFactor/noblefactor-ops/issues/199)) after devlore-cli#814's plan merged at
-`chartered` with one open box, because closure had been understood to come at merge, which no commit can
-record.
+A plan has five statuses, and [docs/plans/TEMPLATE.md](../plans/TEMPLATE.md) is where the list lives:
+
+| Status | Means |
+| --- | --- |
+| `draft` | The plan is being written. |
+| `approved` | The plan has been reviewed and the work is agreed; nobody has started it. |
+| `active` | The work is under way. |
+| `complete` | Every box is ticked, set in the last commit of the pull request. |
+| `abandoned` | The work was dropped. |
+
+```mermaid
+stateDiagram-v2
+    [*] --> draft: the plan is written
+    draft --> approved: review
+    approved --> active: work begins
+    active --> complete: last commit of the pull request
+    draft --> abandoned: dropped
+    approved --> abandoned: dropped
+    active --> abandoned: dropped
+    complete --> [*]
+    abandoned --> [*]
+```
+
+A plan whose boxes are not all ticked at the last commit stays `active`, and the pull request says why.
+Ruled 2026-09-10 ([#199](https://github.com/NobleFactor/noblefactor-ops/issues/199)) after devlore-cli#814's
+plan merged with one open box, because closure had been understood to come at merge, which no commit can
+record. The five words were ruled 2026-09-21
+([#219](https://github.com/NobleFactor/noblefactor-ops/issues/219)); `in-progress` says what `active` says
+and is retired, and so is `chartered`.
 
 ---
 

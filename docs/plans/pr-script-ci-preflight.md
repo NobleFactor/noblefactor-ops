@@ -1,7 +1,7 @@
 ---
 title: "PR Script Template: pre-flight with the command CI actually runs"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/131
-status: in-progress
+status: active
 created: 2026-08-30
 updated: 2026-08-30
 ---

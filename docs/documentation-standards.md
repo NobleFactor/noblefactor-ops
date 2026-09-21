@@ -27,7 +27,7 @@ Its `status` describes where the *work* has got to, and its shape is prescribed 
 | --- | --- | --- |
 | Discriminator | no `type` | declares `type` |
 | Required | `title` | `title`, `type` |
-| `status` | `draft`, `in-progress`, `complete`, `abandoned` | `Draft`, `Proposed`, `Decided`, `Approved`, `Accepted`, `Placeholder`, `Superseded`, `Withdrawn`, `Research Complete` |
+| `status` | `draft`, `approved`, `active`, `complete`, `abandoned` -- the list in [docs/plans/TEMPLATE.md](plans/TEMPLATE.md) | `Draft`, `Proposed`, `Decided`, `Approved`, `Accepted`, `Placeholder`, `Superseded`, `Withdrawn`, `Research Complete` |
 | Example | `docs/plans/*`, `docs/architecture/*` | ADR trees, `docs/guides/pr-script-template.md` |
 
 `type` must be one of: `ADR`, `RFC`, `PRD`, `README`, `Overview`, `Pitch`, `Index`, `Demos`,

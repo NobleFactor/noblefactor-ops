@@ -1,7 +1,7 @@
 ---
 title: "The unit of work is a session, not a worktree, and features run in parallel"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/135
-status: in-progress
+status: active
 created: 2026-09-02
 updated: 2026-09-02
 ---

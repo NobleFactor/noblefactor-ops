@@ -54,10 +54,19 @@ the product ships is a `task` under the feature that owns that code, or a `bug` 
 repairs something.
 
 **A chore is on a different axis, not outside the hierarchy.** The `Ops:` segment marks that axis
-(below). Within it a chore files exactly as a task does: under a feature, of an epic. What makes it a
-chore is what it changes — how the work is done — never where it hangs. An epic of chores needs
-features like any other epic, and a chore that names no feature is unfiled like any other tier-three
-issue.
+(below). A chore is to process and tooling what a task is to the product: the leaf. It files under a
+feature, of an epic, exactly as a task does -- but the feature above a chore is not product
+functionality. It is a body of process and tooling work, what the literature calls an *enabler*
+feature ([SAFe](https://framework.scaledagile.com/enablers): work that "improve[s] the performance of
+the development value stream", managed as epics, features or stories like any other). A chore that
+names no feature is unfiled like any other tier-three issue.
+
+| Axis | Epic | Feature | Leaves |
+| --- | --- | --- | --- |
+| Product | a body of product work | product functionality | `task`, `bug` |
+| Process and tooling | `Epic:Ops:Process` | an enabler: a body of process and tooling work | `chore` |
+
+The scheme has no *story*. Where scrum-based writing says story, this scheme says task.
 
 The test, when a chore is hard to distinguish from a task: **if the change shipped to a user, would
 they notice?** A chore is invisible to them and visible to everyone who works here.
@@ -80,11 +89,11 @@ triage, which genuinely has no epic yet because it has no feature yet.
 
 **It needs features like any epic.** Ruled 2026-09-04: an epic with no features is not an epic — it
 is ill-defined, or incomplete and awaiting its plan. `Epic:Ops:Process` is no exception. Its
-permanence is about *closing*, not about *shape*. A chore files under one of its features and carries
-the `**Feature:**` marker like any tier-three issue. At the time of writing
-[#142](https://github.com/NobleFactor/noblefactor-ops/issues/142) has three features and eight chores
-that name none; the report shows every one as `unfiled, no parent feature`, which is this rule being
-enforced.
+permanence is about *closing*, not about *shape*. Its features are enabler features -- bodies of
+process and tooling work such as issue standards (#156) or PR tooling (#157), never product
+functionality -- and a chore files under one of them and carries the `**Feature:**` marker like any
+tier-three issue. When a process or tooling problem turns up, it is logged as a chore under the
+feature it improves.
 
 **Every participating repository provides the `Epic:Ops:Process` label**, since chores arise everywhere —
 unlike other epic labels, which exist only where their epic is hosted. The epic issue itself lives

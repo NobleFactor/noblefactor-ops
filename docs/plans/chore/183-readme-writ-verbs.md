@@ -1,7 +1,7 @@
 ---
 title: "The README teaches retired writ verbs; it states the ruled interface and names the interim"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/183
-status: in-progress
+status: active
 created: 2026-09-07
 updated: 2026-09-07
 ---
