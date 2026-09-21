@@ -1,6 +1,6 @@
 .\" SPDX-License-Identifier: Apache-2.0
 .\" Copyright (c) 2025-2026 Noble Factor. All rights reserved.
-.TH GIT-RESET-BRANCH 1 "December 2025" "Noble Factor" "User Commands"
+.TH GIT-RESET-BRANCH 1 "September 2026" "Noble Factor" "User Commands"
 .SH NAME
 git-reset-branch \- reset a branch to match another after a squash merge
 .SH SYNOPSIS
@@ -46,6 +46,11 @@ Usage error \- missing or invalid options.
 .TP
 .B 65
 Data error \- source branch does not exist on remote.
+.TP
+.B 72
+Critical file missing \-
+.B Declare-BashScript
+is not beside the command.
 .SH EXAMPLES
 Reset develop from master after squash-merging a develop\[->]master PR:
 .PP
