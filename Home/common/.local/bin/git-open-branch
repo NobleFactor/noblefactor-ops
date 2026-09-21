@@ -99,6 +99,7 @@ function branch_type_for {
 
     case ",${labels}," in
         *,bug,*) printf 'fix' ;;
+        *,chore,*) printf 'chore' ;;
         *,documentation,*) printf 'doc' ;;
         *,enhancement,* | *,feature,* | *,epic,*) printf 'feature' ;;
         *) printf 'feature' ;;
