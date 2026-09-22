@@ -1,7 +1,7 @@
 ---
 title: "The CI gate gains a PowerShell step"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/218
-status: approved
+status: active
 created: 2026-09-22
 updated: 2026-09-22
 ---
@@ -83,16 +83,21 @@ The CI entry-point table gains the command for `noblefactor-ops`, so a pre-fligh
 
 ### Phase 1: Commit
 
-- [ ] This plan, first
-- [ ] Requirements 1 and 2
-- [ ] Requirements 3 and 4
+- [x] This plan, first
+- [x] Requirements 1 and 2 -- 2026-09-22
+- [x] Requirements 3 and 4 -- 2026-09-22
 
 ### Phase 2: Verify before merge
 
-- [ ] `./.github/scripts/Test-PowerShell.ps1` passes locally on this repository's one `.ps1`
-- [ ] It fails, with the right message, on each planted defect in a scratch copy: no shebang, a BOM before it, a parse
-      error, a function without `[CmdletBinding()]`, and a file with an analyser finding
-- [ ] The script gates itself: it is a `.ps1` and passes its own checks
+- [x] `./.github/scripts/Test-PowerShell.ps1` passes locally: 2 checked, 0 with findings -- 2026-09-22
+- [x] It fails, with the right message and exit 1, on each planted defect: no shebang (`expected '#!/usr/bin/env
+      pwsh'`), a UTF-8 BOM, a UTF-16 file, a parse error, a function without `[CmdletBinding()]`, and trailing
+      whitespace through the analyser -- 2026-09-22
+- [x] The script gates itself, and caught one finding in itself on the first run: `Get-TrackedScript` returned
+      `Object[]` against a declared `string[]`. Fixed, then clean. It also found a real bug in its first draft:
+      `git ls-files` prints repository-relative paths, which .NET's file APIs resolve against the process working
+      directory rather than PowerShell's location, so the paths are made absolute from `git rev-parse --show-toplevel`
+      -- 2026-09-22
 - [ ] CI's PowerShell step passes on the PR
 
 ## Out of Scope
