@@ -13,6 +13,7 @@ Guidelines while following PowerShell's command, parameter, and pipeline model.
 
 Every PowerShell script, in exact order:
 
+0. **Shebang** — `#!/usr/bin/env pwsh`, alone on line 1, with no byte-order mark ahead of it
 1. **Copyright header** — SPDX identifier and copyright notice
 2. **Comment-based help** — `.SYNOPSIS`, `.DESCRIPTION`, parameters, and examples when useful
 3. **`#Requires` declarations** — PowerShell 7.0 or later and required modules
@@ -20,6 +21,12 @@ Every PowerShell script, in exact order:
 5. **Script configuration** — preference variables and constants
 6. **Helper functions** — in a `Helper functions` region immediately after `$ErrorActionPreference`
 7. **Main operation** — the executable workflow, after all helper definitions
+
+**The shebang is on every `.ps1`,** dot-sourced profiles and fragments included, so the rule has no exception to
+state or enforce (ruled 2026-09-21). On macOS and Linux an executable `.ps1` with it runs directly, `./Script.ps1`,
+from any shell. From bash, Git Bash included, a file without it is parsed as shell and fails at the first `<#` or
+`[CmdletBinding()]`. A script that's run is also executable: `chmod +x`, or `git update-index --chmod=+x` on Windows.
+A file that's only dot-sourced is not.
 
 A script's main operation should read as an orchestration of named actions. Move implementation detail into a helper
 function when doing so makes the main operation easier to follow. Functions are defined before the main operation so
@@ -123,7 +130,9 @@ lines should separate the surrounding pipeline logically rather than interruptin
 - Check the result of an external command immediately after invocation.
 - Check `$LASTEXITCODE` immediately after native commands that expose it.
 - Throw an actionable message that identifies the failed operation and relevant input.
-- Use `-ErrorAction SilentlyContinue` only when absence is an expected branch, and handle that branch explicitly.
+- When absence is an expected branch, use `-ErrorAction Ignore` and handle that branch explicitly. Not
+  `SilentlyContinue`: it hides the error from the screen but still records it in `$Error`, so a profile that probes
+  for absent things leaves `$Error` full on every load.
 - Return `$null` only when absence is part of the function contract; do not silently discard unexpected failures.
 - Validate user input at the parameter boundary with validation attributes or immediately after parsing it.
 
@@ -161,6 +170,8 @@ Windows Terminal behavior, transcript naming, or path semantics. Keep implementa
 Every change is followed by a focused check before further edits:
 
 - Parse the script with PowerShell's language parser.
+- Check the first line: it is exactly `#!/usr/bin/env pwsh`, and the file's first two bytes are `#!`. A UTF-8 BOM
+  ahead of the shebang still parses, but it hides the shebang from the loader.
 - Verify every function has `[CmdletBinding()]` and an immediate `param()` block.
 - Check brace placement and blank-line rules when formatting changes are involved.
 - Run the narrowest available behavior check without launching interactive workflows unnecessarily.

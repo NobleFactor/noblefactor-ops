@@ -54,6 +54,9 @@ Read 2026-09-22 on `develop` at `1d075c4`.
   rule is "every `.ps1`" with no exception, as ruled for personal#193. Why: stated as above.
 - **§10 gains a first-line check,** beside the parser check: line 1 is `#!/usr/bin/env pwsh`, with no BOM ahead of it.
   A BOM hides the shebang from the loader.
+- **§6 says `-ErrorAction Ignore` for an expected absence,** not `SilentlyContinue`. Found while implementing: §6 named
+  `SilentlyContinue`, which still records to `$Error`. That is the cause of the four entries personal#199 cleared
+  from every profile load.
 
 ### Requirement 2: `pr-script-template.md`, the Windows form
 
