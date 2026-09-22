@@ -1,18 +1,23 @@
 ---
 title: PR Script Template
-description: Standard bash script structure for Claude Code to create, verify, merge, and clean up pull requests
+description: Standard PR script structure, bash on Unix and PowerShell on Windows, for Claude Code to create, verify, merge, and clean up pull requests
 type: Process
 audience: Engineers, Claude Code
 status: Approved
 created: 2026-03-16
-updated: 2026-09-07
+updated: 2026-09-22
 ---
 
 # PR Script Template
 
-Standard structure for the bash PR script that Claude Code generates to
-`~/Workspace/NobleFactor/go`. Each script is self-contained: stage, commit, push,
-create PR, verify CI, verify mergeability, squash merge, clean up.
+Standard structure for the PR script that Claude Code generates as `go-<repo>`, one level above the repository it
+acts on: `~/Workspace/NobleFactor/go-devlore-cli` for `~/Workspace/NobleFactor/devlore-cli`, and so on. Never the bare
+`~/Workspace/NobleFactor/go`, which belongs to whichever repository last used it. Each script is self-contained:
+stage, commit, push, create PR, verify CI, verify mergeability, squash merge, clean up.
+
+On macOS and Linux the script is bash, [the template below](#template). On Windows it is PowerShell,
+`go-<repo>.ps1`, [its own form](#on-windows-powershell). Bash PR scripts are not written on Windows (ruled
+2026-09-21). The owner runs the script: the agent writes it, shows it, and hands over one command.
 
 ---
 
@@ -180,13 +185,13 @@ git close-branch
 cd ~/Workspace/NobleFactor/<repo>
 git status --short
 
-# --- The standing end-of-PR report (ruled 2026-09-04) ---
+# --- The end-of-PR report, when one is asked for (rule 9) ---
 #
-# Every pull request ends with the report, table form, all states, scoped to what the pull request
-# served: --epic <Name>, --by feature --epic <Name>, --by thread --thread <Name>, or --by schedule.
-# It is how the state the merge just changed is read back. --markdown -o value because a string
+# Not automatic: ruled 2026-09-12 (development-process.md), retiring the standing rule of 2026-09-04.
+# When the owner asks for it, scope it to what the pull request served: --epic <Name>, --by feature
+# --epic <Name>, --by thread --thread <Name>, or --by schedule. --markdown -o value because a string
 # result renders quoted under the default json (devlore-cli#826); --silent, not 2>/dev/null.
-star gh issues report --epic <Name> --view table --state all --markdown -o value --silent
+# star gh issues report --epic <Name> --view table --state all --markdown -o value --silent
 ```
 
 ---
@@ -207,9 +212,10 @@ star gh issues report --epic <Name> --view table --state all --markdown -o value
    deletion flag. `--delete-branch` deletes the local branch first, which fails when a linked
    worktree holds it, and under `set -e` that aborts the script after the merge and before cleanup.
    `git close-branch` deletes in the order that survives a failure: remote, then worktree, then local.
-9. **Every pull request ends with the epic report.** Table form, all states, scoped to the epic,
-   feature or thread the pull request served. Ruled 2026-09-04. The script prints it last, after
-   cleanup, so the reader sees the state the merge produced.
+9. **The epic report ends a pull request when one is asked for.** Table form, all states, scoped to the
+   epic, feature or thread the pull request served, printed last, after cleanup, so the reader sees the
+   state the merge produced. Not automatic: ruled 2026-09-12 in `development-process.md`, which retired
+   the standing rule of 2026-09-04 that every pull request print one.
 
 10. **Nothing left behind.** After `git add` by name, `git diff --quiet` must pass. A modified tracked
     file the script did not stage is a change the PR silently omits; #161 merged without the rule
@@ -223,3 +229,209 @@ star gh issues report --epic <Name> --view table --state all --markdown -o value
     included; it is not effort and must not be read as one. Where a coding agent estimates active time from
     its own session transcript, that estimate goes in the agent's end-of-PR message, labeled an estimate, and
     never into the pull request as fact.
+
+---
+
+## On Windows: PowerShell
+
+On Windows the PR script is `go-<repo>.ps1`, PowerShell 7, written to the
+[PowerShell style guide](powershell-style-guidelines.md): shebang, header, help, `#Requires`, `[CmdletBinding()]` and
+`param()`, `$ErrorActionPreference = 'Stop'`, a helpers region, then the main operation. It does what the bash
+template does, in the same order. The rules above hold; these are the ones PowerShell changes.
+
+1. **Every native command is checked.** `$ErrorActionPreference = 'Stop'` doesn't cover a native command's exit code,
+   and there is no `set -e`. `Assert-NativeSuccess` runs right after every `git` and `gh` call.
+2. **Bodies are single-quoted here-strings.** The PR body and the jq program are `@'...'@`, so PowerShell expands
+   nothing in them. The body goes to `gh` through a file, `--body-file`.
+3. **The `## Time` section is written through a file,** `gh api -X PATCH repos/<owner>/<repo>/pulls/<n> -F
+   body=@<file>`, as every Windows PR script has done. PowerShell has no `printf ... | --body-file -` idiom worth
+   copying, and a file keeps the body byte-for-byte.
+4. **Clean-up runs from the main clone.** `Set-Location` to it before `git close-branch`, because Windows won't
+   delete a directory that is a process's current directory. No `git pull` after it: `git close-branch` ends by
+   fast-forwarding the main worktree to `origin/<target>` (`git-close-branch`, the `merge --ff-only` at its end).
+5. **No PATH changes.** The script runs from a pwsh whose `git` is `Git\cmd\git.exe`, Git for Windows' launcher, which
+   gives git's children the `sh` and `bash` they need without putting them on PATH. From a pwsh started by Git Bash,
+   `git` resolves to the raw `Git\clangarm64\bin\git.exe`, and an HTTPS push, a credential helper or `git
+   close-branch` exits 128 with no message. The fix is where the script runs, never a PATH line in it.
+6. **The owner runs it.** `! C:/Users/<you>/Workspace/<...>/go-<repo>.ps1`, with a full path and forward slashes.
+
+```powershell
+#!/usr/bin/env pwsh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Noble Factor. All rights reserved.
+
+<#
+.SYNOPSIS
+    PR script for <owner>/<repo>, issue #<n>.
+
+.DESCRIPTION
+    Opens the pull request for <branch>, waits for CI, checks the merge state, squash-merges, records the pull
+    request's time span, and closes the branch. Every commit is made and pushed; there is nothing to stage.
+
+.EXAMPLE
+    C:/Users/<you>/Workspace/NobleFactor/go-<repo>.ps1
+#>
+
+#Requires -Version 7.0
+
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+
+$branch = '<branch>'
+$repository = '<owner>/<repo>'
+$worktree = Join-Path -Path $HOME -ChildPath 'Workspace' -AdditionalChildPath 'NobleFactor', '<repo>.<n>-<name>'
+$mainClone = Join-Path -Path $HOME -ChildPath 'Workspace' -AdditionalChildPath 'NobleFactor', '<repo>'
+
+###########
+# Helper functions
+###########
+
+function Assert-NativeSuccess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $Operation
+    )
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Operation failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Get-PullRequestBody {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    return @'
+## Summary
+
+- **Change 1** -- description
+
+## Test plan
+
+- [x] Verified item
+
+Resolves #<n>
+
+## Time
+
+_Filled by the merge step below._
+'@
+}
+
+function Get-TimeSpanSection {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [int]
+        $Number
+    )
+
+    $program = @'
+(.commits[0].committedDate) as $opened | .createdAt as $submitted | .mergedAt as $merged |
+def hrs(a; b): (((b | fromdate) - (a | fromdate)) / 3600 * 10 | round) / 10;
+"## Time\n\n| Marker | UTC | Elapsed |\n| --- | --- | --- |\n" +
+"| opened (first commit) | \($opened) | \u2014 |\n" +
+"| submitted (PR opened) | \($submitted) | \(hrs($opened; $submitted)) h after opened |\n" +
+"| merged | \($merged) | \(hrs($submitted; $merged)) h after submitted; \(hrs($opened; $merged)) h in all |\n" +
+"\nComputed by the algorithm of noblefactor-ops#188 at merge."
+'@
+
+    $section = gh pr view $Number --json createdAt,mergedAt,commits --jq $program
+    Assert-NativeSuccess 'gh pr view (time span)'
+    return ($section -join "`n")
+}
+
+###########
+# Main
+###########
+
+Set-Location $worktree
+
+# --- Pre-flight: nothing left behind, then the repository's own gate where it runs here ---
+
+git diff --quiet
+$unstaged = $LASTEXITCODE
+git diff --cached --quiet
+$staged = $LASTEXITCODE
+
+if ($unstaged -ne 0 -or $staged -ne 0) {
+    git status --short
+    throw 'The worktree is not clean; nothing should be left behind.'
+}
+
+git push -u origin $branch
+Assert-NativeSuccess 'git push'
+
+# --- Create the PR ---
+
+$bodyFile = Join-Path ([System.IO.Path]::GetTempPath()) 'pr-<n>-body.md'
+Set-Content -LiteralPath $bodyFile -Value (Get-PullRequestBody) -NoNewline
+
+gh pr create --base '<default-branch>' --head $branch --body-file $bodyFile --title '<type>(<scope>): <summary>'
+Assert-NativeSuccess 'gh pr create'
+
+$number = [int](gh pr view $branch --json number --jq '.number')
+Assert-NativeSuccess 'gh pr view'
+
+# --- CI gate ---
+
+Start-Sleep -Seconds 5
+gh pr checks $number --watch
+
+if ($LASTEXITCODE -ne 0) {
+    $checks = gh pr checks $number 2>&1 | Out-String
+
+    if ($checks -notmatch 'no checks reported') {
+        throw "CI checks failed:`n$checks"
+    }
+}
+
+# --- Merge gate ---
+
+$mergeState = gh pr view $number --json mergeStateStatus --jq '.mergeStateStatus'
+Assert-NativeSuccess 'gh pr view (merge state)'
+
+switch ($mergeState) {
+    { $_ -in 'CLEAN', 'HAS_HOOKS', 'UNSTABLE', 'BLOCKED' } {
+        break
+    }
+    { $_ -in 'DIRTY', 'BEHIND' } {
+        throw "PR is not mergeable (state: $mergeState)."
+    }
+    default {
+        throw "Unknown merge state: $mergeState -- check the PR manually."
+    }
+}
+
+# --- Squash merge, and nothing else on this line ---
+
+gh pr merge $number --squash --admin
+Assert-NativeSuccess 'gh pr merge'
+
+# --- The span (rule 11) ---
+
+$section = Get-TimeSpanSection -Number $number
+$body = (gh pr view $number --json body --jq '.body') -join "`n"
+Assert-NativeSuccess 'gh pr view (body)'
+$body = $body -replace '(?s)## Time.*$', ''
+Set-Content -LiteralPath $bodyFile -Value ($body.TrimEnd() + "`n`n" + $section) -NoNewline
+gh api -X PATCH "repos/$repository/pulls/$number" -F "body=@$bodyFile" | Out-Null
+Assert-NativeSuccess 'gh api (body)'
+
+if (((gh pr view $number --json body --jq '.body') -join "`n") -notmatch '(?m)^## Time') {
+    throw 'The PR body carries no ## Time section.'
+}
+
+# --- Clean up, from the main clone ---
+
+Set-Location $mainClone
+git close-branch $branch
+Assert-NativeSuccess 'git close-branch'
+git status --short
+```
