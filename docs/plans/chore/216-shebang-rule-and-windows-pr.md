@@ -1,7 +1,7 @@
 ---
 title: "PowerShell scripts start with a shebang, and PR scripts on Windows are PowerShell"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/216
-status: approved
+status: complete
 created: 2026-09-22
 updated: 2026-09-22
 ---
@@ -89,16 +89,20 @@ The bash template stays as the Unix form, unchanged except below.
 
 ### Phase 1: Commit
 
-- [ ] This plan, first
-- [ ] Requirement 1
-- [ ] Requirements 2 and 3
+- [x] This plan, first
+- [x] Requirement 1, with section 6's `-ErrorAction Ignore` -- 2026-09-22
+- [x] Requirements 2 and 3 -- 2026-09-22
 
 ### Phase 2: Verify
 
-- [ ] The frontmatter gate (`./.github/scripts/Test-Frontmatter.sh`) passes locally; codespell and the rest run in CI
-- [ ] The Windows skeleton parses with PowerShell's parser, extracted from the document into a scratch file
-- [ ] Every rule in the Windows form is one the three working scripts follow; nothing is in the skeleton that they
-      don't do
+- [x] The frontmatter gate (`./.github/scripts/Test-Frontmatter.sh`) passes locally, 56 checked and 0 errors; codespell and the rest run in CI -- 2026-09-22
+- [x] The Windows skeleton, extracted into a scratch file, parses, starts with the shebang, holds only ASCII, and reports 0 PSScriptAnalyzer findings -- 2026-09-22
+- [x] Every rule in the Windows form is one the three working scripts follow -- 2026-09-22. Two claims were checked
+      against source, not carried over. First, `git close-branch` ends by fast-forwarding the main worktree to
+      `origin/<target>` (its closing `merge --ff-only`), so the skeleton has no `git pull` after it, and
+      `go-devlore-cli.ps1`'s pull was redundant: it printed `Already up to date`. Second, the reason given for the
+      REST body edit is only that every Windows script has used it; the old comment that `gh pr edit` trips on the
+      Projects (classic) field was never verified, so it isn't repeated
 
 ## Out of Scope
 
