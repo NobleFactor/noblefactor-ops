@@ -70,8 +70,8 @@ A section, "On Windows: PowerShell", with a skeleton of `go-<repo>.ps1` and the 
 - **The body through a file,** `gh pr create --body-file`, and the `## Time` section written with
   `gh api -X PATCH ... -F body=@<file>`.
 - **Clean-up from the main clone:** `Set-Location` there before `git close-branch`, because Windows won't delete a
-  directory that is a process's current directory. Then `git pull --ff-only`, because `git close-branch` pulls only
-  when the main clone held the branch.
+  directory that is a process's current directory. No `git pull` after it: `git close-branch` fast-forwards the main
+  worktree itself (see Phase 2).
 - **No PATH changes in a script.** Run from a pwsh whose `git` is `Git\cmd\git.exe`, the launcher, which gives git's
   children the `sh` and `bash` they need. The raw `Git\clangarm64\bin\git.exe` has neither, and an HTTPS push or
   `git close-branch` exits 128 without a message.
@@ -106,8 +106,8 @@ The bash template stays as the Unix form, unchanged except below.
 
 ## Out of Scope
 
-- The global instructions (`~/.claude/CLAUDE.md`), which still say "a self-contained bash script". They are the
-  owner's file; this plan names the gap, and the owner decides.
+- The global instructions (`~/.claude/CLAUDE.md`), which still say "a self-contained bash script". They live in
+  personal, `Home/common/.claude/CLAUDE.md`, and change in the Personal PR that follows this one.
 - The CI gate for PowerShell: lane 11, #218.
 - The Personal sweep of `.ps1` shebangs: done in personal#193.
 
