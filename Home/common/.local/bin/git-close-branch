@@ -6,6 +6,14 @@
 # git-close-branch - Switch to the target branch, pull, and delete merged feature branches
 # for documentation: man git-close-branch
 
+# Fail closed when the helper is missing. It defines error handling and errexit, so its absence cannot be
+# reported through it, and a failed source would leave the option loop below spinning forever (#214).
+# Checked first rather than `source ... || exit`, which would run the helper with errexit suppressed.
+[[ -r "$(dirname "$0")/Declare-BashScript" ]] || {
+    printf '%s: cannot find Declare-BashScript in %s\n' "${0##*/}" "$(dirname "$0")" >&2
+    exit 72 # EX_OSFILE
+}
+
 # shellcheck source=Declare-BashScript
 source "$(dirname "$0")/Declare-BashScript" "$0" "help,branch:,target:,merged,dry-run,force" "hb:t:mnf" "$@"
 

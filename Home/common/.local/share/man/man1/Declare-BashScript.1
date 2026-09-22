@@ -1,6 +1,6 @@
 .\" SPDX-FileCopyrightText: 2016-2025 Noble Factor
 .\" SPDX-License-Identifier: Apache-2.0
-.TH Declare-BashScript 1 "December 2025" "Noble Factor" "User Commands"
+.TH Declare-BashScript 1 "September 2026" "Noble Factor" "User Commands"
 .SH NAME
 Declare-BashScript \- Bash script argument and option parsing helper
 .SH SYNOPSIS
@@ -62,9 +62,25 @@ Terminal formatting codes for bold, normal, underline, and underline-off.
 .SH USAGE
 .RS
 .nf
+[[ -r "$(dirname "$0")/Declare-BashScript" ]] || {
+    printf '%s: cannot find Declare-BashScript in %s\\n' "${0##*/}" "$(dirname "$0")" >&2
+    exit 72 # EX_OSFILE
+}
+
+# shellcheck source=Declare-BashScript
 source "$(dirname "$0")/Declare-BashScript" "$0" "help,verbose,path:" "hvp" "$@"
 .fi
 .RE
+.PP
+Check for the file before sourcing it. This script defines the error functions and turns on
+errexit, so a consumer cannot report its absence through it; and a failed
+.B source
+leaves the consumer's option loop calling an undefined
+.BR error ,
+which neither exits nor shifts, so the loop never ends. Exit 72, EX_OSFILE, is the sysexits code for a
+critical file that is missing. Do not write
+.B source ... || exit
+instead: the helper would then run with errexit suppressed.
 .SH AUTHOR
 David Noble
 .SH COPYRIGHT
