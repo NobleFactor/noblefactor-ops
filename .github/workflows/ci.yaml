@@ -63,6 +63,20 @@ jobs:
           mkdir -p "$HOME/.local/bin" && mv shfmt "$HOME/.local/bin/shfmt"
           PATH="$HOME/.local/bin:$PATH" ./.github/scripts/shell-lint.sh
 
+      # PowerShell. Four checks per tracked .ps1, in .github/scripts/Test-PowerShell.ps1: the shebang and no BOM, the
+      # parser, [CmdletBinding()] with param() on every function, and PSScriptAnalyzer with the organization's
+      # settings (Home/common/.config/PSScriptAnalyzer). ubuntu-latest ships pwsh, so only the module is installed.
+      # Pinned to a version like shfmt and buildifier below: an analyser that gains a rule overnight is a gate that
+      # fails on someone else's commit. The Gallery publishes no digest, so the pin is the version alone.
+      - name: PowerShell
+        shell: pwsh
+        env:
+          PSSCRIPTANALYZER_VERSION: 1.25.0
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Install-Module PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
+          ./.github/scripts/Test-PowerShell.ps1
+
       # Starlark. buildifier is Bazel's formatter and linter for the language and knows nothing of
       # devlore's provider surface; it catches formatting, unused variables, confusing names and
       # missing docstrings, and passes a well-formed call to a method that does not exist. The
