@@ -102,9 +102,11 @@ All 69 here and 110 there, wherever they sit, including closed plan documents: a
 does not change what a record says, and skipping `docs/plans/**` would leave every future plan
 unchecked, which is the gap this issue closes.
 
-`licence` in `CONTRIBUTING.md` and `TRADEMARK.md` is covered by the ruling too. Those two files are
-the only ones where the word carries legal weight, so the pull request names the changed lines
-explicitly for review rather than burying them in a count.
+`licence` in `CONTRIBUTING.md` and `TRADEMARK.md` is covered by the ruling too — **but those files are
+devlore-cli's, and this repository has neither.** Its four are ordinary prose, "took the finding as a
+licence" in the permission sense, and `LICENSE` and `NOTICE` carry no British spelling and are
+untouched. The legal-text reading belongs to Phase 4, whose pull request names those lines explicitly
+rather than burying them in a count.
 
 ### Requirement 5: This plan is the one file the gate skips
 
@@ -140,13 +142,18 @@ for #932 to delete.
 
 ### Phase 3: Verify, then merge
 
-- [ ] The frontmatter and PowerShell gates pass on this host
-- [ ] `Test-Frontmatter.sh` still passes after its three constants and its `family` value are renamed
-- [ ] PR script written, analyser-clean, shown, and handed over
-- [ ] Codespell, Starlark and shell run on the pull request, and the merge gate blocks until every
+- [x] The frontmatter and PowerShell gates pass on this host -- 59 checked, 5 exempt, 0 errors; 2 checked, 0 findings
+- [x] `Test-Frontmatter.sh` still passes after its three constants and its `family` value are renamed, and a bad fixture still fails it -- "catalog status ... is not one of", exit 1
+- [x] PR script written, analyzer-clean (parse errors 0, findings 0, no BOM), shown, and handed over
+- [x] Codespell, Starlark and shell run on the pull request, and the merge gate blocks until every
       check reports pass
 
 ### Phase 4: devlore-cli — the sweep
+
+Another repository, so another pull request, and this plan cannot close in the one that carries
+Phases 1-3. It stays `active` until these boxes close — #199's rule is `complete` "when every other
+box is ticked", and rule 12's second clause is that a plan which cannot close inside its own pull
+request says so in its own text.
 
 - [ ] The same dictionary pass over that repository, in its own pull request (Requirement 6)
 - [ ] `make vet`, `make lint`, `make test`
