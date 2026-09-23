@@ -5,7 +5,7 @@ type: Process
 audience: Claude Code, Codex
 status: Approved
 created: 2026-09-07
-updated: 2026-09-11
+updated: 2026-09-23
 ---
 
 # Agent Rules
@@ -201,6 +201,28 @@ me something is working when it's working in your tree and nowhere else."
 names the live command against a real target, and says why a dry run is or is not evidence for that
 phase. A PR script that changes a command on the user's PATH ends by resolving the deployed copy and
 checking the change is in it, and exits non-zero rather than claim success if it is not.
+
+## 12. A document a commit makes stale is corrected in that commit
+
+**The rule.** When a commit changes what a document describes, the correction belongs in that commit.
+A plan's phase box, a status table, a README path, an architecture document's types: staged with the
+change, not in the next commit and not at the end of the branch. Where a box genuinely cannot close
+until after the merge — a deploy, a live-path check — the plan says so in its own text and stays
+`active`; `complete` still means every other box is ticked (#199).
+
+**The breakage.** 2026-09-23, #227. The commit that moved six files in a writ layer, `1c0de72`, left
+the plan's Phase 2 boxes unticked; the tick arrived afterwards, in `9404b72`.
+`development-process.md:206` had ruled it since #130 — "Every commit updates every document it
+touches — plan, architecture, and user-facing material. No deviations" — and the agent read that rule
+only on reaching the next phase, finding its own breach on the way. Its first instinct had been to
+defer the tick to a single plan-status commit at the end of the branch, which is the batch
+`development-process.md:217` names and rejects. Ruled: "please correct your breach of the rules. file
+an issue to correct the mistake."
+
+**Compliance.** Stage the document with the change. Before committing, ask which documents the change
+has made stale and read them rather than recall them — the rule was available the whole time and went
+unread. A plan that cannot close inside its own pull request says why in its own text, so a reader can
+tell a declared box from a forgotten one.
 
 ---
 
