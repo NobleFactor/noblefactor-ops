@@ -64,9 +64,11 @@ Appended after rule 11, before the closing coda:
 
 ### Phase 2: The rule
 
-- [ ] Rule 12 after rule 11, before the coda (Requirement 1)
-- [ ] Frontmatter `updated` (Requirement 2)
-- [ ] Any document stating the rule count is corrected, or confirmed not to exist
+- [x] Rule 12 after rule 11, before the coda (Requirement 1)
+- [x] Frontmatter `updated` (Requirement 2)
+- [x] No document states the rule count — the two `eleven` hits are
+      `github-branch-protection.md:172` (CI contexts) and `remove-go-code.md:92` (a historical
+      plan's file count). Nothing to correct
 
 ### Phase 3: Verify, then merge
 
