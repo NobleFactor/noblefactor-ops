@@ -87,7 +87,7 @@ reason of [devlore-cli#799](https://github.com/NobleFactor/devlore-cli/issues/79
 
 ### Phase 3: The deletion
 
-- [ ] `git rm docs/architecture/star-wasm-receivers.md`, its own commit, the reasoning in the
+- [x] `git rm docs/architecture/star-wasm-receivers.md`, its own commit, the reasoning in the
       message (Requirement 2)
 
 ### Phase 4: Verify, then merge
