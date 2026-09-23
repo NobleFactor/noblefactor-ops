@@ -22,7 +22,7 @@ the record. A schedule lane pointing at a personal issue renders *"is not in the
 
 1. `gh.repositories` names all three, so the configured commands see personal without a `--repo` flag.
 2. What that does and does not deliver is stated from measurement, not assumed — personal follows a
-   different labelling scheme, and a config line does not change it.
+   different labeling scheme, and a config line does not change it.
 3. Any document that says "two repositories" says three.
 
 ## Before → after, measured 2026-09-10 with `--repo` naming all three (the config line's exact effect)
@@ -37,8 +37,8 @@ the record. A schedule lane pointing at a personal issue renders *"is not in the
 ## Not this lane's to deliver — and why it is said here
 
 Rendering personal's issues **under an epic** needs personal to carry the scheme: an epic issue behind
-`Epic:Process` (or its issues re-labelled under the organization's epics) and `**Feature:**` markers on its
-tier-three issues. That is a labelling decision in another repository, made on GitHub, not in this
+`Epic:Process` (or its issues re-labeled under the organization's epics) and `**Feature:**` markers on its
+tier-three issues. That is a labeling decision in another repository, made on GitHub, not in this
 configuration. This lane makes personal *visible to the audit* — which is what surfaces exactly that gap —
 and *addressable by schedules*. Whether personal adopts the scheme is put to the owner, not decided here.
 

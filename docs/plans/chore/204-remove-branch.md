@@ -53,7 +53,7 @@ it on the remote"_ — which matches neither the code nor the ruling. Three docu
 | Order          | worktree → remote → local (code); worktree → local → remote (man page) | remote → worktree → local (code and man page)      |
 | A refusal      | may land after the worktree is gone                                    | lands before anything is touched                   |
 
-**Behaviour, on the cases the fixes came from** (throwaway repository; before = deployed `develop`)
+**Behavior, on the cases the fixes came from** (throwaway repository; before = deployed `develop`)
 
 | Case                                 | Before                                                                           | After                                                                    |
 | ------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -98,7 +98,7 @@ nothing — "blindly do what is set" is only safe when nothing set is undecided.
       first failure and reports which trace failed and what had already been removed
 - [x] `preview_line` renders a record as the dry run's line
 - [x] **One thing the plan promised and the first cut did not deliver.** Row 2 came back identical to the old
-      behaviour: the worktree was removed and then `git branch -d` failed. `delete_flag` answers whether a
+      behavior: the worktree was removed and then `git branch -d` failed. `delete_flag` answers whether a
       delete is _safe_ and returns `-d`; `git branch -d` then asks whether the branch is _merged_ and refuses
       on its own account. For that refusal to land before anything is touched — goal 2 — the survey has to
       ask git's question too, so it now tests `git merge-base --is-ancestor <branch> <target>` when the flag
@@ -166,7 +166,7 @@ Three differences the acceptance turned up that the table did not name, all kept
 
 - **The main-worktree switch stays outside `remove_branch`.** It is a property of the main worktree, done
   once for every selected branch that lives there; a branch's record only learns whether it was blocked.
-- **Behaviour is preserved everywhere the fixes established it** — the six rows marked _unchanged_. The two
+- **Behavior is preserved everywhere the fixes established it** — the six rows marked _unchanged_. The two
   rows that change are the two the seam still gets wrong. A refactor that changed a third row would be a
   design change, and that is the user's to make (Rule 10).
 - **Remote → worktree → local, not worktree-last.** `git branch -d` refuses a branch a worktree holds, so

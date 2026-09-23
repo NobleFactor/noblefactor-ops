@@ -19,29 +19,29 @@ readonly EXEMPT_FILE=".github/frontmatter-exempt"
 
 # TWO DOCUMENT FAMILIES. See docs/documentation-standards.md, which this script enforces.
 #
-# A document that declares `type:` is a CATALOGUE document -- an ADR, RFC, or other record whose
+# A document that declares `type:` is a CATALOG document -- an ADR, RFC, or other record whose
 # status describes a decision. One that does not is a WORKING document -- a plan or an architecture
 # note, whose status describes where the work has got to.
 #
 # The families are not a repository-by-repository split: docs/guides/ here holds both. The `type`
-# field is the discriminator because it is the field that only catalogue documents carry, and it
+# field is the discriminator because it is the field that only catalog documents carry, and it
 # makes each document self-describing rather than depending on where it happens to sit.
 #
-# CATALOGUE_PATHS forces the catalogue family regardless, so a tree of ADRs cannot silently
+# CATALOG_PATHS forces the catalog family regardless, so a tree of ADRs cannot silently
 # downgrade itself by omitting `type`. Empty here; the site repository would list its ADR tree.
-readonly CATALOGUE_PATHS=()
+readonly CATALOG_PATHS=()
 
 readonly REQUIRED_ALWAYS=(title)
-readonly REQUIRED_CATALOGUE=(type)
+readonly REQUIRED_CATALOG=(type)
 
 # Working-document lifecycle: the five statuses docs/plans/TEMPLATE.md lists and
 # docs/guides/development-process.md draws (#219). Change them there first, then here.
 readonly VALID_STATUS_WORKING=(draft approved active complete abandoned)
 
-# Catalogue decision statuses. `status: "Superseded by ADR-019"` is prose in a field otherwise
+# Catalog decision statuses. `status: "Superseded by ADR-019"` is prose in a field otherwise
 # treated as an enumeration; the `Superseded by <ref>` form is matched as a shape below, because it
 # carries information a bare `Superseded` would lose.
-readonly VALID_STATUS_CATALOGUE=(Draft Proposed Decided Approved Accepted Placeholder Superseded Withdrawn "Research Complete")
+readonly VALID_STATUS_CATALOG=(Draft Proposed Decided Approved Accepted Placeholder Superseded Withdrawn "Research Complete")
 
 readonly VALID_TYPE=(ADR RFC PRD README Overview Pitch Index Demos Strategy Roadmap Reference Guide "Demo Script" Plan Process Brief)
 
@@ -90,24 +90,24 @@ while IFS= read -r file; do
         continue
     fi
 
-    # Family: declared `type`, or a path the repository pins to the catalogue family.
+    # Family: declared `type`, or a path the repository pins to the catalog family.
     type="$(field_of "${block}" type)"
     family=working
     if [[ -n "${type}" ]]; then
-        family=catalogue
+        family=catalog
     else
-        for glob in ${CATALOGUE_PATHS[@]+"${CATALOGUE_PATHS[@]}"}; do
+        for glob in ${CATALOG_PATHS[@]+"${CATALOG_PATHS[@]}"}; do
             # shellcheck disable=SC2053 # glob match is the intent
             if [[ "${file}" == ${glob} ]]; then
-                family=catalogue
+                family=catalog
                 break
             fi
         done
     fi
 
     required=("${REQUIRED_ALWAYS[@]}")
-    if [[ "${family}" == catalogue ]]; then
-        required+=("${REQUIRED_CATALOGUE[@]}")
+    if [[ "${family}" == catalog ]]; then
+        required+=("${REQUIRED_CATALOG[@]}")
     fi
 
     for field in "${required[@]}"; do
@@ -124,8 +124,8 @@ while IFS= read -r file; do
         status="Superseded"
     fi
 
-    if [[ "${family}" == catalogue ]]; then
-        valid=("${VALID_STATUS_CATALOGUE[@]}")
+    if [[ "${family}" == catalog ]]; then
+        valid=("${VALID_STATUS_CATALOG[@]}")
     else
         valid=("${VALID_STATUS_WORKING[@]}")
     fi

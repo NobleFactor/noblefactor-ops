@@ -121,7 +121,7 @@ place, with the fault. Same repository set, same `--repo` and `-C`.
 ### `star gh labels audit` · `star gh labels sync`
 
 `audit` reports which configured repository lacks a kind, `Epic:Ops:Process`, or a thread label that
-reaches it. `sync` creates what is missing, with the canonical colour and description. One reads,
+reaches it. `sync` creates what is missing, with the canonical color and description. One reads,
 one acts — the same pair as `issues audit` and `issues report`.
 
 ### Config, in `star/config.yaml`
@@ -166,7 +166,7 @@ of every later phase is fixed here: the row schema, the kind and placement rules
       filtered client-side on `^(Epic|Thread):` — never with `labels(query:)`, which is a relevance
       search that returned `feature` for `"Epic:"` and nothing for `"Ops:"`
 - [x] Stage 2: **per-repository `gh issue list -R`, not `gh search issues`** — see the decision below
-- [x] Normalisation unnecessary under that decision; `gh issue list` returns the shape the scheme already reads
+- [x] Normalization unnecessary under that decision; `gh issue list` returns the shape the scheme already reads
 - [x] `--repo` comma-separated (no slice flag type in the spec); `--directory` resolves a working tree to its repository
 - [x] The banner names the repositories queried; with `gh issue list` there is no eventual consistency to warn of
 - [x] **Acceptance:** `Epic:Ops:Process` reports devlore-cli#809 under it — row 20 of 20, from noblefactor-ops with both repositories configured
@@ -176,7 +176,7 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 
 - [x] Threads discovered from `Thread:<Name>` labels in stage 1; `thread_epics` has no successor
 - [x] The thread issue found by label, kind `feature`, and a title beginning `Thread:`; its beat table parsed for order — rows whose first cell is a number, first issue reference on the row
-- [x] Agreement audit: labelled-but-not-listed and listed-but-not-labelled are both faults, rendered under the thread's table. Both threads are clean today, so the fault paths are exercised by reading, not by a live case
+- [x] Agreement audit: labeled-but-not-listed and listed-but-not-labeled are both faults, rendered under the thread's table. Both threads are clean today, so the fault paths are exercised by reading, not by a live case
 - [x] **Acceptance:** `star gh issues report --by thread --thread Ops:PortableTooling` renders the thread
       issue and nine members across two repositories in beat order 0–8, with each member's owning epic
 
@@ -190,10 +190,10 @@ of every later phase is fixed here: the row schema, the kind and placement rules
 ### Phase 5: The label set — complete 2026-09-05
 
 - [x] `gh labels audit`: for each configured repository, the kinds, `Epic:Ops:Process`, and every
-      thread label present anywhere in the set; reports what is missing and what has drifted in colour
+      thread label present anywhere in the set; reports what is missing and what has drifted in color
       or description
-- [x] `gh labels sync`: create what `audit` reports missing and align what drifted, canonical colour
-      and description; never deletes; honours `--dry-run`
+- [x] `gh labels sync`: create what `audit` reports missing and align what drifted, canonical color
+      and description; never deletes; honors `--dry-run`
 - [x] **Acceptance:** a throwaway `Thread:Ops:Scratch` created in one repository was reported missing in
       the other, `sync --dry-run` said what it would do and did nothing, `sync` created it, `audit` came
       back clean, the throwaway was deleted from both (no issues carried it), and `audit` stayed clean
@@ -303,14 +303,14 @@ each is recorded so a later phase or a devlore-cli issue picks it up rather than
   circular: members reach a repository only if the label exists there to be applied. A thread crosses
   repositories by design, so a `Thread:` label present in any configured repository is expected in all
   of them. `Epic:<Name>` labels stay per-repository and are not synced.
-- **Canonical is first-configured.** Colour and description come from the first repository in
+- **Canonical is first-configured.** Color and description come from the first repository in
   `gh.repositories` order that carries the label. The first real run found `chore` divergent here
   and aligned it to devlore-cli's `#BFD4F2 Maintenance work on the repo: build, CI, tooling,
   process`. That description predates `issue-standards.md`'s definition of a chore; settling the
   canonical text is a follow-on, and once one repository carries it `sync` spreads it.
 - **`sync` never deletes.** Deleting a label strips it from every issue carrying it — data loss, not
   this command's to do. It creates and aligns; a stray label is reported by nothing yet.
-- **`--dry-run` is honoured** through `ctx.dry_run`, which star's root flag already sets.
+- **`--dry-run` is honored** through `ctx.dry_run`, which star's root flag already sets.
 - **First 100 labels per repository.** One GraphQL page; a repository over that is warned about.
   Neither is near it.
 

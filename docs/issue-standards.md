@@ -186,7 +186,7 @@ thread issue's own repository, `owner/repo#N` across repositories. Prose may cit
 rows whose first cell is a number are read.
 
 **What the audit checks.** No cardinality rule: zero, one or several thread labels are all valid, and
-whether a story is fully told is a judgement, not a label property. One agreement rule, once the
+whether a story is fully told is a judgment, not a label property. One agreement rule, once the
 tooling implements it: every issue carrying `Thread:<Name>` appears in that thread's beat table, and
 every issue in the table carries the label. Both directions are faults. Today nothing checks either —
 `star gh issues report --by thread` reads them and reports the agreement faults under each
@@ -255,7 +255,7 @@ product.**
 | `Epic:Ops:Process` | `Epic:ResourceModel` |
 | `Thread:Ops:PortableTooling` | `Thread:WritOrigin` |
 
-The segment marks the exception rather than relabelling the majority, so the families are unchanged
+The segment marks the exception rather than relabeling the majority, so the families are unchanged
 and every rule above survives untouched: still exactly one `Epic:`, still zero or more `Thread:`. A
 report sections on the prefix; a person scanning a list finds the tooling grouped; and the namespace
 rule is satisfied for tooling as a side effect, since an `Ops:` name cannot collide with a product
@@ -314,7 +314,7 @@ everywhere rather than per-epic, because chores arise in every repository; a thr
 wherever the thread reaches, because a thread crosses repositories by design.
 
 `star gh labels audit` checks this across the configured repositories and `star gh labels sync`
-creates what is missing and aligns colour and description to the first configured repository that
+creates what is missing and aligns color and description to the first configured repository that
 carries the label. Thread labels are **set-wide**: a thread crosses repositories by design, so a
 `Thread:<Name>` present in one configured repository is expected in all of them, or nothing there can
 join. `sync` never deletes — a label removal strips it from every issue carrying it. A missing kind is

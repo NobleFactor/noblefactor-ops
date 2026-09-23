@@ -106,7 +106,7 @@ removed its Go trees and re-based its gate on `Test-Frontmatter.sh` plus `codesp
 
 Where CI uses a GitHub Action rather than a command, run the CLI it wraps with the workflow's
 arguments — the one place the local command is not literally identical, and worth naming so it is
-not mistaken for licence to invent a subset.
+not mistaken for license to invent a subset.
 
 ## Implementation Phases
 

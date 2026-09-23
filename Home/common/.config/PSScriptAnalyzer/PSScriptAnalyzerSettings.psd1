@@ -7,7 +7,7 @@
 #   a machine   writ deploys it to ~/.config/PSScriptAnalyzer/PSScriptAnalyzerSettings.psd1
 #   an editor   VS Code's powershell.scriptAnalysis.settingsPath names the deployed copy
 #
-# The analyser finds a settings file on its own only in the directory it is analysing, so every reader names it.
+# The analyzer finds a settings file on its own only in the directory it is analyzing, so every reader names it.
 # Ruled 2026-09-22 (#218): the rule set is organization policy and lives in the base layer, not in a consumer.
 
 @{

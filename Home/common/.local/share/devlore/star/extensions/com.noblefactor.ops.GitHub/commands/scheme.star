@@ -343,7 +343,7 @@ def beat_table(thread):
     return beats
 
 def thread_rows(name, all):
-    """The thread issue, then its members in beat order, then labelled members the table omits; with the agreement faults."""
+    """The thread issue, then its members in beat order, then labeled members the table omits; with the agreement faults."""
     thread = thread_issue(all, name)
     members = [i for i in all if tagged(i, "Thread:" + name) and (thread == None or key(i) != key(thread))]
     by_key = {key(i): i for i in members}
@@ -371,7 +371,7 @@ def thread_rows(name, all):
             faults.append("beat " + str(b) + " names " + k + ", which does not carry Thread:" + name)
 
     for i in by_number([i for i in members if key(i) not in listed]):
-        r = row(i, "labelled, not in the beat table")
+        r = row(i, "labeled, not in the beat table")
         r["thread"] = name
         r["beat"] = ""
         r["epic_name"] = _strip(epic_tag(i), "Epic:")
@@ -484,7 +484,7 @@ def feature_table_lines(rows):
 REQUIRED_EVERYWHERE = ["epic", "feature", "task", "bug", "chore", "Epic:Ops:Process"]
 
 def label_inventory(repos):
-    """Every label per repository with its colour and description -- one GraphQL request; first 100 per repository."""
+    """Every label per repository with its color and description -- one GraphQL request; first 100 per repository."""
     parts = []
     for i, repo in enumerate(repos):
         owner, name = repo.split("/")
@@ -500,7 +500,7 @@ def label_inventory(repos):
     return out
 
 def canonical_labels(inv, repos):
-    """The expected set and its canonical colour and description: the kinds, Epic:Ops:Process, and every thread label, each as first seen in configuration order."""
+    """The expected set and its canonical color and description: the kinds, Epic:Ops:Process, and every thread label, each as first seen in configuration order."""
     expected = {}
     names = list(REQUIRED_EVERYWHERE)
     threads = {}
@@ -519,7 +519,7 @@ def canonical_labels(inv, repos):
     return expected
 
 def label_faults(inv, repos):
-    """Per repository: missing labels, and labels whose colour or description differs from the canonical."""
+    """Per repository: missing labels, and labels whose color or description differs from the canonical."""
     expected = canonical_labels(inv, repos)
     rows = []
     for repo in repos:

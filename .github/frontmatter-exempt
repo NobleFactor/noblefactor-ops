@@ -12,7 +12,7 @@ docs/plans/nil-production-comment-removal.md
 docs/plans/shared-provider-receivers-phase5-analysis.md
 draft-star-lint-deadcode.md
 
-# A style guide, reader-facing rather than a catalogued document -- the same call the site repository
+# A style guide, reader-facing rather than a cataloged document -- the same call the site repository
 # made for its migration guides. It would benefit from `title` and a `type`, which is a content
 # decision and not a gate one; this entry should go when that happens.
 docs/guides/go-style-guidelines.md

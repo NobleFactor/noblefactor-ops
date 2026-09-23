@@ -560,7 +560,7 @@ func (m *GHModule) secretSet(thread *starlark.Thread, fn *starlark.Builtin,
 The `?` suffix in the parameter name makes it optional. Required parameters
 without `?` will cause `UnpackArgs` to return an error if missing.
 
-### Type Marshalling
+### Type Marshaling
 
 | Starlark Type | Go Type | Conversion |
 | --- | --- | --- |

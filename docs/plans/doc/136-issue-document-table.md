@@ -11,7 +11,7 @@ updated: 2026-09-03
 ## Summary
 
 Every issue ends with a table linking its plan and the design documents it bears on. This is
-practised on six issues across three repositories and written nowhere. `development-process.md`
+practiced on six issues across three repositories and written nowhere. `development-process.md`
 attaches a plan to a task rather than an issue, requires cross-references only between plans, and
 says nothing about the issue body. This plan adds the rule under **Plans**, in the worktree that is
 already revising that document.
