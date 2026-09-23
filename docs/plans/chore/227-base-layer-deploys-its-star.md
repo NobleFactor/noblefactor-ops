@@ -82,8 +82,8 @@ reason of [devlore-cli#799](https://github.com/NobleFactor/devlore-cli/issues/79
 
 ### Phase 2: The move
 
-- [ ] `git mv` the six files (Requirement 1)
-- [ ] `README.md` names the new path (Requirement 1)
+- [x] `git mv` the six files (Requirement 1)
+- [x] `README.md` names the new path (Requirement 1)
 
 ### Phase 3: The deletion
 
