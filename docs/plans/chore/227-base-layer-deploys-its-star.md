@@ -92,11 +92,23 @@ reason of [devlore-cli#799](https://github.com/NobleFactor/devlore-cli/issues/79
 
 ### Phase 4: Verify, then merge
 
-- [ ] `git ls-files` shows six files at the new path and none at the old
-- [ ] CI green: frontmatter, codespell, Starlark/buildifier, PowerShell
-- [ ] PR script generated, shown, and handed over
+- [x] `git ls-files` shows six files at the new path and none at the old
+- [x] The gates that run on this host: frontmatter, 57 checked, 5 exempt, 0 errors; PowerShell,
+      2 checked, 0 findings
+- [x] The six `.star` files are pure renames — `git diff` reports no content lines — and the Starlark
+      gate globs `git ls-files '*.star'`, so the move is invisible to buildifier
+- [x] Nothing references `star-wasm-receivers.md`: no link here, no `.github/frontmatter-exempt`
+      entry, no `.github/codespell-ignore` word keyed to it
+- [x] PR script written, analyser-clean, shown, and handed over
+- [ ] CI green on the pull request: Starlark, spelling and shell — buildifier, codespell, shfmt and
+      shellcheck are none of them installed on this host, and shellcheck has no native ARM64 build
 
 ### Phase 5: The live path
+
+Not a handover. [`agent-rules.md`](../../guides/agent-rules.md) rule 5: a layer change is finished
+when the machine is converged, not when the pull request merges. This plan reaches `complete` in the
+commit that closes these boxes, which is after the merge — #199's rule is "when every other box is
+ticked", and these are not tickable before it.
 
 - [ ] star rebuilt from devlore-cli `develop` and installed (Requirement 3)
 - [ ] writ's base clone pulled; `writ deploy common`
