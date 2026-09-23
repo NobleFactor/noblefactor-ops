@@ -1,7 +1,7 @@
 ---
 title: "agent-rules gains rule 12: a document a commit makes stale is corrected in that commit"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/229
-status: active
+status: complete
 created: 2026-09-23
 updated: 2026-09-23
 ---
@@ -72,11 +72,13 @@ Appended after rule 11, before the closing coda:
 
 ### Phase 3: Verify, then merge
 
-- [ ] The frontmatter and PowerShell gates pass on this host
-- [ ] #227's owed Phase 5 tick rides in this branch — the deploy is done and verified, and #199's
-      rule closes that plan in the next pull request through
-- [ ] PR script written, analyser-clean, shown, and handed over
-- [ ] Codespell, Starlark and shell run on the pull request, and the PR script's own gate blocks the
+- [x] The frontmatter and PowerShell gates pass on this host — 58 checked, 5 exempt, 0 errors;
+      2 checked, 0 findings
+- [x] #227's owed Phase 5 tick rides in this branch — the deploy is done and verified, and #199's
+      rule closes that plan in the next pull request through. `76056b3`, and #227 now reads
+      `complete` with its two corrected boxes stating how they differed from the plan
+- [x] PR script written, analyser-clean (parse errors 0, findings 0), shown, and handed over
+- [x] Codespell, Starlark and shell run on the pull request, and the PR script's own gate blocks the
       merge until every check reports pass
 
 A box is not written here that cannot be closed here. "CI is green" is an outcome that arrives after
