@@ -1,7 +1,7 @@
 ---
 title: "The base layer deploys its star extension under devlore/"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/227
-status: active
+status: complete
 created: 2026-09-23
 updated: 2026-09-23
 ---
@@ -100,8 +100,9 @@ reason of [devlore-cli#799](https://github.com/NobleFactor/devlore-cli/issues/79
 - [x] Nothing references `star-wasm-receivers.md`: no link here, no `.github/frontmatter-exempt`
       entry, no `.github/codespell-ignore` word keyed to it
 - [x] PR script written, analyser-clean, shown, and handed over
-- [ ] CI green on the pull request: Starlark, spelling and shell — buildifier, codespell, shfmt and
-      shellcheck are none of them installed on this host, and shellcheck has no native ARM64 build
+- [x] CI green on the pull request: `quality-gate` passed in 31s on PR #230, covering the Starlark,
+      spelling and shell checks that buildifier, codespell, shfmt and shellcheck provide — none of
+      them installed on this host, and shellcheck has no native ARM64 build
 
 ### Phase 5: The live path
 
@@ -110,10 +111,22 @@ when the machine is converged, not when the pull request merges. This plan reach
 commit that closes these boxes, which is after the merge — #199's rule is "when every other box is
 ticked", and these are not tickable before it.
 
-- [ ] star rebuilt from devlore-cli `develop` and installed (Requirement 3)
-- [ ] writ's base clone pulled; `writ deploy common`
-- [ ] `star gh issues report` resolves from the new path
-- [ ] `Remove-BrokenLinks` clears the old links; the empty `~/.local/share/star` is gone
+- [x] star rebuilt from devlore-cli `develop` and installed (Requirement 3) — `make install`, build
+      `a835739d`, identical to develop's HEAD
+- [x] writ's base clone pulled to `9ecae64`; `writ deploy common` — 62 files, 62 links, 1 skipped
+- [x] `star gh issues report` resolves from the new path. **Better than this plan predicted:** it does
+      not fail for the `shell.exec` reason of devlore-cli#799 and #801 — it runs, exit 0, 278 rows
+      across all three repositories. What is wrong with it is the raw-JSON rendering of #190, which
+      is a different issue and not a failure
+- [x] `Remove-BrokenLinks -Path ~/.local/share/star` cleared the six dangling links, and the warning
+      star emitted on the deprecated probe is gone
+- [x] `~/.local/share/star` is gone. **Not as this plan assumed:** it was not empty. It held 24 real
+      files — the five `com.noblefactor.devlore.*` extensions that the *previous* `star self install`
+      wrote to the old path. Today's install wrote fresh copies to the new path and updated its
+      manifest, stranding the old ones: after devlore-cli#917 `star self uninstall` removes only what
+      its own manifest records, so nothing would ever have collected them. Removed by the owner
+      2026-09-23. **The migration gap is real and unfiled** — a path move strands the previous
+      install's files, and neither #917 nor #918 covers it
 
 ## Out of Scope
 
