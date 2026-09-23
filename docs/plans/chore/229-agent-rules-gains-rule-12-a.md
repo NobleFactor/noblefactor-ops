@@ -77,7 +77,7 @@ Appended after rule 11, before the closing coda:
 - [x] #227's owed Phase 5 tick rides in this branch — the deploy is done and verified, and #199's
       rule closes that plan in the next pull request through. `76056b3`, and #227 now reads
       `complete` with its two corrected boxes stating how they differed from the plan
-- [x] PR script written, analyser-clean (parse errors 0, findings 0), shown, and handed over
+- [x] PR script written, analyzer-clean (parse errors 0, findings 0), shown, and handed over
 - [x] Codespell, Starlark and shell run on the pull request, and the PR script's own gate blocks the
       merge until every check reports pass
 

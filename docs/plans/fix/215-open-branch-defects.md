@@ -11,7 +11,7 @@ updated: 2026-09-21
 ## Issue 215
 
 Lane 3 of #217. `branch_type_for` knew `bug`, `documentation`, `enhancement`, `feature` and `epic`,
-so an issue labelled `chore` fell to the `feature` default: `git open-branch 191` opened
+so an issue labeled `chore` fell to the `feature` default: `git open-branch 191` opened
 `feature/191-...` and had to be closed and reopened with `-T chore` by hand. The ruleset allows
 `chore/`, both repositories carry the label, and the plan path follows the prefix, so the plan
 misfiled too.

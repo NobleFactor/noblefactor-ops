@@ -53,7 +53,7 @@ engineers' documents beyond a pointer.
 
 ### Phase 2: the pointers
 
-- [x] README "The standards CLAUDE.md points at": a row for the guide, labelled as the agents' document
+- [x] README "The standards CLAUDE.md points at": a row for the guide, labeled as the agents' document
 - [x] `pr-script-template.md`: its pre-flight section gains one sentence pointing at rule 1
 - [x] Filed in personal as David-Noble-at-work/personal#175: `Home/common/.claude/CLAUDE.md` (deployed as
       `~/.claude/CLAUDE.md`) and the Codex mirror point at the guide — the personal-layer change

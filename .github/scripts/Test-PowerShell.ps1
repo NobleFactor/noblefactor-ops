@@ -179,7 +179,7 @@ function Test-Script {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($LiteralPath, [ref] $null, [ref] $errors)
 
     if ($errors.Count -gt 0) {
-        # A file that does not parse cannot be walked or analysed; its parser errors are the whole report.
+        # A file that does not parse cannot be walked or analyzed; its parser errors are the whole report.
         return $failures + @($errors | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Message)" })
     }
 

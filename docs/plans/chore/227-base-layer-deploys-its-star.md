@@ -53,7 +53,7 @@ devlore-cli has no `wazero` in `go.mod`, no `.wasm` files and no `internal/wasm/
 `docs/plans/move-star-to-devlore-cli.md:35` still records `internal/wasm/` as "TBD — not yet moved".
 
 This repository had one WASM extension, `com.noblefactor.star.Gitignore`, and
-`docs/architecture/star-file-tree-walking.md` exists to delete it in favour of native Go over
+`docs/architecture/star-file-tree-walking.md` exists to delete it in favor of native Go over
 go-git. That shipped — `pkg/gitignore/tracker.go` is live in devlore-cli.
 
 Nothing references the document: no link in this repository, no entry in
@@ -99,7 +99,7 @@ reason of [devlore-cli#799](https://github.com/NobleFactor/devlore-cli/issues/79
       gate globs `git ls-files '*.star'`, so the move is invisible to buildifier
 - [x] Nothing references `star-wasm-receivers.md`: no link here, no `.github/frontmatter-exempt`
       entry, no `.github/codespell-ignore` word keyed to it
-- [x] PR script written, analyser-clean, shown, and handed over
+- [x] PR script written, analyzer-clean, shown, and handed over
 - [x] CI green on the pull request: `quality-gate` passed in 31s on PR #230, covering the Starlark,
       spelling and shell checks that buildifier, codespell, shfmt and shellcheck provide — none of
       them installed on this host, and shellcheck has no native ARM64 build

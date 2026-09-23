@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # Enforces docs/documentation-standards.md, which this repository defines for the whole
-      # organization. Two document families, one rule: a document declaring `type` is a catalogue
+      # organization. Two document families, one rule: a document declaring `type` is a catalog
       # document and takes decision statuses; one without is a working document and takes the
       # lifecycle statuses from docs/plans/TEMPLATE.md.
       - name: Frontmatter
@@ -37,11 +37,22 @@ jobs:
 
       # Prose is the product here. codespell has a low false-positive rate; new exceptions go in
       # .github/codespell-ignore, one word per line.
+      #
+      # `builtin` carries codespell's own default -- clear and rare -- plus en-GB_to_en-US (#234).
+      # Naming the locale dictionary alone would drop the other two: the action passes --builtin only
+      # when this input is set, and it replaces the default rather than adding to it. Documents are US
+      # English, which until #234 was enforced only by golangci-lint's misspell over Go source, so
+      # nothing looked at prose at all.
+      #
+      # The one skipped document is #234's own plan. Its subject is the difference between the two
+      # spellings, so it has to contain both, and a sweep over it turns its rename table into a
+      # tautology. That is one file named here, not a word exempted repository-wide.
       - name: Spelling
         uses: codespell-project/actions-codespell@v2
         with:
           ignore_words_file: .github/codespell-ignore
-          skip: ./.git,*.svg,*.wasm,*.lock
+          builtin: clear,rare,en-GB_to_en-US
+          skip: ./.git,*.svg,*.wasm,*.lock,./docs/plans/fix/234-prose-is-not-checked-for.md
 
       # Shell. The same gate the personal repository runs, so a script valid there is valid here:
       # shfmt for form, shellcheck for substance, and shellcheck follows Declare-BashScript through -P
@@ -66,7 +77,7 @@ jobs:
       # PowerShell. Four checks per tracked .ps1, in .github/scripts/Test-PowerShell.ps1: the shebang and no BOM, the
       # parser, [CmdletBinding()] with param() on every function, and PSScriptAnalyzer with the organization's
       # settings (Home/common/.config/PSScriptAnalyzer). ubuntu-latest ships pwsh, so only the module is installed.
-      # Pinned to a version like shfmt and buildifier below: an analyser that gains a rule overnight is a gate that
+      # Pinned to a version like shfmt and buildifier below: an analyzer that gains a rule overnight is a gate that
       # fails on someone else's commit. The Gallery publishes no digest, so the pin is the version alone.
       - name: PowerShell
         shell: pwsh

@@ -97,7 +97,7 @@ commands:
         help: Return the audit as a document, one string (render with -o value)
 
   - name: gh.labels.sync
-    help: Create the labels the audit reports missing and align the ones that drifted; never deletes; honours --dry-run
+    help: Create the labels the audit reports missing and align the ones that drifted; never deletes; honors --dry-run
     implementation: commands/gh-labels-sync.star
     flags:
       - name: repo

@@ -82,9 +82,9 @@ the NobleFactor repositories, which is the reason not to lean the guide on them.
 
 ### Requirement 5: Frontmatter conformance
 
-The guide is a **catalogue** document under
+The guide is a **catalog** document under
 [documentation-standards.md](../../documentation-standards.md): it declares `type: Process` and takes its
-`status` from the catalogue vocabulary. This plan is a **working** document: no `type`, and `status` from
+`status` from the catalog vocabulary. This plan is a **working** document: no `type`, and `status` from
 the working vocabulary. `.github/scripts/Test-Frontmatter.sh` gates both.
 
 ## Implementation Phases
@@ -93,7 +93,7 @@ the working vocabulary. `.github/scripts/Test-Frontmatter.sh` gates both.
 
 - [x] `docs/guides/development-process.md` written — the unit of work, discovering issues mid-work,
       blocking issues, plans, documents on every commit, reference implementation
-- [x] Frontmatter in the catalogue family, matching `release-process.md`'s shape
+- [x] Frontmatter in the catalog family, matching `release-process.md`'s shape
 - [x] Cross-references to `release-process.md`, `TEMPLATE.md`, `documentation-standards.md`,
       `github-branch-protection.md`, `pr-script-template.md`
 

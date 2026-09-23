@@ -16,7 +16,7 @@ Lanes 2 and 3 of `Schedule: process tooling` (#206), one pull request: #196 and 
 and ruled since, and live only in issue bodies and a session's memory:
 
 - **#196, 2026-09-09.** An agent read the writ guides, found them contradicting themselves, took the finding
-  as a licence — rewrote the rule, coded it, changed two guides, edited the plan to match, ticked its boxes.
+  as a license — rewrote the rule, coded it, changed two guides, edited the plan to match, ticked its boxes.
   Ruled: *"You are not authorized to change design."* Drift between issues, designs, plans and code is
   resolved in real time, with the user, never by the agent choosing a side.
 - **#203, 2026-09-08.** *"`--force` works"* was written after testing a scratch copy; the user's command was
@@ -71,7 +71,7 @@ A rule that exists only in an issue is not read by the agent that starts tomorro
 
 - **One PR, two issues.** Both are additions to one document in one shape; splitting them would be two PRs
   editing the same file for no reason. The schedule allows a PR to close several lanes.
-- **The rulings are quoted, not summarised.** The document's own preface: "each carries the day it was
+- **The rulings are quoted, not summarized.** The document's own preface: "each carries the day it was
   broken and the words that ruled it."
 
 ## Related Documents

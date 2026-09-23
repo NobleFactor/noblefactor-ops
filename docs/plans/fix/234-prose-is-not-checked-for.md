@@ -106,7 +106,18 @@ unchecked, which is the gap this issue closes.
 the only ones where the word carries legal weight, so the pull request names the changed lines
 explicitly for review rather than burying them in a count.
 
-### Requirement 5: devlore-cli is swept, and its gate is lane 2's
+### Requirement 5: This plan is the one file the gate skips
+
+A document whose subject is the difference between two spellings has to contain both. Its word tables
+are a record of what was found, and its rename table is meaningless if either column is rewritten — a
+blanket pass over the tree turned `CATALOGUE_PATHS` → `CATALOG_PATHS` into `CATALOG_PATHS` →
+`CATALOG_PATHS` on the first run, and the sentence beside it into a tautology.
+
+So this file joins codespell's `skip`, which already carries `./.git,*.svg,*.wasm,*.lock`. That is an
+exemption for one document, visible in the workflow, and not a word exempted repository-wide in
+`codespell-ignore`: the ruling leaves no word exempt, and this exempts none.
+
+### Requirement 6: devlore-cli is swept, and its gate is lane 2's
 
 devlore-cli's own prose gate arrives with devlore-cli#932, which consolidates document checks into
 star. This plan sweeps that repository's files in a second pull request and adds no bash gate there
@@ -120,23 +131,24 @@ for #932 to delete.
 
 ### Phase 2: noblefactor-ops — the rule, the gate, the sweep
 
-- [ ] `documentation-standards.md` states the rule (Requirement 1)
-- [ ] `ci.yaml` gains `builtin: clear,rare,en-GB_to_en-US` (Requirement 2)
-- [ ] `catalogue` renamed to `catalog`, constants and family value included (Requirement 3)
-- [ ] Every remaining instance corrected (Requirement 4)
-- [ ] The dictionary re-run over the tree: zero hits
+- [x] `documentation-standards.md` states the rule (Requirement 1)
+- [x] `ci.yaml` gains `builtin: clear,rare,en-GB_to_en-US` (Requirement 2)
+- [x] `catalogue` renamed to `catalog`, constants and family value included (Requirement 3)
+- [x] Every remaining instance corrected (Requirement 4)
+- [x] This plan added to codespell's `skip` (Requirement 5)
+- [x] The dictionary re-run over the tree: zero hits outside this plan
 
 ### Phase 3: Verify, then merge
 
 - [ ] The frontmatter and PowerShell gates pass on this host
-- [ ] `Test-Frontmatter.sh` still passes — `catalogue` is load-bearing in it and must be untouched
+- [ ] `Test-Frontmatter.sh` still passes after its three constants and its `family` value are renamed
 - [ ] PR script written, analyser-clean, shown, and handed over
 - [ ] Codespell, Starlark and shell run on the pull request, and the merge gate blocks until every
       check reports pass
 
 ### Phase 4: devlore-cli — the sweep
 
-- [ ] The same dictionary pass over that repository, in its own pull request (Requirement 5)
+- [ ] The same dictionary pass over that repository, in its own pull request (Requirement 6)
 - [ ] `make vet`, `make lint`, `make test`
 
 ## Open Questions

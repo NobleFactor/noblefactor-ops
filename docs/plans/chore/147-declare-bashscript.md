@@ -176,7 +176,7 @@ Its own issue and plan there (`docs/plans/chore/<n>-declare-bashscript-by-projec
   intent, applied to the 45 this touches; the AppleScript and the Windows files are not this plan's.
 - **Context projects drop the dependency rather than bend the rule.** Five scripts lose one function
   call each; `Backup-TimeCapsule` regains its own argument parsing. The alternative — a `thenobles`
-  script signalling `noblefactor-ops` — loses the family grouping to save a dozen lines.
+  script signaling `noblefactor-ops` — loses the family grouping to save a dozen lines.
 - **CI follows the public base at a pinned ref.** No token, no lock file: the `ref:` in the workflow
   is the pin, and git guarantees the content at a ref. The first draft's digest lock solved a problem
   the public repository no longer has.

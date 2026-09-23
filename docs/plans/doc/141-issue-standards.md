@@ -90,7 +90,7 @@ for a separate issue, not corrected in passing.
 ### Phase 1: Write the document (status: complete)
 
 `docs/issue-standards.md`, frontmatter per `documentation-standards.md`. Source of truth is the
-`Get-EpicReport` header plus the behaviour of `--audit`, read together so the document describes what
+`Get-EpicReport` header plus the behavior of `--audit`, read together so the document describes what
 the tool does rather than what its comment says it does.
 
 ### Phase 2: Reference it from the process guide (status: complete)
@@ -101,13 +101,13 @@ the tool does rather than what its comment says it does.
 ### Phase 3: Verify (status: complete)
 
 - The document's frontmatter passes `Test-Frontmatter.sh`
-- Every rule in it is checked against `--audit`'s actual behaviour, not only the header comment
+- Every rule in it is checked against `--audit`'s actual behavior, not only the header comment
 - The kinds listed match the labels `Get-EpicReport` accepts
 - Spelling passes `codespell` with the repository's ignore file
 
 ## Verification
 
-Every rule was checked against `--audit`'s behaviour rather than the header comment, because a
+Every rule was checked against `--audit`'s behavior rather than the header comment, because a
 comment being the only specification is the problem this document exists to fix.
 
 | Documented | Implementation |

@@ -33,7 +33,7 @@ Read 2026-09-22 on `develop` at `693d4e4`.
 
 1. A `.ps1` that breaks the guide fails the gate, in this repository and in any repository that adopts the script.
 2. CI, a developer's machine and VS Code run one rule set, from one file.
-3. The gate is reproducible: a pinned analyser version, as the Shell and Starlark steps pin theirs.
+3. The gate is reproducible: a pinned analyzer version, as the Shell and Starlark steps pin theirs.
 
 ## Requirements
 
@@ -52,7 +52,7 @@ Takes the files from `git ls-files '*.ps1'`, so untracked scratch files are not 
 3. **The structure.** Every `FunctionDefinitionAst` has a `[CmdletBinding()]` attribute and a `param()` block, and the
    script itself has both (§2). This is an AST walk in the script, not a PSScriptAnalyzer custom rule: the built-in
    `PSUseCmdletBinding` rules don't cover it, and a custom-rule module is a heavier mechanism than one walk.
-4. **The analyser.** `Invoke-ScriptAnalyzer -Settings <the file above>`, failing on any finding.
+4. **The analyzer.** `Invoke-ScriptAnalyzer -Settings <the file above>`, failing on any finding.
 
 It reports every failure with its file and line, and exits non-zero once, rather than stopping at the first.
 `#Requires -Version 7.0`, the shebang, `[CmdletBinding()]`, `param()` -- it obeys the guide it enforces.
@@ -71,7 +71,7 @@ A `PowerShell` step in `quality-gate`, after Shell:
           ./.github/scripts/Test-PowerShell.ps1
 ```
 
-The version is pinned, as the Shell and Starlark steps pin theirs: an analyser that gains a rule overnight is a gate
+The version is pinned, as the Shell and Starlark steps pin theirs: an analyzer that gains a rule overnight is a gate
 that fails on someone else's commit. The Gallery serves modules over HTTPS with no published digest, so the pin is the
 version, not a hash.
 
@@ -92,7 +92,7 @@ The CI entry-point table gains the command for `noblefactor-ops`, so a pre-fligh
 - [x] `./.github/scripts/Test-PowerShell.ps1` passes locally: 2 checked, 0 with findings -- 2026-09-22
 - [x] It fails, with the right message and exit 1, on each planted defect: no shebang (`expected '#!/usr/bin/env
       pwsh'`), a UTF-8 BOM, a UTF-16 file, a parse error, a function without `[CmdletBinding()]`, and trailing
-      whitespace through the analyser -- 2026-09-22
+      whitespace through the analyzer -- 2026-09-22
 - [x] The script gates itself, and caught one finding in itself on the first run: `Get-TrackedScript` returned
       `Object[]` against a declared `string[]`. Fixed, then clean. It also found a real bug in its first draft:
       `git ls-files` prints repository-relative paths, which .NET's file APIs resolve against the process working
@@ -104,7 +104,7 @@ The CI entry-point table gains the command for `noblefactor-ops`, so a pre-fligh
 
 - **The blank-line rules of guide §4.** They need a formatter's model of the file, not an AST walk, and a
   half-implementation would reject code the guide allows. If they are to be enforced, that is its own issue.
-- Adopting the script in personal or devlore-cli. Each has its own gate; personal's `.ps1` files pass the analyser
+- Adopting the script in personal or devlore-cli. Each has its own gate; personal's `.ps1` files pass the analyzer
   already (#199), and adopting this script there is a lane on a later schedule.
 
 ## Open Questions

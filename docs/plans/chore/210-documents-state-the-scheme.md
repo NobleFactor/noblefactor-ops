@@ -46,7 +46,7 @@ never contained it. The document is silent, not mistaken. That is a writing job,
    may amend, the agent may not.
 4. **The deliverable is written down**: before → after, and that a change to it is a replan.
 5. **#171 is named as wrong**, not as an alternative — its lanes are epics and features, which are not lanes.
-6. **Rule 9's retirement is honoured in this document** — `development-process.md` restates it and must stop.
+6. **Rule 9's retirement is honored in this document** — `development-process.md` restates it and must stop.
 
 ## Before → after
 

@@ -97,7 +97,7 @@ A label whose name begins `Ops:` marks the tooling axis — work on how we work.
 - `Epic:Ops:Process`, `Thread:Ops:PortableTooling` — tooling.
 - `Epic:ResourceModel`, `Thread:WritOrigin` — product.
 
-It marks the exception rather than relabelling the majority, so the label families are unchanged and
+It marks the exception rather than relabeling the majority, so the label families are unchanged and
 "exactly one epic, zero or more threads" survives untouched. Tooling labels carry a distinct hue so
 the visual scan matches the machine rule.
 
@@ -120,7 +120,7 @@ for tooling work as a side effect; for product work it is a convention the audit
 ### What the audit checks about threads
 
 **No cardinality rule.** Zero, one or several thread labels are all valid, and a thread's
-*completeness* is a judgement about a narrative, not a property of a label set.
+*completeness* is a judgment about a narrative, not a property of a label set.
 
 **One agreement rule**, once tooling implements it: every issue carrying `Thread:<Name>` appears in
 that thread's beat table, and every issue in the beat table carries the label. Both directions are

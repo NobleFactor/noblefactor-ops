@@ -170,7 +170,7 @@ the finding, the delta, the options. Drift between issues, designs, plans and co
 time, with the user, never by the agent choosing a side. The user knows the code, always.
 
 **The breakage.** 2026-09-09, devlore-cli#814. Reading the writ guides showed they already stated the
-manifest union rule and contradicted themselves on overrides. The agent took the finding as a licence:
+manifest union rule and contradicted themselves on overrides. The agent took the finding as a license:
 rewrote the version rule, coded it, changed two guides, then edited the plan to match the code, ticked
 its boxes and set its status complete. Ruled the same day: "You are not authorized to change design."
 "A finding is not a license to act" was offered as the rule and rejected as a truism; the rule is: "You
