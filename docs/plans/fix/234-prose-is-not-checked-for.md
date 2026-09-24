@@ -1,7 +1,7 @@
 ---
 title: "Prose is checked for spelling locale: codespell gains its en-GB_to_en-US dictionary"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/234
-status: active
+status: complete
 created: 2026-09-23
 updated: 2026-09-23
 ---
@@ -155,17 +155,22 @@ Phases 1-3. It stays `active` until these boxes close — #199's rule is `comple
 box is ticked", and rule 12's second clause is that a plan which cannot close inside its own pull
 request says so in its own text.
 
-- [ ] The same dictionary pass over that repository, in its own pull request (Requirement 6)
-- [ ] `make vet`, `make lint`, `make test`
+- [x] The same dictionary pass over that repository, in its own pull request (Requirement 6) —
+      devlore-cli#935, merged as devlore-cli#936: 45 files, 110 instances, 26 distinct words
+- [x] `make vet`, `make lint`, `make test` — all rc=0 on that branch. golangci-lint clean includes
+      `misspell` with `locale: US`, so the two Go files the sweep touched satisfy the Go-side gate too
 
 ## Open Questions
 
 - [x] **`catalogue` — ignore or rename?** Renamed. Ruled 2026-09-23: all words in US English, no
       exemptions.
 - [x] **`analogue` in devlore-cli — the same question.** Renamed, under the same ruling.
-- [ ] **`honours` in the deployed extension.** Two of the three are in
+- [x] **`honours` in the deployed extension.** Two of the three were in
       `com.noblefactor.ops.GitHub` — `gh-labels-sync.star` and `extension.yaml` — which writ deploys.
-      Correcting them is a layer change, so rule 5 applies: it is not done until the deploy has run.
+      Rule 5 applied and **was breached**: the correction merged in #235 and sat undeployed while
+      eight more merges went by, so the live extension read `honours` for a day after the repository
+      said `honors`. Caught 2026-09-24 by the owner asking why closed issues had open plans. Deployed
+      that morning — 62 files, 62 links — and `star gh labels sync --help` now reads `honors`.
 - [x] **`licence` in legal text.** Corrected with the rest, under the same ruling. The pull request
       names the changed lines in `CONTRIBUTING.md` and `TRADEMARK.md` explicitly, so the two files
       where the word carries legal weight are reviewed rather than counted.

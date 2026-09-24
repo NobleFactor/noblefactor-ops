@@ -8,12 +8,14 @@ aks
 som
 thirdparty
 unparseable
-# `runn` appears in PLAN-starlark-extensions.md as the *example* of a typo'd attribute in an
-# error message -- `struct has no .runn attribute`. Correcting it would destroy the illustration.
+# `runn` survives in docs/plans/chore/146-base-ships-git-commands.md, a closed record whose subject
+# is this file: it quotes the entries by name. #228 removed this entry on the belief that only the
+# deleted PLAN-starlark-extensions.md used it, and CI failed on 146. An entry's justification names
+# every file that needs it, not the first one found.
 runn
 # `remainin` is git-open-branch's own example of a name truncated mid-word -- "a name ending in
 # 'remainin' is less recognizable than a shorter one ending where a word does". Correcting it would
-# destroy the illustration, as with `runn` above.
+# destroy the illustration.
 remainin
 # `te` and `bu` are roff macros in the git-*-branch man pages: `.TE` ends a table, `.IP \(bu` is a
 # bullet. codespell tokenizes them as words; they are not prose.

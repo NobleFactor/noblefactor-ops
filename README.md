@@ -35,14 +35,22 @@ one repository is valid in all of them.
 looks for a user-scoped extension since devlore-cli#918. `Declare-BashScript` and the `git-*` process
 commands arrive with #147 and #146.
 
-### The record of the star work
+### The star work is not here
 
-`docs/architecture/` and `docs/plans/` describe the design and construction of `star` and its
-extensions. That code moved to **devlore-cli** in March 2026 and was removed from this repository on
-2026-08-27; these documents are the record of how it came to be, so the paths they cite no longer
-resolve here. They are kept deliberately — the reasoning outlived the code.
+`star` was a product of this repository until March 2026. Its code moved to **devlore-cli**, the Go
+and Starlark were removed on 2026-08-27 (#130), and the design documents followed on 2026-09-24
+(#228) — the three that describe code still shipping went with it, as `docs/architecture/9.1`, `9.2`
+and `9.3` there; the rest described retired implementations and were deleted.
 
-Anything about `star` as it exists today belongs in devlore-cli.
+An earlier revision of this section kept those documents deliberately, saying the reasoning outlived
+the code. An audit on 2026-09-23 found that one sentence covering three different things: records of
+retired code, the **only** written design of code that ships in devlore-cli, and guides that were
+never records at all. The first was worth keeping and the second was in the wrong repository, which
+is not a distinction one sentence can carry.
+
+Anything about `star` belongs in devlore-cli. What stays here is
+`docs/plans/feature/140-star-report-epics.md`, which designs the extension this layer ships, and
+`docs/plans/remove-go-code.md`, which charters the CI gate this repository still runs.
 
 ### Infrastructure setup
 
