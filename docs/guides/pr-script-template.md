@@ -5,7 +5,7 @@ type: Process
 audience: Engineers, Claude Code
 status: Approved
 created: 2026-03-16
-updated: 2026-09-22
+updated: 2026-09-24
 ---
 
 # PR Script Template
@@ -91,6 +91,10 @@ git commit -m "$(cat <<'EOF'
 EOF
 )"
 
+# Pull before the merge: bring the branch current with the target by a merge commit (never a rebase),
+# so CI and the merge gate judge it against the target it will land on.
+git pull --no-rebase --no-edit origin <target>
+
 # Push branch
 git push -u origin <branch>
 
@@ -170,7 +174,12 @@ span=$(gh pr view "${pr_number}" --json createdAt,mergedAt,commits --jq '
   "| merged | \($merged) | \(hrs($submitted; $merged)) h after submitted; \(hrs($opened; $merged)) h in all |\n" +
   "\nComputed by the algorithm of noblefactor-ops#188 at merge."')
 body=$(gh pr view "${pr_number}" --json body --jq .body | sed '/^## Time$/,$d')
-printf '%s\n%s\n' "${body}" "${span}" | gh pr edit "${pr_number}" --body-file -
+# Through the REST API, not `gh pr edit`: on gh 2.46.0 that command dies on GitHub's Projects (classic)
+# deprecation (repository.pullRequest.projectCards) -- personal#221's run stopped after its merge with
+# no Time section and no cleanup. The Windows form has always written the body this way.
+body_file=$(mktemp); trap 'rm -f "${body_file}"' EXIT
+printf '%s\n%s\n' "${body}" "${span}" > "${body_file}"
+gh api -X PATCH "repos/<owner>/<repo>/pulls/${pr_number}" -F "body=@${body_file}" --jq .number >/dev/null
 gh pr view "${pr_number}" --json body --jq .body | grep -q '^## Time' || {
     echo "the PR body carries no ## Time section"
     exit 1
@@ -183,6 +192,12 @@ git close-branch
 # close-branch removed the worktree this script was standing in. Anything that runs after it must
 # first step back to the main clone, or it runs from a deleted directory and exits 128.
 cd ~/Workspace/NobleFactor/<repo>
+
+# Pull after the merge: git close-branch switches and pulls the main worktree only when that worktree
+# holds the branch being closed (#209). A branch from git open-branch lives in a linked worktree, so
+# the main clone -- the layer writ deploys from -- is left behind without this.
+git pull --ff-only origin <target>
+git log --oneline -1
 git status --short
 
 # --- The end-of-PR report, when one is asked for (rule 9) ---
@@ -212,6 +227,7 @@ git status --short
    deletion flag. `--delete-branch` deletes the local branch first, which fails when a linked
    worktree holds it, and under `set -e` that aborts the script after the merge and before cleanup.
    `git close-branch` deletes in the order that survives a failure: remote, then worktree, then local.
+   It does not pull the main clone (rule 12).
 9. **The epic report ends a pull request when one is asked for.** Table form, all states, scoped to the
    epic, feature or thread the pull request served, printed last, after cleanup, so the reader sees the
    state the merge produced. Not automatic: ruled 2026-09-12 in `development-process.md`, which retired
@@ -230,6 +246,13 @@ git status --short
     its own session transcript, that estimate goes in the agent's end-of-PR message, labeled an estimate, and
     never into the pull request as fact.
 
+12. **Pull before and after the merge.** Ruled 2026-09-24. Before the push, the branch takes the target by
+    a merge commit (`git pull --no-rebase`), so what CI passes is what merges. After `git close-branch`, the
+    main clone takes the squash commit (`git pull --ff-only`), because `git close-branch` switches and pulls
+    a main worktree only when that worktree holds the branch being closed (#209), and a branch from
+    `git open-branch` never is: it lives in a linked worktree. Every script written on 2026-09-24 had to add
+    both by hand; the template owes them.
+
 ---
 
 ## On Windows: PowerShell
@@ -247,8 +270,8 @@ template does, in the same order. The rules above hold; these are the ones Power
    body=@<file>`, as every Windows PR script has done. PowerShell has no `printf ... | --body-file -` idiom worth
    copying, and a file keeps the body byte-for-byte.
 4. **Clean-up runs from the main clone.** `Set-Location` to it before `git close-branch`, because Windows won't
-   delete a directory that is a process's current directory. No `git pull` after it: `git close-branch` ends by
-   fast-forwarding the main worktree to `origin/<target>` (`git-close-branch`, the `merge --ff-only` at its end).
+   delete a directory that is a process's current directory. Then `git pull --ff-only`: `git close-branch` does
+   not fast-forward a main worktree that did not hold the branch (rule 12).
 5. **No PATH changes.** The script runs from a pwsh whose `git` is `Git\cmd\git.exe`, Git for Windows' launcher, which
    gives git's children the `sh` and `bash` they need without putting them on PATH. From a pwsh started by Git Bash,
    `git` resolves to the raw `Git\clangarm64\bin\git.exe`, and an HTTPS push, a credential helper or `git
@@ -365,6 +388,9 @@ if ($unstaged -ne 0 -or $staged -ne 0) {
     throw 'The worktree is not clean; nothing should be left behind.'
 }
 
+git pull --no-rebase --no-edit origin <default-branch>
+Assert-NativeSuccess 'git pull'
+
 git push -u origin $branch
 Assert-NativeSuccess 'git push'
 
@@ -433,5 +459,7 @@ if (((gh pr view $number --json body --jq '.body') -join "`n") -notmatch '(?m)^#
 Set-Location $mainClone
 git close-branch $branch
 Assert-NativeSuccess 'git close-branch'
+git pull --ff-only origin <default-branch>
+Assert-NativeSuccess 'git pull'
 git status --short
 ```
