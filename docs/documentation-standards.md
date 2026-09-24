@@ -28,7 +28,7 @@ Its `status` describes where the *work* has got to, and its shape is prescribed 
 | Discriminator | no `type` | declares `type` |
 | Required | `title` | `title`, `type` |
 | `status` | `draft`, `approved`, `active`, `complete`, `abandoned` -- the list in [docs/plans/TEMPLATE.md](plans/TEMPLATE.md) | `Draft`, `Proposed`, `Decided`, `Approved`, `Accepted`, `Placeholder`, `Superseded`, `Withdrawn`, `Research Complete` |
-| Example | `docs/plans/*`, `docs/architecture/*` | ADR trees, `docs/guides/pr-script-template.md` |
+| Example | `docs/plans/*` | ADR trees, `docs/guides/pr-script-template.md` |
 
 `type` must be one of: `ADR`, `RFC`, `PRD`, `README`, `Overview`, `Pitch`, `Index`, `Demos`,
 `Strategy`, `Roadmap`, `Reference`, `Guide`, `Demo Script`, `Plan`, `Process`, `Brief`.
@@ -36,8 +36,8 @@ Its `status` describes where the *work* has got to, and its shape is prescribed 
 ## Why `type` is the discriminator
 
 Not directory. `docs/guides/` in this repository holds both families: `pr-script-template.md` and
-`release-process.md` are `type: Process` with `status: Approved`, while `configuration.md` and
-`writing-extensions.md` carry neither. A path rule would misclassify one or the other.
+`release-process.md` are `type: Process` with `status: Approved`, while `go-style-guidelines.md`
+carries neither. A path rule would misclassify one or the other.
 
 Using `type` makes each document self-describing, so moving a file does not change what it must
 satisfy.

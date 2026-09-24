@@ -24,7 +24,7 @@ repository and is useful on its own.
 2. **Span repositories** — a thread with members in two repositories reports as one thread.
 3. **Implement the scheme as written** — five kinds, threads, the `Ops:` axis, three empty states.
 4. **Settle the tree** — the grammar `star <service> <resource> <verb>`, written into
-   `star-extensions.md` so the next extension does not have to infer it.
+   [`9-star-extensions.md`](https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/9-star-extensions.md), in devlore-cli since #228, so the next extension does not have to infer it.
 5. **Retire the script** — devlore-cli#797 lands with the last phase.
 
 ## The command tree
@@ -77,7 +77,7 @@ Read from devlore-cli on 2026-09-05; each is a thing the plan would otherwise ha
 | `Ops:` sectioning | None | |
 | Feature rollup | None | flat issue list only |
 | Label-set enforcement | None | `issue-standards.md`: "nothing currently checks this" |
-| Tree grammar | Inferred, unwritten | `star-extensions.md` names commands, not the shape of the tree |
+| Tree grammar | Inferred, unwritten | `9-star-extensions.md` names commands, not the shape of the tree |
 
 ## The extension
 
@@ -150,7 +150,7 @@ of every later phase is fixed here: the row schema, the kind and placement rules
       config block
 - [x] Rows built from `gh issue list`; `--by epic`, `--view table|tree`, `--epic`, `--state`
 - [x] Five kinds; a chore is a child of its feature; unparented children are `unfiled`
-- [x] `star-extensions.md` §Naming Convention states the tree grammar and the service-token rule
+- [x] `9-star-extensions.md` §Naming Convention states the tree grammar and the service-token rule
 - [x] **Acceptance:** `star gh issues report --epic Ops:Process --view table --state all` run in this
       repository is row-for-row what `Get-EpicReport` produces today
 - [x] **Beyond acceptance:** devlore-cli, `--view tree --state all`, with `gh.exempt: [65]` supplied
@@ -158,7 +158,7 @@ of every later phase is fixed here: the row schema, the kind and placement rules
       and the triage queue, none of which this repository's issues do.
 
 **Files**: `Home/common/.local/share/star/extensions/com.noblefactor.ops.GitHub/**` — Create;
-`docs/architecture/star-extensions.md` — Modify
+[`9-star-extensions.md`](https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/9-star-extensions.md) in devlore-cli — Modify
 
 ### Phase 2: The configured set of repositories — complete 2026-09-05
 
@@ -251,7 +251,7 @@ written before formatting will not match after it; patch that line structurally.
 | `.../commands/gh-issues-report.star` | Create | Phases 1–4 |
 | `.../commands/gh-issues-audit.star` | Create | Phase 1 |
 | `.../commands/gh-labels-audit.star`, `gh-labels-sync.star` | Create | Phase 5 |
-| `docs/architecture/star-extensions.md` | Modify | Phase 1: the tree grammar |
+|  [`9-star-extensions.md`](https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/9-star-extensions.md) | Modify | Phase 1: the tree grammar |
 | `docs/plans/feature/140-star-report-epics.md` | Create | this plan |
 | `docs/guides/development-process.md`, `docs/guides/pr-script-template.md` | Modify | Phase 6 |
 
@@ -262,7 +262,7 @@ written before formatting will not match after it; patch that line structurally.
 - Issue #152 — `Thread:Ops:PortableTooling`, beat 3, and the Phase 3 acceptance case
 - Issue #15 — `star gh rotate-secrets`, closed; the precedent for a `gh` node, now `gh secrets rotate`
 - `docs/issue-standards.md` — the scheme; §Threads, §The Ops axis, §What an empty level means
-- `docs/architecture/star-extensions.md` — the extension specification
+-  [`9-star-extensions.md`](https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/9-star-extensions.md) — the extension specification
 - `NobleFactor/devlore-cli#797` — the companion that deletes the script
 - `NobleFactor/devlore-cli#809` — the last change to the script, and Phase 1's parity target
 

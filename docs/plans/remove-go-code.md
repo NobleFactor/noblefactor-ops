@@ -105,7 +105,10 @@ runtime. Both already fail, so nothing regresses — but the registry's fix live
 ## Open Questions
 
 - [ ] Do the three surviving `scripts/setup-*.sh` still work, or are they also stale?
-- [ ] `PLAN-starlark-extensions.md` and `draft-star-lint-deadcode.md` sit at the root and
-      describe the removed code — archive under `docs/`, or delete?
-- [ ] Should `docs/` gain a note recording that star moved to devlore-cli, so the next reader
-      does not have to reconstruct it from git history?
+- [x] `PLAN-starlark-extensions.md` and `draft-star-lint-deadcode.md` sit at the root and
+      describe the removed code — archive under `docs/`, or delete? **Deleted 2026-09-24 (#228).**
+      Neither had a live referent: the first designs "nf-ops", which the README says was never
+      built, and the second a `star lint go` check registry devlore-cli has no plan for.
+- [x] Should `docs/` gain a note recording that star moved to devlore-cli, so the next reader
+      does not have to reconstruct it from git history? **The README carries it** — "The star work
+      is not here", rewritten by #228 when the documents went.

@@ -89,8 +89,8 @@ where #199 says it closes.
 
 ### Phase 2: The deletions and their pointers, one commit
 
-- [ ] Six architecture documents, nine plans, two root drafts, two guides, the schema, the example
-- [ ] The six pointers above, in the same commit — rule 12
+- [x] Six architecture documents, nine plans, two root drafts, two guides, the schema, the example — 26 files
+- [x] The six pointers above, in the same commit — rule 12. Plus `remove-go-code.md`, whose two open questions this answers
 
 ### Phase 3: #234 closes
 

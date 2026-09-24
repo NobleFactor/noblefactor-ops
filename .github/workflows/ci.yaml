@@ -3,8 +3,10 @@ name: CI
 
 # This repository holds the organization's standards -- the PR script template, the Go style
 # guidelines, the branch-protection policy, and the plan template CLAUDE.md mandates -- plus the
-# architecture and plan records of the star work that moved to devlore-cli in March 2026. It builds
-# nothing. The gate is therefore what a documents repository can actually assert: that the
+# base layer writ deploys. It builds nothing. The star records that sat beside them went to
+# devlore-cli or were deleted in #228.
+#
+# The gate is therefore what a documents repository can actually assert: that the
 # frontmatter is well formed against the standard this repository itself defines, that the prose is
 # not misspelled, and -- since #161 put star extensions in Home/ -- that the Starlark is well formed.
 #
