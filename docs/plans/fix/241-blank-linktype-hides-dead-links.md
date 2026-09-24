@@ -73,27 +73,42 @@ directory, exactly as line 57 does for links .NET understands.
 - [x] Written
 - [x] Committed before any other change on this branch
 
-### Phase 2: the fix — status `draft`
+### Phase 2: the fix — status `complete`
 
-- [ ] `Get-ReparseTag` — the tag for one path, or `$null` when it cannot be read
-- [ ] `Get-LinuxSymlinkTarget` — decode the `0xA000001D` payload to its target string
-- [ ] `Test-BrokenLink` — one predicate: is this reparse point a link, and is it broken
-- [ ] The pipeline at line 54 rewritten to use it, with the allowlist
-- [ ] `ShouldProcess` prints the decoded target
-- [ ] `gofmt`-equivalent: the file passes `Test-PowerShell.ps1`
+- [x] `Get-ReparsePointDetail` — the tag for one path, and a WSL link's decoded target; `$null` when unreadable
+- [x] `Resolve-LinkTarget` — the target as an absolute path, resolved against the link's own directory
+- [x] `Test-BrokenLink` — one predicate: is this reparse point a link, and is it broken
+- [x] The pipeline at line 54 rewritten to use it, with the allowlist
+- [x] `ShouldProcess` prints the decoded target
+- [x] `gofmt`-equivalent: the file passes `Test-PowerShell.ps1`
 
 **Files**: `Home/common.Windows/.local/bin/Remove-BrokenLinks.ps1` — modify.
 
-### Phase 3: proof — status `draft`
+### Phase 3: proof — status `active`
 
-The machine is the fixture: 56 dead WSL links, 111 working symlinks, 13 junctions.
+The machine is the fixture: 56 WSL links outside `AppData`, 111 working symlinks, 13 junctions.
 
-- [ ] `-WhatIf` over `$HOME` lists **56** and removes nothing
-- [ ] Each listed entry names a decoded target, not a blank
-- [ ] A planted **good** symlink is not listed
-- [ ] A planted **broken** ordinary symlink is listed — the existing path still works
-- [ ] A planted non-link reparse point is not listed
-- [ ] The run is clean on a machine with no WSL links
+- [x] `-WhatIf` over `$HOME` reports **49 broken** and removes nothing
+- [x] Each listed entry names a decoded target, not a blank
+- [x] The other **7 WSL links are spared, because their targets exist** — measured, tag by tag
+- [x] A planted **good** symlink and a planted **good** junction are not listed
+- [x] A planted **broken** symlink and a planted **broken** junction are listed, then removed by a
+      real run, while both good ones survive — the pre-existing path still works
+- [ ] A non-link reparse point is not listed — **not tested**, see below
+
+**49, not 56.** Seven of the 56 are live: their targets exist and the script leaves them alone. They
+are `~/.Personal-secrets/com.apple.account.RecoveryKeys.yaml`, `com.azure.Account.yaml`,
+`ms-bitlocker-recovery-keys.json`, three family PDFs, and `~/Documents/WindowsPowerShell`. This is
+the case that justifies Requirement 1: **the one-line fix — deleting `Where-Object LinkType` —
+would have destroyed all seven**, including the BitLocker and Apple recovery keys.
+
+**The untested box.** A non-link reparse point cannot be created on demand: a OneDrive placeholder
+needs OneDrive, an `APPEXECLINK` needs a Store package, a dedup stub needs the server role. The
+allowlist covers them by construction — `Get-ReparsePointDetail` returns a tag, and a tag absent from
+`$script:LinkTags` returns nothing from `Test-BrokenLink`, so the item is never examined further —
+but construction is not a measurement, and this box stays open rather than being ticked on the
+strength of reading the code. The nearest real evidence is that the walk found only these three tags
+on this machine and touched nothing else.
 
 ### Phase 4: handover — status `draft`
 
@@ -106,7 +121,7 @@ The machine is the fixture: 56 dead WSL links, 111 working symlinks, 13 junction
 Rule 5: a layer change is finished when the machine is converged.
 
 - [ ] `writ deploy common`
-- [ ] The deployed script removes the 56, with the owner watching the `-WhatIf` list first
+- [ ] The deployed script removes the 49, with the owner watching the `-WhatIf` list first
 - [ ] Issue closed
 - [ ] This document set to `complete`
 
