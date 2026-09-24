@@ -93,15 +93,15 @@ Rule 5. A layer change is not done until the deploy has run and the skill resolv
 
 ### Phase 2b: The schedule — outside the pull request
 
-- [ ] #217's lane table reformatted to four columns, nothing lost (Requirement 3). A `gh issue edit`;
+- [x] #217's lane table reformatted to four columns, nothing lost — all 19 rows, repository and kind preserved in the Item cell. A `gh issue edit`;
       it neither waits on the merge nor is carried by it
 
 ### Phase 3: Verify, then merge
 
-- [ ] The frontmatter and PowerShell gates pass on this host
-- [ ] The skill passes the frontmatter gate on its `title`, with no exemption added
-- [ ] PR script written, analyzer-clean, shown, and handed over
-- [ ] Codespell, Starlark and shell run on the pull request, and the merge gate blocks until every
+- [x] The frontmatter and PowerShell gates pass on this host — 60 checked, 5 exempt, 0 errors; 2 checked, 0 findings
+- [x] The skill passes the frontmatter gate on its `title`, with no exemption added
+- [x] PR script written, analyzer-clean (parse errors 0, findings 0, no BOM, no non-ASCII), shown, and handed over
+- [x] Codespell, Starlark and shell run on the pull request, and the merge gate blocks until every
       check reports pass
 
 ### Phase 4: Deploy
