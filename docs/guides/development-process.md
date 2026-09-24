@@ -5,7 +5,7 @@ type: Process
 audience: Engineers
 status: Approved
 created: 2026-09-01
-updated: 2026-09-10
+updated: 2026-09-24
 ---
 
 # Development Process
@@ -278,38 +278,27 @@ forget; they do not define them, and a team without the scripts is held to the s
 
 ## Where a script lives
 
-The rule, as ruled 2026-09-07 (noblefactor-ops#147):
+The rule, as ruled 2026-09-07 (noblefactor-ops#147) and corrected 2026-09-24 (noblefactor-ops#240):
 
 - Code that takes a dependency on, or contributes to, a repository's stack goes into a directory named
-  for that repository: `Home/noblefactor-ops[.<selector>]` for anything that needs the base.
+  for that repository: `Home/noblefactor-ops[.<selector>]` for anything that needs the base beyond
+  `Declare-BashScript`.
 - If not, it goes elsewhere. What is to be deployed unconditionally, wherever you go, goes into
   `common[.<selector>]` — so `common` depends on nothing outside itself.
 - Every bash script sources `Declare-BashScript`. It is what gives a script `--help`, a man page and
-  exit codes; a script without it is below spec, not portable. So a bash script in a **consuming**
-  repository depends on the base, and lives under `Home/noblefactor-ops[.<selector>]` rather than
-  `common*`. What `common` forbids is a dependency pointing *out* of it, which is why two things are
-  exempt:
-  - **`Declare-BashScript` and the `git-*` commands**, in this repository's `common` (ruled 2026-09-09).
-    Git for Windows brings bash, so the `git-*` commands must be present wherever git is used, whatever
-    layers are selected — which is what `common` is for — and the helper they source sits beside them in
-    the same `~/.local/bin`, so the dependency stays inside `common`. They are the only bash scripts that
-    belong there.
-  - **A git hook** (ruled 2026-09-08): git runs it from the hooks path, where there is no sibling to
-    source, and a hook is configuration git carries rather than a command anyone runs.
-
-writ makes the first bullet enforceable: layers are repositories, a repository's name is a project name,
-and a repository-named project is implicit wherever that repository is a configured layer
-(devlore-cli#850). `personal/Home/noblefactor-ops.Darwin` therefore deploys only where the base is
-registered — a script that sources the base's file cannot land on a machine without it. Consequences:
-
-- **In a consuming layer, the selector says what the script needs.** A git-supporting script that
-  sources `Declare-BashScript` is `noblefactor-ops` with no selector, because it comes with Windows too;
-  any other bash script is `noblefactor-ops.<selector>`, keeping the selector it had.
+  exit codes; a script without it is below spec, not portable. `Declare-BashScript` ships in this
+  repository's `common`, and the base is registered wherever a consuming repository deploys, so a bash
+  script in any repository's `common[.<selector>]` sources a sibling in the same `common`: nothing
+  points out of it.
+- **The `git-*` commands** live beside `Declare-BashScript` in this repository's `common` (ruled
+  2026-09-09). Git for Windows brings bash, so they must be present wherever git is used, whatever
+  layers are selected.
+- **A git hook** sources nothing (ruled 2026-09-08): git runs it from the hooks path, where there is
+  no sibling to source, and a hook is configuration git carries rather than a command anyone runs.
 - **A context project keeps its scripts, and they source the base's file where they are.** Ruled
   2026-09-08. A project named for nothing configured — a family's, an employer's — is deployed by name
-  on top of the whole stack, so the base is present by construction; the dependency is implicit, and
-  naming a directory for the base is for dependencies that would otherwise be invisible. The project
-  name keeps its own meaning, which is who the scripts are for (personal#177).
+  on top of the whole stack; the project name keeps its own meaning, which is who the scripts are for
+  (personal#177).
 
 Lint follows the dependency it declares. Every consumer carries `# shellcheck source=Declare-BashScript`
 — the file's name, never a path — directly above its `source` line, and the gate supplies the directory

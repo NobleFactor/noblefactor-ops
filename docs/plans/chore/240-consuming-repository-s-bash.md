@@ -1,7 +1,7 @@
 ---
 title: "A consuming repository's bash scripts live in common, beside the Declare-BashScript they source"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/240
-status: active
+status: complete
 created: 2026-09-24
 updated: 2026-09-24
 ---
@@ -72,15 +72,16 @@ unchanged.
 
 ### Phase 2: The section
 
-- [ ] §"Where a script lives" replaced (Requirement 1)
-- [ ] Frontmatter `updated` (Requirement 2)
-- [ ] No other non-plan document states the old rule — `git grep` outside `docs/plans` finds
+- [x] §"Where a script lives" replaced (Requirement 1)
+- [x] Frontmatter `updated` (Requirement 2)
+- [x] No other non-plan document states the old rule — `git grep` outside `docs/plans` finds
       `development-process.md` alone
 
 ### Phase 3: Verify, then merge
 
-- [ ] The repository's gates pass on this host
-- [ ] PR script written, shown, and handed over
+- [x] The document gates pass on this host — frontmatter 48 checked, 0 errors; codespell 2.4.3 with
+      CI's arguments, clean. Shell, PowerShell and Starlark cover no file this change touches and run in CI
+- [x] PR script written, shown, and handed over
 
 ## Out of Scope
 
