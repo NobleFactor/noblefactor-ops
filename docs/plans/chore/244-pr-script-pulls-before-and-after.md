@@ -1,7 +1,7 @@
 ---
 title: "The PR script pulls before and after the merge, and writes the Time section through the REST API"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/244
-status: active
+status: complete
 created: 2026-09-24
 updated: 2026-09-24
 ---
@@ -94,17 +94,21 @@ does not.
 
 ### Phase 2: The template
 
-- [ ] Requirement 1, bash and PowerShell
-- [ ] Requirement 2, bash and PowerShell, and the Windows rule 4 corrected
-- [ ] Requirement 3
-- [ ] Requirement 4
-- [ ] Requirement 5
+- [x] Requirement 1, bash and PowerShell
+- [x] Requirement 2, bash and PowerShell, and the Windows rule 4 corrected
+- [x] Requirement 3
+- [x] Requirement 4
+- [x] Requirement 5
 
 ### Phase 3: Verify, then merge
 
-- [ ] The bash template block, extracted from the document, passes `bash -n`, shellcheck and shfmt
-- [ ] The frontmatter, codespell and PowerShell gates pass on this host
-- [ ] PR script written, shown, and handed over — itself carrying all three changes, as today's did
+- [x] The bash template block, extracted with its placeholders substituted: `bash -n` clean; shellcheck
+      0.11.0 reports one pre-existing info, SC2016 on the jq program's single quotes; shfmt v3.14.1's
+      diff is the block's pre-existing two-space indentation. Neither is this change's, and the block
+      is prose, not a tracked script
+- [x] Frontmatter (50 checked, 0 errors) and codespell (CI's arguments) pass on DANOBLE-UD24-1;
+      PSScriptAnalyzer is not installed here, the change touches no `.ps1`, and CI runs that gate
+- [x] PR script written, shown, and handed over — itself carrying all three changes, as today's did
 
 ## Out of Scope
 
