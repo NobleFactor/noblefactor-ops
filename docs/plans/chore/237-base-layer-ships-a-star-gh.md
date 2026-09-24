@@ -38,7 +38,7 @@ is the same one the `git-*` commands have: nothing points *out*.
 Two things that cost time on 2026-09-24, not a restatement of rule 3:
 
 - **`--markdown -o value --silent`, always.** Without it the command returns raw JSON rows, and
-  reformatting those by hand is the behaviour rule 3 forbids — so the rule gets obeyed in letter and
+  reformatting those by hand is the behavior rule 3 forbids — so the rule gets obeyed in letter and
   broken in substance.
 - **Verify `star` first (rule 1), without installing over someone else's build.** If the installed
   build is `-dirty` or not on `develop` it is another session's work in progress: use it read-only

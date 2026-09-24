@@ -41,7 +41,7 @@ star gh issues audit                       # and --unthreaded
 ```
 
 **Always `--markdown -o value --silent`.** Without it the command returns raw JSON rows — every
-field, alphabetical, including internal keys. Reformatting those by hand is exactly the behaviour
+field, alphabetical, including internal keys. Reformatting those by hand is exactly the behavior
 rule 3 forbids, so the rule gets obeyed in letter and broken in substance.
 
 `--state` defaults to open by epic, and to all by feature, thread and schedule.
