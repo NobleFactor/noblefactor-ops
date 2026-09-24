@@ -89,7 +89,7 @@ Rule 5. A layer change is not done until the deploy has run and the skill resolv
 
 ### Phase 2: The skill
 
-- [ ] `Home/common/.claude/skills/star-gh-report/SKILL.md` (Requirements 1, 2)
+- [x] `Home/common/.claude/skills/star-gh-report/SKILL.md` (Requirements 1, 2)
 
 ### Phase 2b: The schedule — outside the pull request
 
