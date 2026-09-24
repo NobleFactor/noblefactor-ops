@@ -68,7 +68,7 @@ issue exists to stop.
 | Pointer | What happens |
 | --- | --- |
 | `.github/frontmatter-exempt` | four of its five entries name files being deleted; only `go-style-guidelines.md` stays |
-| `.github/codespell-ignore` | `runn` is whitelisted **because** `PLAN-starlark-extensions.md` contains it; the entry goes with the file |
+| `.github/codespell-ignore` | its `runn` entry cited `PLAN-starlark-extensions.md`, which is deleted — but `146-base-ships-git-commands.md` uses the word too, so the entry **stays** with a corrected justification. Removing it failed CI on that file |
 | `docs/documentation-standards.md:31,39-40` | uses these documents as the normative example of the working-document family, and the two star guides as the type-less half of its `type`-discriminator argument |
 | `README.md:37-44` | the whole "record of the star work" section, which exists to explain what is going |
 | `.github/workflows/ci.yaml:4-9` | a header comment saying this repository holds the star record |
@@ -77,9 +77,9 @@ issue exists to stop.
 ## #234's plan closes here
 
 It reads `active` behind a closed issue because its Phase 4 landed in devlore-cli. All three boxes are
-now true: the sweep merged as devlore-cli#936, its gates passed, and `honours` reached the live path
-when the deploy ran on 2026-09-24. This is the next noblefactor-ops pull request through, which is
-where #199 says it closes.
+now true: the sweep merged as devlore-cli#936, its gates passed, and the British spelling in the
+deployed extension reached the live path when the deploy ran on 2026-09-24. This is the next
+noblefactor-ops pull request through, which is where #199 says it closes.
 
 ## Implementation Phases
 
