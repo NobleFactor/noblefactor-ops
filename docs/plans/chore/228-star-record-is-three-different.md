@@ -94,7 +94,7 @@ where #199 says it closes.
 
 ### Phase 3: #234 closes
 
-- [ ] Its three boxes ticked and its plan set `complete`
+- [x] Its three boxes ticked and its plan set `complete` — the third was a rule 5 breach, recorded as one
 
 ### Phase 4: Verify, then merge
 
