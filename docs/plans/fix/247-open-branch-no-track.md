@@ -3,7 +3,7 @@ title: "git open-branch leaves the upstream unset"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/247
 status: active
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-09-27
 ---
 
 # Plan: git open-branch leaves the upstream unset
@@ -101,10 +101,10 @@ be correct on a machine that has not made it. Out of scope here; noted in the is
 
 ### Phase 2: the fix
 
-- [ ] `--no-track` on the `git checkout -b` path
-- [ ] `--no-track` on the `git worktree add` path
-- [ ] The note at line 275 says `git push`
-- [ ] `bash -n` parses; shellcheck passes in CI
+- [x] `--no-track` on the `git checkout -b` path
+- [x] `--no-track` on the `git worktree add` path
+- [x] The note at line 275 says `git push`
+- [x] `bash -n` parses; shellcheck passes in CI
 
 **Files**: `Home/common/.local/bin/git-open-branch` — modify.
 

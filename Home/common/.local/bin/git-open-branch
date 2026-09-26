@@ -231,8 +231,9 @@ fi
 
 [[ -z "${refusal}" ]] || error $EX_USAGE "$(printf '%s' "${refusal}" | sed 's/^./\U&/')"
 
+# --no-track leaves the upstream unset, so push.autoSetupRemote sets it on the first push (#247).
 if [[ -z "${want_worktree}" ]]; then
-    git checkout -b "${branch}" "origin/${target_branch}" ||
+    git checkout -b "${branch}" --no-track "origin/${target_branch}" ||
         error $EX_SOFTWARE "Cannot create '${branch}'."
     success "Opened ${branch} for #${issue}"
     exit 0
@@ -241,7 +242,7 @@ fi
 # `git worktree add` touches no other worktree: no checkout elsewhere, no index change, no stash. Whatever
 # the caller is standing in is left exactly as it was found, uncommitted changes and all — which is the
 # property that makes opening a branch safe while another is mid-edit.
-git worktree add --no-checkout "${worktree}" -b "${branch}" "origin/${target_branch}" ||
+git worktree add --no-checkout --no-track "${worktree}" -b "${branch}" "origin/${target_branch}" ||
     error $EX_CANTCREAT "Cannot create the worktree '${worktree}'."
 
 # git-crypt reads its key from $GIT_DIR/git-crypt/keys, and a linked worktree's GIT_DIR is
@@ -272,9 +273,7 @@ if ! git -C "${worktree}" checkout; then
     error $EX_CANTCREAT "Cannot check out '${branch}' into '${worktree}'."
 fi
 
-# `worktree add -b <branch> origin/<target>` sets the new branch's upstream to origin/<target>, not to
-# itself. With push.default=simple a bare `git push` then refuses rather than pushing to the target — safe,
-# and confusing enough to be worth preempting. The first push wants `-u`.
-note "First push: git -C '${worktree}' push -u origin '${branch}'"
+# No -u needed: --no-track above left the upstream unset for push.autoSetupRemote (#247).
+note "Push with: git -C '${worktree}' push"
 
 success "Opened ${branch} for #${issue} at ${worktree}"
