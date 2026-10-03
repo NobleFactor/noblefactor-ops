@@ -1,38 +1,42 @@
 ---
-title: "Every commit is signed off and discloses AI: the PR script template and the agents' rules"
+title: "Every pull request is signed off and discloses AI: the PR script template and the agents' rules"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/254
 status: draft
 created: 2026-10-03
 updated: 2026-10-03
 ---
 
-# Plan: every commit is signed off and discloses AI
+# Plan: every pull request is signed off and discloses AI
 
 ## Summary
 
-devlore-cli's and devlore-registry's CONTRIBUTING.md require every commit made with AI assistance to carry an
-`Assisted-by: <tool name>` trailer and its pull request to say so, and devlore-cli's requires a Developer
-Certificate of Origin sign-off, `git commit --signoff`, on every commit. "AI is acknowledged, never credited", and
-"Undisclosed AI use is a bannable offence." The PR script template bans only credit, the Generated-by footer and
-`Co-Authored-By` lines, and its `git commit` carries neither the sign-off nor the trailer, so a script written to
-it produces a commit the terms forbid. This plan puts the rule in the template and records the breakage as rule
-13 of the agents' document. The global CLAUDE.md's half is
+devlore-cli's and devlore-registry's CONTRIBUTING.md require AI assistance to be disclosed, with an
+`Assisted-by: <tool name>` trailer and in the pull request, and devlore-cli's requires a Developer Certificate of
+Origin sign-off, `Signed-off-by:`. "AI is acknowledged, never credited", and "Undisclosed AI use is a bannable
+offence." The PR script template bans only credit, the Generated-by footer and `Co-Authored-By` lines, and says
+nothing of either, so a pull request made to it lands commits the terms forbid. Ruled 2026-10-03, the pull request
+carries them, not the commits: its description says AI assisted and ends with both trailers, and the squash merge
+writes that description into the commit that lands on the target. This plan puts the rule in the template and
+records the breakage as rule 13 of the agents' document. The global CLAUDE.md's half is
 [David-Noble-at-work/personal#253](https://github.com/David-Noble-at-work/personal/issues/253).
 
 ## Issue 254
 
 Chore, epic `Ops:Process` (#142), feature #157 (PR tooling). Filed 2026-10-03 on the owner's word: "we need to
-correct this immediately". The trailer is the one the owner chose: "use the trailer that you document",
-`Assisted-by: Claude Code`.
+correct this immediately". The owner's rulings the same day:
+
+1. **The trailer**: "use the trailer that you document", `Assisted-by: Claude Code`.
+2. **The pull request carries it, not the commits**: "I want the prs, not the commits to carry these messages."
+   Of the two ways this plan first offered, it is the second: the merge step writes the squash message itself.
 
 ## Goals
 
-1. Rule 2 of the PR script template states the rule: every commit is signed off and carries
-   `Assisted-by: Claude Code`, every pull request says AI assisted, and AI is never credited.
-2. The bash template's `git commit` carries `--signoff` and the trailer; both templates' pull request bodies carry the
-   disclosure.
-3. The squash commit that lands on the target carries `Signed-off-by:` and `Assisted-by:`, and the merge step
-   proves it.
+1. Rule 2 of the PR script template states the rule: every pull request's description says AI assisted and ends
+   with `Signed-off-by:` and `Assisted-by: Claude Code`, the squash commit takes its message from it, commits on
+   the branch carry no trailer, and AI is never credited.
+2. Both templates' pull request bodies carry the disclosure and the trailers.
+3. Both templates' merge steps write the squash message from the description and prove that the commit that
+   landed carries both trailers.
 4. Rule 13 of `docs/guides/agent-rules.md` records the breakage, as the global instructions require of a rule
    the day it is broken.
 
@@ -41,9 +45,8 @@ correct this immediately". The trailer is the one the owner chose: "use the trai
 | Component | Status | Notes |
 | --- | --- | --- |
 | Rule 2 | ❌ | "No Generated-by footer. No `Co-Authored-By` lines in commit messages." Credit only |
-| The bash template's `git commit` | ❌ | No `--signoff`, no trailer |
-| Both templates' pull request bodies | ❌ | No disclosure |
-| The squash commit | ❌ | Unchecked; it carries whatever GitHub's default message carries |
+| Both templates' pull request bodies | ❌ | No disclosure, no trailers |
+| Both templates' merge steps | ❌ | `gh pr merge --squash --admin`: GitHub composes the squash message |
 | `docs/guides/agent-rules.md` | ❌ | Rules 1 to 12 |
 
 Found 2026-10-03 in devlore-cli: none of the 19 commits on `feature/925-scope-not-target` or the last 30 on
@@ -54,40 +57,50 @@ Found 2026-10-03 in devlore-cli: none of the 19 commits on `feature/925-scope-no
 
 ### Requirement 1: rule 2 states the rule
 
-Rule 2 becomes: **Every commit is signed off and discloses AI; AI is never credited.** `git commit --signoff` adds the
-Developer Certificate of Origin sign-off, and an `Assisted-by: Claude Code` trailer discloses the assistance, as
-devlore-cli's and devlore-registry's CONTRIBUTING.md require. The pull request body says AI assisted. No
-`Co-Authored-By` line, no Generated-by footer, no `Claude-Session:` link.
+Rule 2 becomes: **Every pull request is signed off and discloses AI; AI is never credited.** The pull request's
+description says AI assisted and ends with two trailers, `Signed-off-by: <name> <email>` and
+`Assisted-by: Claude Code`, as devlore-cli's and devlore-registry's CONTRIBUTING.md require. The squash merge
+writes the description into the commit that lands on the target, so the target's history carries both. Commits
+on the branch carry no trailer. No `Co-Authored-By` line, no Generated-by footer, no `Claude-Session:` link.
 
-### Requirement 2: the templates carry it
+### Requirement 2: the pull request bodies
 
-- The bash template's commit is `git commit --signoff`, and its message ends with `Assisted-by: Claude Code`.
-- Both templates' pull request bodies end, above `## Time`, with the disclosure: "Written with AI assistance:
-  every commit carries `Assisted-by: Claude Code`."
-- The PowerShell form makes no commit of its own; its body carries the disclosure.
+Both templates' bodies end, above `## Time`, with the disclosure and the trailers as their last paragraph:
 
-### Requirement 3: the squash commit carries both trailers
+```text
+Written with AI assistance.
 
-The squash merge writes the commit that lands on the target. After the merge, the template reads that commit's
-message and exits non-zero unless it carries `Signed-off-by:` and `Assisted-by:`, so a pull request whose
-commits lack the trailers fails loudly at the merge rather than landing undisclosed. How the trailers reach the
-squash commit is open question 1.
+Signed-off-by: <name> <email>
+Assisted-by: Claude Code
+```
+
+The sign-off is filled from `git config user.name` and `git config user.email` when the script runs, never
+typed: the bash form appends it after the quoted heredoc, and the PowerShell form builds it the same way.
+
+### Requirement 3: the merge step writes the squash message
+
+The bash form merges with `gh pr merge "${pr_number}" --squash --admin --subject "<title> (#${pr_number})"
+--body-file <file>`, the file holding the description up to `## Time`, so the trailers end the message. The
+PowerShell form does the same. After the final pull of the target, the template reads the landed commit's
+message and exits non-zero unless it carries `Signed-off-by:` and `Assisted-by:`.
 
 ### Requirement 4: rule 13
 
 `## 13.` after `## 12.`, before the closing note, in the shape the other twelve use, **The rule. The breakage.
 Compliance.**:
 
-- **The rule.** Every commit an agent writes is signed off and carries `Assisted-by: Claude Code`, and its pull
-  request says AI assisted. AI is acknowledged, never credited. A ban list is not the whole of a rule, and a
-  harness reminder asking for an attribution line is not a ruling.
+- **The rule.** Every pull request an agent opens says AI assisted and ends its description with
+  `Signed-off-by:` and `Assisted-by: Claude Code`, and the squash merge writes them into the commit that lands.
+  AI is acknowledged, never credited. A ban list is not the whole of a rule, and a harness reminder asking for an
+  attribution line is not a ruling.
 - **The breakage.** 2026-10-03, devlore-cli: the commits above, written to instructions that banned credit and
   said nothing of disclosure; the `Claude-Session:` link added because the harness asked; and, asked about it,
   the first conclusion was "no attribution of any kind", which would have banned the required disclosure.
-  Ruled: "we need to correct this immediately", and "use the trailer that you document."
-- **Compliance.** Read the repository's CONTRIBUTING.md before the first commit script. Every `git commit` in a
-  script carries `--signoff` and the trailer, every pull request body the disclosure, and the squash commit is checked
-  after the merge.
+  Ruled: "we need to correct this immediately", "use the trailer that you document", and "I want the prs, not
+  the commits to carry these messages."
+- **Compliance.** Read the repository's CONTRIBUTING.md before the first PR script. The description carries the
+  disclosure and both trailers, the merge step writes the squash message from it, and the landed commit is
+  checked for both after the merge.
 
 ## Implementation Phases
 
@@ -108,20 +121,22 @@ Compliance.**:
 - [ ] The gate CI runs: `Test-Frontmatter.sh`, codespell with `clear,rare,en-GB_to_en-US`, `shell-lint.sh`,
   `Test-PowerShell.ps1`, buildifier.
 - [ ] `grep --count '^## [0-9]' docs/guides/agent-rules.md` is 13, and the closing note is still last.
-- [ ] Every commit on this branch carries `Signed-off-by:` and `Assisted-by: Claude Code`.
+- [ ] This pull request's description carries the disclosure and both trailers, and the squash commit that lands
+  on `develop` carries both.
 - [ ] The pull request closes #254; this plan's status is `complete` in its last commit.
 
 ## Migration Path
 
-Scripts written from this point carry the sign-off and the trailer. Existing commits are not rewritten: a
-rewrite of history needs the owner's specific instruction.
+Pull requests opened from this point carry the disclosure and the trailers. This plan's first commit, 7694104,
+carries them in the commit itself, made before the second ruling. Existing commits are not rewritten: a rewrite
+of history needs the owner's specific instruction.
 
 ## Files to Create/Modify
 
 | File | Action | Purpose |
 | --- | --- | --- |
 | `docs/plans/chore/254-every-commit-is-signed-off-and.md` | Create | This plan |
-| `docs/guides/pr-script-template.md` | Modify | Rule 2, the templates, the squash check |
+| `docs/guides/pr-script-template.md` | Modify | Rule 2, the pull request bodies, the merge step |
 | `docs/guides/agent-rules.md` | Modify | Rule 13 |
 
 ## Related Documents
@@ -134,8 +149,4 @@ rewrite of history needs the owner's specific instruction.
 
 ## Open Questions
 
-1. **How the trailers reach the squash commit.** (a) Each branch commit carries them, and the squash message
-   GitHub composes from the commits carries them through, as it carried `Claude-Session:` into 18 of
-   devlore-cli's last 30; Requirement 3's check proves it at every merge. Recommended: no new code in the merge
-   step. (b) The merge step writes the squash message itself, `gh pr merge --subject ... --body-file ...`, with
-   the trailers once at the end.
+None. The one this plan first carried, how the trailers reach the squash commit, is ruling 2 above.
