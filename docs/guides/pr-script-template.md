@@ -165,11 +165,14 @@ esac
 #
 # The squash commit's message is the pull request's title and its description up to ## Time, so the two
 # trailers end it and land on the target (rule 2). GitHub's own composition is not used: it is a repository
-# setting, and it is made from the branch's commits, which carry no trailer.
-squash_message=$(gh pr view "${pr_number}" --json body --jq .body | sed '/^## Time$/,$d')
+# setting, and it is made from the branch's commits, which carry no trailer. The message goes through a file,
+# and the span step below reuses that file; the one trap removes it.
+message_file=$(mktemp)
+trap 'rm "${message_file}"' EXIT
+gh pr view "${pr_number}" --json body --jq .body | sed '/^## Time$/,$d' > "${message_file}"
 gh pr merge "${pr_number}" --squash --admin \
   --subject "$(gh pr view "${pr_number}" --json title --jq .title) (#${pr_number})" \
-  --body "${squash_message}"
+  --body-file "${message_file}"
 
 # --- The span: every pull request records its time (rule 11) ---
 #
@@ -188,9 +191,8 @@ body=$(gh pr view "${pr_number}" --json body --jq .body | sed '/^## Time$/,$d')
 # Through the REST API, not `gh pr edit`: on gh 2.46.0 that command dies on GitHub's Projects (classic)
 # deprecation (repository.pullRequest.projectCards) -- personal#221's run stopped after its merge with
 # no Time section and no cleanup. The Windows form has always written the body this way.
-body_file=$(mktemp); trap 'rm -f "${body_file}"' EXIT
-printf '%s\n%s\n' "${body}" "${span}" > "${body_file}"
-gh api -X PATCH "repos/<owner>/<repo>/pulls/${pr_number}" -F "body=@${body_file}" --jq .number >/dev/null
+printf '%s\n%s\n' "${body}" "${span}" > "${message_file}"
+gh api -X PATCH "repos/<owner>/<repo>/pulls/${pr_number}" -F "body=@${message_file}" --jq .number >/dev/null
 gh pr view "${pr_number}" --json body --jq .body | grep -q '^## Time' || {
     echo "the PR body carries no ## Time section"
     exit 1

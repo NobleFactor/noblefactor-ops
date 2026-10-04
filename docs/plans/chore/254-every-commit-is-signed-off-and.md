@@ -80,11 +80,12 @@ typed: the bash form appends it after the quoted heredoc, and the PowerShell for
 ### Requirement 3: the merge step writes the squash message
 
 The bash form merges with `gh pr merge "${pr_number}" --squash --admin --subject "<title> (#${pr_number})"
---body "${squash_message}"`, the message holding the description up to `## Time`, so the trailers end it. A
-variable rather than a file, so no temporary file needs removing: removing one takes `rm -f`, a short option,
-and macOS's `rm` has no `--force`. The PowerShell form writes the message to a file and passes `--body-file`,
-as its own rule 2 requires. After the final pull of the target, the template reads the landed commit's
-message and exits non-zero unless it carries `Signed-off-by:` and `Assisted-by:`.
+--body-file "${message_file}"`, the file holding the description up to `## Time`, so the trailers end the
+message. The owner, 2026-10-03: "I find body-file to be more robust." The span step reuses the same file for
+the `## Time` body, so one `trap 'rm "${message_file}"' EXIT` removes it, and the span step's own trap, and
+its `rm -f`, go. The PowerShell form writes the message to a file and passes `--body-file`, as its own rule 2
+requires. After the final pull of the target, the template reads the landed commit's message and exits
+non-zero unless it carries `Signed-off-by:` and `Assisted-by:`.
 
 ### Requirement 4: rule 13
 
