@@ -1,7 +1,7 @@
 ---
 title: "Every pull request is signed off and discloses AI: the PR script template and the agents' rules"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/254
-status: draft
+status: active
 created: 2026-10-03
 updated: 2026-10-03
 ---
@@ -80,8 +80,10 @@ typed: the bash form appends it after the quoted heredoc, and the PowerShell for
 ### Requirement 3: the merge step writes the squash message
 
 The bash form merges with `gh pr merge "${pr_number}" --squash --admin --subject "<title> (#${pr_number})"
---body-file <file>`, the file holding the description up to `## Time`, so the trailers end the message. The
-PowerShell form does the same. After the final pull of the target, the template reads the landed commit's
+--body "${squash_message}"`, the message holding the description up to `## Time`, so the trailers end it. A
+variable rather than a file, so no temporary file needs removing: removing one takes `rm -f`, a short option,
+and macOS's `rm` has no `--force`. The PowerShell form writes the message to a file and passes `--body-file`,
+as its own rule 2 requires. After the final pull of the target, the template reads the landed commit's
 message and exits non-zero unless it carries `Signed-off-by:` and `Assisted-by:`.
 
 ### Requirement 4: rule 13
@@ -106,15 +108,17 @@ Compliance.**:
 
 ### Phase 1: The plan
 
-- [ ] This document, reviewed with the owner.
+- [x] This document, reviewed with the owner and approved: "yes, i approve." (2026-10-03).
 
 ### Phase 2: The template
 
-- [ ] Requirements 1 to 3 in `docs/guides/pr-script-template.md`; frontmatter `updated: 2026-10-03`.
+- [x] Requirements 1 to 3 in `docs/guides/pr-script-template.md`; frontmatter `updated: 2026-10-03`. Rule 5, over 120
+  columns, is rewrapped.
 
 ### Phase 3: The agents' rule
 
-- [ ] Requirement 4 in `docs/guides/agent-rules.md`; frontmatter `updated: 2026-10-03`.
+- [x] Requirement 4 in `docs/guides/agent-rules.md`; frontmatter `updated: 2026-10-03`. Two code lines over 120
+  columns, in rules 1 and 5, are rewrapped.
 
 ### Phase 4: Acceptance and closure
 
