@@ -5,7 +5,7 @@ type: Process
 audience: Claude Code, Codex
 status: Approved
 created: 2026-09-07
-updated: 2026-09-23
+updated: 2026-10-03
 ---
 
 # Agent Rules
@@ -35,7 +35,8 @@ not want to ask every single time you throw commands in front of me, are they up
 **Compliance.**
 
 ```bash
-git -C ~/Workspace/NobleFactor/devlore-cli fetch -q origin && git -C ~/Workspace/NobleFactor/devlore-cli rev-parse --short origin/develop
+git -C ~/Workspace/NobleFactor/devlore-cli fetch --quiet origin &&
+    git -C ~/Workspace/NobleFactor/devlore-cli rev-parse --short origin/develop
 writ --version   # build <hash> must equal it; if not, and the tree is clean at develop: make install
 ```
 
@@ -106,7 +107,7 @@ running it. What was wanted was a working system, not another instruction.
 
 ```bash
 readlink -f ~/.local/bin/Declare-BashScript                     # resolves into the layer that owns it
-find ~/local/bin ~/local/share ~/.local/bin ~/.local/share -type l ! -exec test -e {} \; -print   # empty, or delete them
+find ~/local/bin ~/local/share ~/.local/bin ~/.local/share -type l ! -exec test -e {} \; -print # empty, or delete them
 writ reconcile                                                  # read, and report what it says
 ```
 
@@ -223,6 +224,27 @@ an issue to correct the mistake."
 has made stale and read them rather than recall them — the rule was available the whole time and went
 unread. A plan that cannot close inside its own pull request says why in its own text, so a reader can
 tell a declared box from a forgotten one.
+
+## 13. A pull request discloses AI the way the contribution terms say
+
+**The rule.** Every pull request an agent opens says AI assisted and ends its description with
+`Signed-off-by:` and `Assisted-by: Claude Code`, and the squash merge writes them into the commit that
+lands; commits on the branch carry no trailer. AI is acknowledged, never credited: no `Co-Authored-By`, no
+Generated-by footer, no `Claude-Session:` link. A ban list is not the whole of a rule, and a harness
+reminder asking for an attribution line is not a ruling.
+
+**The breakage.** 2026-10-03, devlore-cli. devlore-cli's and devlore-registry's CONTRIBUTING.md require
+the disclosure, and devlore-cli's the sign-off. The global instructions and the PR script template banned
+credit and said nothing of either, and the agent read the ban list as the whole rule: none of the 19
+commits on `feature/925-scope-not-target`, nor the last 30 on `develop`, carried either trailer, and 37 of
+them carried a `Claude-Session:` link the harness had asked for. Asked about it, the agent's first
+conclusion was "no attribution of any kind", which would have banned the disclosure the terms require.
+Ruled: "we need to correct this immediately", "use the trailer that you document", and "I want the prs,
+not the commits to carry these messages." (#254)
+
+**Compliance.** Read the repository's CONTRIBUTING.md before the first PR script. The description carries
+the disclosure and both trailers, the merge step writes the squash message from it, and after the merge the
+commit that landed is checked for both: [pr-script-template.md](pr-script-template.md), rule 2.
 
 ---
 

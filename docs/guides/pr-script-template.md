@@ -5,7 +5,7 @@ type: Process
 audience: Engineers, Claude Code
 status: Approved
 created: 2026-03-16
-updated: 2026-09-24
+updated: 2026-10-03
 ---
 
 # PR Script Template
@@ -98,10 +98,9 @@ git pull --no-rebase --no-edit origin <target>
 # Push branch
 git push -u origin <branch>
 
-# Create PR
-gh pr create \
-  --title "<type>(<scope>): <summary>" \
-  --body "$(cat <<'EOF'
+# The description says AI assisted and ends with the two trailers (rule 2). The sign-off comes from git's
+# configuration, never typed. The merge step below writes everything above ## Time into the squash commit.
+description="$(cat <<'EOF'
 ## Summary
 
 - **Change 1** — description
@@ -112,11 +111,16 @@ gh pr create \
 - [x] Verified item
 - [ ] TODO item
 
-## Time
-
-_Filled by the merge step below._
+Written with AI assistance.
 EOF
 )"
+description+=$'\n\n'"Signed-off-by: $(git config user.name) <$(git config user.email)>"
+description+=$'\n'"Assisted-by: Claude Code"
+
+# Create PR
+gh pr create \
+  --title "<type>(<scope>): <summary>" \
+  --body "${description}"$'\n\n## Time\n\n_Filled by the merge step below._'
 
 # --- CI gate ---
 sleep 5
@@ -158,7 +162,17 @@ esac
 # set -e ends the script here -- after the merge has already landed, before any cleanup has run.
 # Deletion belongs to git close-branch below, which deletes the remote first so a failure leaves
 # both halves intact.
-gh pr merge "${pr_number}" --squash --admin
+#
+# The squash commit's message is the pull request's title and its description up to ## Time, so the two
+# trailers end it and land on the target (rule 2). GitHub's own composition is not used: it is a repository
+# setting, and it is made from the branch's commits, which carry no trailer. The message goes through a file,
+# and the span step below reuses that file; the one trap removes it.
+message_file=$(mktemp)
+trap 'rm "${message_file}"' EXIT
+gh pr view "${pr_number}" --json body --jq .body | sed '/^## Time$/,$d' > "${message_file}"
+gh pr merge "${pr_number}" --squash --admin \
+  --subject "$(gh pr view "${pr_number}" --json title --jq .title) (#${pr_number})" \
+  --body-file "${message_file}"
 
 # --- The span: every pull request records its time (rule 11) ---
 #
@@ -177,9 +191,8 @@ body=$(gh pr view "${pr_number}" --json body --jq .body | sed '/^## Time$/,$d')
 # Through the REST API, not `gh pr edit`: on gh 2.46.0 that command dies on GitHub's Projects (classic)
 # deprecation (repository.pullRequest.projectCards) -- personal#221's run stopped after its merge with
 # no Time section and no cleanup. The Windows form has always written the body this way.
-body_file=$(mktemp); trap 'rm -f "${body_file}"' EXIT
-printf '%s\n%s\n' "${body}" "${span}" > "${body_file}"
-gh api -X PATCH "repos/<owner>/<repo>/pulls/${pr_number}" -F "body=@${body_file}" --jq .number >/dev/null
+printf '%s\n%s\n' "${body}" "${span}" > "${message_file}"
+gh api -X PATCH "repos/<owner>/<repo>/pulls/${pr_number}" -F "body=@${message_file}" --jq .number >/dev/null
 gh pr view "${pr_number}" --json body --jq .body | grep -q '^## Time' || {
     echo "the PR body carries no ## Time section"
     exit 1
@@ -198,6 +211,15 @@ cd ~/Workspace/NobleFactor/<repo>
 # the main clone -- the layer writ deploys from -- is left behind without this.
 git pull --ff-only origin <target>
 git log --oneline -1
+
+# The commit that landed carries both trailers (rule 2), or the script says so and fails.
+landed=$(git log --max-count=1 --format=%B)
+
+if ! grep --quiet '^Signed-off-by: ' <<<"${landed}" || ! grep --quiet '^Assisted-by: ' <<<"${landed}"; then
+    echo "the squash commit on <target> lacks Signed-off-by or Assisted-by"
+    exit 1
+fi
+
 git status --short
 
 # --- The end-of-PR report, when one is asked for (rule 9) ---
@@ -214,10 +236,16 @@ git status --short
 ## Rules
 
 1. **Stage by name.** Never `git add -A` or `git add .`.
-2. **No Generated-by footer.** No `Co-Authored-By` lines in commit messages.
+2. **Every pull request is signed off and discloses AI; AI is never credited.** The description says AI assisted
+   and ends with two trailers, `Signed-off-by: <name> <email>` from git's configuration and
+   `Assisted-by: Claude Code`, as devlore-cli's and devlore-registry's CONTRIBUTING.md require. The merge step
+   writes the description, up to `## Time`, into the squash commit, and the script checks that the commit that
+   landed carries both. Commits on the branch carry no trailer. No `Co-Authored-By` line, no Generated-by footer,
+   no `Claude-Session:` link. Ruled 2026-10-03 (#254): "I want the prs, not the commits to carry these messages."
 3. **HEREDOC for messages.** Both commit messages and PR bodies use `cat <<'EOF'` for safe formatting.
 4. **CI gate is tolerant.** Repos with no required checks proceed; real failures abort.
-5. **Merge gate before merge.** Check `mergeStateStatus` to catch conflicts, blocks, or staleness before attempting `gh pr merge`.
+5. **Merge gate before merge.** Check `mergeStateStatus` to catch conflicts, blocks, or staleness before attempting
+   `gh pr merge`.
 6. **`git close-branch` for cleanup.** Handles both worktree and regular-branch scenarios.
    It also **removes the worktree the script is standing in**, so nothing after it may assume `cwd`
    survives: `cd` to the main clone first. Observed as a spurious exit 128 after a successful merge
@@ -329,7 +357,12 @@ function Get-PullRequestBody {
     [OutputType([string])]
     param()
 
-    return @'
+    $name = git config user.name
+    Assert-NativeSuccess 'git config user.name'
+    $email = git config user.email
+    Assert-NativeSuccess 'git config user.email'
+
+    $description = @'
 ## Summary
 
 - **Change 1** -- description
@@ -340,10 +373,12 @@ function Get-PullRequestBody {
 
 Resolves #<n>
 
-## Time
-
-_Filled by the merge step below._
+Written with AI assistance.
 '@
+
+    # The description ends with the two trailers (rule 2); the sign-off comes from git's configuration.
+    $trailers = "Signed-off-by: $name <$email>`nAssisted-by: Claude Code"
+    return "$description`n`n$trailers`n`n## Time`n`n_Filled by the merge step below._"
 }
 
 function Get-TimeSpanSection {
@@ -435,9 +470,15 @@ switch ($mergeState) {
     }
 }
 
-# --- Squash merge, and nothing else on this line ---
+# --- Squash merge: the message is the title and the description up to ## Time (rule 2) ---
 
-gh pr merge $number --squash --admin
+$title = (gh pr view $number --json title --jq '.title') -join "`n"
+Assert-NativeSuccess 'gh pr view (title)'
+$description = (gh pr view $number --json body --jq '.body') -join "`n"
+Assert-NativeSuccess 'gh pr view (description)'
+$squashFile = Join-Path ([System.IO.Path]::GetTempPath()) 'pr-<n>-squash.md'
+Set-Content -LiteralPath $squashFile -Value ($description -replace '(?s)## Time.*$', '').TrimEnd() -NoNewline
+gh pr merge $number --squash --admin --subject "$title (#$number)" --body-file $squashFile
 Assert-NativeSuccess 'gh pr merge'
 
 # --- The span (rule 11) ---
@@ -461,5 +502,14 @@ git close-branch $branch
 Assert-NativeSuccess 'git close-branch'
 git pull --ff-only origin <default-branch>
 Assert-NativeSuccess 'git pull'
+
+# The commit that landed carries both trailers (rule 2), or the script says so and fails.
+$landed = (git log --max-count=1 --format=%B) -join "`n"
+Assert-NativeSuccess 'git log'
+
+if ($landed -notmatch '(?m)^Signed-off-by: ' -or $landed -notmatch '(?m)^Assisted-by: ') {
+    throw 'The squash commit lacks Signed-off-by or Assisted-by.'
+}
+
 git status --short
 ```
