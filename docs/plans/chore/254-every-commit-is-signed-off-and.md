@@ -1,7 +1,7 @@
 ---
 title: "Every pull request is signed off and discloses AI: the PR script template and the agents' rules"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/254
-status: active
+status: complete
 created: 2026-10-03
 updated: 2026-10-03
 ---
@@ -123,12 +123,13 @@ Compliance.**:
 
 ### Phase 4: Acceptance and closure
 
-- [ ] The gate CI runs: `Test-Frontmatter.sh`, codespell with `clear,rare,en-GB_to_en-US`, `shell-lint.sh`,
-  `Test-PowerShell.ps1`, buildifier.
-- [ ] `grep --count '^## [0-9]' docs/guides/agent-rules.md` is 13, and the closing note is still last.
-- [ ] This pull request's description carries the disclosure and both trailers, and the squash commit that lands
-  on `develop` carries both.
-- [ ] The pull request closes #254; this plan's status is `complete` in its last commit.
+- [x] The gate CI runs: `Test-Frontmatter.sh`, codespell with `clear,rare,en-GB_to_en-US`, `shell-lint.sh`,
+  `Test-PowerShell.ps1`, buildifier; the PR script runs it before this commit.
+- [x] `grep --count '^## [0-9]' docs/guides/agent-rules.md` is 13, and the closing note is still last.
+- [x] This pull request's description carries the disclosure and both trailers, and the squash commit that lands
+  on `develop` carries both: the PR script writes the description, merges with it, and fails after the merge
+  if the landed commit lacks either.
+- [x] The pull request closes #254; this plan's status is `complete` in its last commit.
 
 ## Migration Path
 
