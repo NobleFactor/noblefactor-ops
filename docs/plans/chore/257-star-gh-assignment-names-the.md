@@ -1,7 +1,7 @@
 ---
 title: "star-gh-assignment names a session's schedule; star-gh-progress, once star-gh-report, reports its issues"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/257
-status: draft
+status: active
 created: 2026-10-05
 updated: 2026-10-05
 ---
@@ -95,11 +95,14 @@ states the rule. Offered it, the owner: "great."
 
 ### Phase 1: The plan
 
-- [ ] This document, committed, reviewed with the owner and approved, its questions ruled by the owner.
+- [x] This document, committed, reviewed with the owner and approved, its questions ruled by the owner. Approved
+  2026-10-05: "the plan for lane 50 is approved."
 
 ### Phase 2: What a skill can see
 
-- [ ] `CLAUDE_CODE_SESSION_ID`, read inside a session, checked to name that session's transcript.
+- [x] `CLAUDE_CODE_SESSION_ID`, read inside a session, checked to name that session's transcript. 2026-10-05, in
+  session 2ee3ba2e: it named the transcript in the devlore-cli project folder, whose last name record begins
+  `NobleFactor/devlore-cli#916 | `.
 - [ ] `claude --resume <id> "/star-gh-assignment"` checked to run the skill as the first prompt, and how its reads
   run without a permission prompt. The owner runs whatever starts an interactive session; the agent cannot.
 
