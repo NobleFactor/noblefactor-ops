@@ -23,12 +23,13 @@ Chore, epic `Ops:Process` (#142), feature #151; lane 50 of NobleFactor/devlore-c
 first ask, what are you working on? we then ask, what's the status?"; on the names, "I like row four. It tracks your
 progress on an assignment. The expression of an assignment is a schedule issue. We track progress by looking at all
 issues linked to that schedule."; "Add a chore to update the star skills. When that's working, we'll move on to
-Start-Claude and Start-Claude.ps1"; and "It's a change to noblefactor-ops".
+Start-Claude and Start-Claude.ps1"; and "It's a change to noblefactor-ops". On what a session works: "your assignment
+is always a schedule. always. we work one or more lanes at a time. the pr that you do is the record of that work."
 
 ## Goals
 
-1. `star-gh-assignment` answers "What schedule are you working on?" with one line, `<owner>/<repository>#<number>`,
-   or `none`.
+1. `star-gh-assignment` answers "What schedule are you working on?" with the schedule issue number,
+   `<owner>/<repository>#<number>`, and nothing else.
 2. It answers from the session's metadata and never from the conversation. The owner: "On 5: agreed. You answer from
    the metadata, not the transcript."
 3. `star-gh-progress` answers "What is the status of your scheduled work?" by reporting every issue linked to the
@@ -52,26 +53,24 @@ Start-Claude and Start-Claude.ps1"; and "It's a change to noblefactor-ops".
 `Home/common/.claude/skills/star-gh-report` moves to `Home/common/.claude/skills/star-gh-progress`, and its `name` and
 `title` follow: `star-gh-progress`, "star gh progress". Its description leads with the question it answers, "What is
 the status of your scheduled work?", and keeps today's triggers ("what is next", "show the schedule", "where do we
-stand") and its epic, feature and thread reports. The body is otherwise unchanged.
+stand") and its epic, feature and thread reports. Asked for status with no schedule named, it first finds the
+assignment with `star-gh-assignment`, then reports that schedule's progress: the whole schedule, or, asked for status
+on the current issue, the lanes being worked (open question 2). The owner: "when i ask for status, i get full status.
+if i ask for status on the current issue, i get status on the lane you're working." The body is otherwise unchanged.
 
 ### Requirement 2: `star-gh-assignment`
 
 A new skill, `Home/common/.claude/skills/star-gh-assignment/SKILL.md`, answers "What schedule are you working on?"
-from three sources, in order, and from nothing else:
+from the session's name and nothing else: the last `custom-title` record in its transcript,
+`${CLAUDE_CONFIG_DIR:-~/.claude}/projects/*/${CLAUDE_CODE_SESSION_ID}.jsonl`, read with one `grep`. A name in the
+new form begins with the key, `<owner>/<repository>#<number> | `. A name in the form of
+David-Noble-at-work/personal#257 claims nothing: "New form only. We'll rename sessions as we complete the work." The
+session's branch names nothing: work starts in the main clone, and the worktrees come later. The owner: "i don't
+start in a worktree. i usually don't know anything about the worktree til i look at the pr or ask about what you're
+doing in the moment."
 
-1. **The name.** The last `custom-title` record in the session's transcript,
-   `${CLAUDE_CONFIG_DIR:-~/.claude}/projects/*/${CLAUDE_CODE_SESSION_ID}.jsonl`, read with one `grep`. A name in the
-   new form begins with the key, `<owner>/<repository>#<number> | `. A name in the form of
-   David-Noble-at-work/personal#257 claims nothing: "New form only. We'll rename sessions as we complete the work."
-2. **The branch**, only when the name carries no key: the `gitBranch` Claude Code records on the session's latest
-   line, read as `<kind>/<number>-<slug>`, in the repository `gh repo view` names for the session's directory.
-   `develop` and `main` name no issue.
-3. **The lanes:** every open schedule in star's configured repositories, from `star gh issues report --by schedule`,
-   matched on that issue's URL.
-
-It confirms with `gh` that the answer is a schedule (label `chore`, title beginning `Schedule:`) and answers with one
-line, `<owner>/<repository>#<number>`, or `none`. When the name lacks the key and a schedule is found, a second line
-gives the `/rename` to type, since a session cannot rename itself. Nothing in the conversation is read: no prompts,
+It reports the schedule issue number, `<owner>/<repository>#<number>`, and nothing else. The owner:
+"star-gh-assignment reports the schedule issue number. that is all." Nothing in the conversation is read: no prompts,
 no replies, no compaction summaries, no memory.
 
 ### Requirement 3: a first prompt
@@ -86,6 +85,12 @@ After the merge, `writ deploy` runs. `~/.claude/skills/star-gh-progress/SKILL.md
 `~/.claude/skills/star-gh-assignment/SKILL.md` resolve into the base layer, and no link named `star-gh-report`
 dangles (agent-rules rule 5).
 
+### Requirement 5: a lane in progress names its worktree
+
+When work on a lane starts, its Next on the schedule says "in progress" and names the worktree, and the record is
+kept current as the work moves; `star-gh-progress` shows it with the lane. `docs/issue-standards.md` § Schedules
+states the rule. Offered it, the owner: "great."
+
 ## Implementation Phases
 
 ### Phase 1: The plan
@@ -95,13 +100,13 @@ dangles (agent-rules rule 5).
 ### Phase 2: What a skill can see
 
 - [ ] `CLAUDE_CODE_SESSION_ID`, read inside a session, checked to name that session's transcript.
-- [ ] The `gitBranch` on a session's latest line checked to be the branch of the directory it runs in.
 - [ ] `claude --resume <id> "/star-gh-assignment"` checked to run the skill as the first prompt, and how its reads
   run without a permission prompt. The owner runs whatever starts an interactive session; the agent cannot.
 
 ### Phase 3: `star-gh-progress`
 
 - [ ] Requirement 1.
+- [ ] Requirement 5, in `docs/issue-standards.md` § Schedules.
 
 ### Phase 4: `star-gh-assignment`
 
@@ -132,6 +137,7 @@ These boxes close after the merge, so the plan stays `active` until they do.
 | `docs/plans/chore/257-star-gh-assignment-names-the.md` | Create | This plan |
 | `Home/common/.claude/skills/star-gh-report/SKILL.md` | Move | To `star-gh-progress/SKILL.md`, Requirement 1 |
 | `Home/common/.claude/skills/star-gh-assignment/SKILL.md` | Create | Requirement 2 |
+| `docs/issue-standards.md` | Modify | Requirement 5 |
 
 ## Related Documents
 
@@ -143,6 +149,9 @@ These boxes close after the merge, so the plan stays `active` until they do.
 
 ## Open Questions
 
-1. **Proposed:** when no schedule is named, `star-gh-progress` takes it from `star-gh-assignment`.
-2. **Proposed:** when two or more open schedules list the branch's issue, `star-gh-assignment` names each and
-   answers `none` until the name carries a key.
+1. **Status with no schedule named. Ruled 2026-10-05: "when i ask for status, you should use the skill you've got to
+   determine what your assignment is and then report progress."** `star-gh-progress` takes the schedule from
+   `star-gh-assignment`.
+2. **The lanes being worked. Ruled 2026-10-05.** The rows on the schedule whose Next names the pull request in
+   progress. The owner: "we might open a worktree and resolve several lanes before we do a pr"; "the pr that you do is
+   the record of that work"; and, correcting a reading of the session's branch, "i don't start in a worktree."
