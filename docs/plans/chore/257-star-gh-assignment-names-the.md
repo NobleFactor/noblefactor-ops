@@ -56,7 +56,10 @@ the status of your scheduled work?", and keeps today's triggers ("what is next",
 stand") and its epic, feature and thread reports. Asked for status with no schedule named, it first finds the
 assignment with `star-gh-assignment`, then reports that schedule's progress: the whole schedule, or, asked for status
 on the current issue, the lanes being worked (open question 2). The owner: "when i ask for status, i get full status.
-if i ask for status on the current issue, i get status on the lane you're working." The body is otherwise unchanged.
+if i ask for status on the current issue, i get status on the lane you're working." Status is the report, printed as
+it comes: "the star gh issue report command ought to produce exactly what you need. no more. no less." Asked what is
+next, it gives the full account, the lanes in order with the pull requests that close them and what each waits on:
+"i sometimes need that kind of detail. note my use of the qualif[i]er: sometimes." The body is otherwise unchanged.
 
 ### Requirement 2: `star-gh-assignment`
 
@@ -103,17 +106,18 @@ states the rule. Offered it, the owner: "great."
 - [x] `CLAUDE_CODE_SESSION_ID`, read inside a session, checked to name that session's transcript. 2026-10-05, in
   session 2ee3ba2e: it named the transcript in the devlore-cli project folder, whose last name record begins
   `NobleFactor/devlore-cli#916 | `.
-- [ ] `claude --resume <id> "/star-gh-assignment"` checked to run the skill as the first prompt, and how its reads
-  run without a permission prompt. The owner runs whatever starts an interactive session; the agent cannot.
+
+Running the skill as a first prompt is checked live in phase 6, once the skill exists. A first prompt of
+`/star-gh-report` ran its report in a fresh session on 2026-10-05.
 
 ### Phase 3: `star-gh-progress`
 
-- [ ] Requirement 1.
-- [ ] Requirement 5, in `docs/issue-standards.md` § Schedules.
+- [x] Requirement 1.
+- [x] Requirement 5, in `docs/issue-standards.md` § Schedules.
 
 ### Phase 4: `star-gh-assignment`
 
-- [ ] Requirement 2, its description triggered by "what are you working on" and "what schedule are you working".
+- [x] Requirement 2, its description triggered by "what are you working on" and "what schedule are you working".
 
 ### Phase 5: Verify, then merge
 
