@@ -145,8 +145,9 @@ Running the skill as a first prompt is checked live in phase 7, once the skill e
 
 ### Phase 6: Verify, then merge
 
-- [ ] The gates CI runs, the frontmatter gate on both skills' `title` among them.
-- [ ] The PR script written, shown and handed over; the pull request closes #257 and #258.
+- [x] The gates CI runs, the frontmatter gate on both skills' `title` among them. 2026-10-05: frontmatter 54
+  checked and 0 errors, codespell clean, shell clean, PowerShell 2 checked and 0 findings, buildifier clean.
+- [x] The PR script written, shown and handed over; the pull request closes #257 and #258.
 
 ### Phase 7: Deploy
 
