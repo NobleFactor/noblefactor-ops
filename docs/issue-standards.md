@@ -220,6 +220,12 @@ cite issues freely; only rows whose first cell is a number are read.
 **Lanes are numbered 1..N with no gaps, and a closed lane keeps its number.** The same table reappears as
 the work proceeds, gaining a closed lane at a time, which is how progress is read.
 
+**A lane in progress names its worktree.** When work on a lane starts, its Next says "in progress" and
+names the worktree, as in "noblefactor-ops, its own PR, in progress in
+`noblefactor-ops.257-star-gh-assignment-names-the`", and it is kept current as the work moves. Status
+reads the work there: a session starts in a repository clone, and its worktrees come later. Ruled
+2026-10-05 (#257).
+
 ### What a schedule commits to
 
 A schedule is a commitment, not a proposal:

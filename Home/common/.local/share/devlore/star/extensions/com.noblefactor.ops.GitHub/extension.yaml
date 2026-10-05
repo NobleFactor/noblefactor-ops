@@ -28,7 +28,7 @@ commands:
       - name: schedule
         type: string
         default: ""
-        help: Report one schedule, by the name after 'Schedule:' in its title
+        help: Report one schedule, by its issue, <owner>/<repository>#<number>, or a bare <number> when one schedule has it
       - name: state
         type: string
         default: ""
