@@ -20,8 +20,7 @@ your assignment is and then report progress"*, and *"when i ask for status, i ge
 for status on the current issue, i get status on the lane you're working."*
 
 1. **The assignment.** When no schedule is named, take it from `star-gh-assignment`: the schedule this
-   session works, `<owner>/<repository>#<number>`. `--schedule` takes the title after `Schedule:`, read
-   with `gh issue view <number> --repo <owner>/<repository> --json title --jq .title`.
+   session works, `<owner>/<repository>#<number>`, and hand it to `--schedule` as it is.
 2. **Status** is that schedule's lane table exactly as the first invocation below prints it. Nothing
    more: no lookups, no prose. *"the star gh issue report command ought to produce exactly what you
    need. no more. no less."*
@@ -53,7 +52,7 @@ back answers the same question.
 ## The invocations
 
 ```bash
-star gh issues report --by schedule --schedule "<name>" --markdown -o value --silent
+star gh issues report --by schedule --schedule <owner>/<repository>#<number> --markdown -o value --silent
 star gh issues report --by feature --epic <Name>
 star gh issues report --by thread --thread <Name>
 star gh issues report --epic <Name> --view table --state open --markdown -o value --silent

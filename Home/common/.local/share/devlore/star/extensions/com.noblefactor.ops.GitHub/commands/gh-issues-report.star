@@ -9,7 +9,7 @@
 # devlore-cli's scripts/Get-EpicReport. The result is the rows; --markdown returns the document the
 # script prints instead, for the reader and for the parity diff.
 
-load("commands/scheme.star", "audit", "audit_lines", "axis", "by_axis", "by_number", "epic_name", "epic_rows", "epic_tag", "exempt_numbers", "feature_rows", "feature_table_lines", "fetch_issues", "is_bug", "is_child", "key", "label_space", "line", "parent_feature", "resolve_repos", "schedule_issues", "schedule_name", "schedule_rows", "schedule_table_lines", "table_lines", "tagged", "task_row", "thread_names", "thread_rows", "thread_table_lines")
+load("commands/scheme.star", "audit", "audit_lines", "axis", "by_axis", "by_number", "epic_name", "epic_rows", "epic_tag", "exempt_numbers", "feature_rows", "feature_table_lines", "fetch_issues", "is_bug", "is_child", "key", "label_space", "line", "parent_feature", "resolve_repos", "schedule_issues", "schedule_rows", "schedule_table_lines", "table_lines", "tagged", "task_row", "thread_names", "thread_rows", "thread_table_lines")
 
 def _epics(all, epic_filter):
     return by_axis(by_number([i for i in all if tagged(i, "epic") and (epic_filter == "" or epic_tag(i) == "Epic:" + epic_filter)]), epic_name)
@@ -112,6 +112,12 @@ def _schedule_document(scheds, all, state, repos):
         out.extend(schedule_table_lines(schedule_rows(sc, all, repos)))
     return out
 
+def _names_schedule(spec, sched):
+    """Whether spec, <owner>/<repository>#<number> or a bare <number>, names the schedule issue sched."""
+    if "#" in spec:
+        return spec == key(sched)
+    return spec == str(sched["number"])
+
 def run(_command, ctx):
     """Render the tree by epic; rows by default, the script's markdown document with --markdown.
 
@@ -173,9 +179,11 @@ def run(_command, ctx):
     if by == "schedule":
         scheds = schedule_issues(all)
         if schedule_filter:
-            scheds = [sc for sc in scheds if schedule_name(sc) == schedule_filter]
+            scheds = [sc for sc in scheds if _names_schedule(schedule_filter, sc)]
             if len(scheds) == 0:
-                fail("no schedule named '" + schedule_filter + "'; known: " + ", ".join([schedule_name(sc) for sc in schedule_issues(all)]))
+                fail("no schedule is issue '" + schedule_filter + "'; the schedules are " + ", ".join([key(sc) for sc in schedule_issues(all)]))
+            if len(scheds) > 1:
+                fail("'" + schedule_filter + "' names " + str(len(scheds)) + " schedules, " + ", ".join([key(sc) for sc in scheds]) + "; write <owner>/<repository>#<number>")
         if markdown:
             return "\n".join(_schedule_document(scheds, all, state, repos))
         rows = []

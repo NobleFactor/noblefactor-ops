@@ -15,7 +15,8 @@ asks a session, in order. `star-gh-assignment` answers "What schedule are you wo
 read from the session's metadata. `star-gh-progress`, today's `star-gh-report` renamed, answers "What is the status of
 your scheduled work?" by reporting every issue linked to that schedule. Start-Claude passes `/star-gh-assignment` as
 the first prompt of a resume whose name carries no schedule (David-Noble-at-work/personal#260), so lanes 48, 49 and
-51 of NobleFactor/devlore-cli#916 wait on this one, lane 50.
+51 of NobleFactor/devlore-cli#916 wait on this one, lane 50. Lane 52 rides with it: `star gh issues report
+--schedule` takes the schedule's issue number (#258).
 
 ## Issue 257
 
@@ -25,6 +26,14 @@ progress on an assignment. The expression of an assignment is a schedule issue. 
 issues linked to that schedule."; "Add a chore to update the star skills. When that's working, we'll move on to
 Start-Claude and Start-Claude.ps1"; and "It's a change to noblefactor-ops". On what a session works: "your assignment
 is always a schedule. always. we work one or more lanes at a time. the pr that you do is the record of that work."
+
+## Issue 258
+
+Chore, epic `Ops:Process` (#142), feature #140; lane 52 of NobleFactor/devlore-cli#916, in this branch with lane 50.
+Found working lane 50: `--schedule` takes the schedule's title, which `star-gh-assignment`'s answer cannot feed. The
+owner: "--schedule should take an issue number. the schedule is represented by an issue number. I don't want to have
+to type a title that can change in a heartbeat through editing."; "log a chore. add it to your schedule."; and "this
+goes in with lane 50".
 
 ## Goals
 
@@ -37,6 +46,7 @@ is always a schedule. always. we work one or more lanes at a time. the pr that y
 4. Passed as the first prompt of a resume, `claude --resume <id> "/star-gh-assignment"`, the skill runs and answers.
    Nothing asks it with `--print`: "Nothing asks a session except at a resume" (David-Noble-at-work/personal#260).
 5. writ deploys both skills, and nothing links `star-gh-report` any longer.
+6. `star gh issues report --schedule` takes the schedule's issue number, and the title form is gone (#258).
 
 ## Current State
 
@@ -94,6 +104,14 @@ When work on a lane starts, its Next on the schedule says "in progress" and name
 kept current as the work moves; `star-gh-progress` shows it with the lane. `docs/issue-standards.md` § Schedules
 states the rule. Offered it, the owner: "great."
 
+### Requirement 6: `--schedule` takes the schedule's number (#258)
+
+`star gh issues report --by schedule --schedule` takes the schedule's issue: `<owner>/<repository>#<number>`, or a
+bare `<number>` when exactly one schedule among the configured repositories has it (proposed, open question 3). The
+title form is gone. A number that names no schedule is refused, naming the schedules there are; a bare number two
+schedules share is refused, naming both. The extension's help says so, and `star-gh-progress` hands
+`star-gh-assignment`'s answer to `--schedule` as it is.
+
 ## Implementation Phases
 
 ### Phase 1: The plan
@@ -107,7 +125,7 @@ states the rule. Offered it, the owner: "great."
   session 2ee3ba2e: it named the transcript in the devlore-cli project folder, whose last name record begins
   `NobleFactor/devlore-cli#916 | `.
 
-Running the skill as a first prompt is checked live in phase 6, once the skill exists. A first prompt of
+Running the skill as a first prompt is checked live in phase 7, once the skill exists. A first prompt of
 `/star-gh-report` ran its report in a fresh session on 2026-10-05.
 
 ### Phase 3: `star-gh-progress`
@@ -119,12 +137,18 @@ Running the skill as a first prompt is checked live in phase 6, once the skill e
 
 - [x] Requirement 2, its description triggered by "what are you working on" and "what schedule are you working".
 
-### Phase 5: Verify, then merge
+### Phase 5: `--schedule` (#258)
+
+- [x] Requirement 6 in `gh-issues-report.star` and `extension.yaml`, and run against #916 by both forms, an unknown
+  number, and a title. 2026-10-05, with the worktree's extension: `NobleFactor/devlore-cli#916` and `916` printed
+  #916's report; `999` and the title were refused, the first naming every schedule.
+
+### Phase 6: Verify, then merge
 
 - [ ] The gates CI runs, the frontmatter gate on both skills' `title` among them.
-- [ ] The PR script written, shown and handed over.
+- [ ] The PR script written, shown and handed over; the pull request closes #257 and #258.
 
-### Phase 6: Deploy
+### Phase 7: Deploy
 
 These boxes close after the merge, so the plan stays `active` until they do.
 
@@ -145,13 +169,15 @@ These boxes close after the merge, so the plan stays `active` until they do.
 | `Home/common/.claude/skills/star-gh-report/SKILL.md` | Move | To `star-gh-progress/SKILL.md`, Requirement 1 |
 | `Home/common/.claude/skills/star-gh-assignment/SKILL.md` | Create | Requirement 2 |
 | `docs/issue-standards.md` | Modify | Requirement 5 |
+| `Home/common/.local/share/devlore/star/extensions/com.noblefactor.ops.GitHub/commands/gh-issues-report.star` | Modify | Requirement 6 |
+| `Home/common/.local/share/devlore/star/extensions/com.noblefactor.ops.GitHub/extension.yaml` | Modify | Requirement 6 |
 
 ## Related Documents
 
 - `docs/plans/chore/237-base-layer-ships-a-star-gh.md`: the skill this renames (#237)
 - David-Noble-at-work/personal#260: Start-Claude's rulings that call `star-gh-assignment` (lanes 48 and 49)
 - David-Noble-at-work/personal#261: the ssh-agent for a login over SSH or mosh (lane 51)
-- NobleFactor/devlore-cli#916, lane 50
+- NobleFactor/devlore-cli#916, lanes 50 and 52
 - `docs/guides/agent-rules.md`, rule 3: a question about issues is answered by the report
 
 ## Open Questions
@@ -162,3 +188,5 @@ These boxes close after the merge, so the plan stays `active` until they do.
 2. **The lanes being worked. Ruled 2026-10-05.** The rows on the schedule whose Next names the pull request in
    progress. The owner: "we might open a worktree and resolve several lanes before we do a pr"; "the pr that you do is
    the record of that work"; and, correcting a reading of the session's branch, "i don't start in a worktree."
+3. **Proposed:** a bare `--schedule <number>` names the one schedule among the configured repositories that has it;
+   `<owner>/<repository>#<number>` always does.
