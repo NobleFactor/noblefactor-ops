@@ -19,14 +19,20 @@ require_nix
 
 # run_case runs one program under the helper in a child bash and checks how it ends.
 #
+# A case passes when the child exits with the status expected, the handler reports the number of times expected, every
+# pattern matches the child's output, and no line of that output reads "not reached".
+#
 # Parameters:
-#   $1  the case's name, which the child also takes as its script name
-#   $2  the exit status the program must end with
-#   $3  how many times the handler must report: 0 or 1
-#   $4  extended regular expressions the program's output must match, one per line, or "" for none
-#   $5  the program, run after the helper is sourced; a line of output reading "not reached" fails the case
-#   $6  the bash to run it with, bash on PATH when omitted
-#   $7  commands the child runs before it sources the helper, none when omitted
+#   - `$1`: the case's name, which the child also takes as its script name.
+#   - `$2`: the exit status the program must end with.
+#   - `$3`: how many times the handler must report: 0 or 1.
+#   - `$4`: extended regular expressions the program's output must match, one per line, or "" for none.
+#   - `$5`: the program, run after the helper is sourced.
+#   - `$6`: the bash to run it with; bash on PATH when omitted.
+#   - `$7`: commands the child runs before it sources the helper; none when omitted.
+#
+# Returns:
+#   - 0, having printed the case as passed, or as failed with the child's output and counted it in `failures`.
 function run_case {
     local name="$1" expected_status="$2" expected_reports="$3" patterns="$4" program="$5" shell="${6:-bash}"
     local prelude="${7:-}" output pattern reports status=0 matched=true

@@ -86,7 +86,20 @@ helper:
 2. `require_command` with a tool that is missing: exit 69, naming it
 3. `require_command` with tools that are all found: the program carries on
 
-### Requirement 7: plan 268's open boxes
+### Requirement 7: function documentation
+
+The owner, 2026-10-09, reviewing this branch: "I see that the comments in Declare-BashScript DO NOT conform to my
+standards. As in go, all function documentation should: start with a one line description (see the go style guide);
+continue with zero or more paragraphs of elaboration (newline separated); end with a description of Parameters and
+Returns (see the go style guide)." Recorded for every bash script on #267.
+
+Every function in the helper, 12 of them, of which 3 had documentation and none in this form, and the test's
+`run_case` take the Go guide's § 4 form, written with `#` as `git-close-branch` writes it: a one-line summary that
+begins with the function's name, zero or more paragraphs separated by a blank `#` line, then `# Parameters:`, each
+`` `$1` `` and so on, or `none`, and `# Returns:`, the exit status, what goes to stdout, or that the function ends
+the script. Both sections are always present, as the Go guide has them on every method.
+
+### Requirement 8: plan 268's open boxes
 
 CI passed on #288, which merged on 2026-10-09, and `git close-branch` removed its branch and worktree. Plan 268's CI
 box and its closure box are ticked. Its last box, lanes 61 and 62, records lane 61 merged as
@@ -112,11 +125,17 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
   three new cases pass in `make check` with the fourteen before them. The getopt case's stand-in is a function, so the
   test writes no file. Two of the man page's older lines, past 120 columns, are wrapped; it renders the same.
 
-### Phase 4: Plan 268
+### Phase 4: Function documentation
 
-- [ ] Requirement 7.
+- [x] Requirement 7. Done 2026-10-09: all 12 of the helper's functions and the test's `run_case` carry the form,
+  checked by a script that wants a one-line summary beginning with the function's name, `# Parameters:` before
+  `# Returns:`, and every line within 120 columns. shfmt, shellcheck at every severity and `make check` are clean.
 
-### Phase 5: Verification
+### Phase 5: Plan 268
+
+- [ ] Requirement 8.
+
+### Phase 6: Verification
 
 - [ ] `make check` clean on this Mac, and CI green on the pull request.
 - [ ] Shellcheck at every severity, against this worktree's helper: nothing at personal's five calls as merged in
@@ -128,7 +147,7 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
   tests run against the deployed helper, and `--help` for the consumers whose code before their option loop runs
   nothing.
 
-### Phase 6: Acceptance and closure
+### Phase 7: Acceptance and closure
 
 - [ ] The pull request, the merge, and `git close-branch`; lanes 63 and 65 marked on NobleFactor/devlore-cli#916.
 
@@ -136,10 +155,10 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `Home/common/.local/bin/Declare-BashScript` | Modify | Requirements 1, 3 and 4 |
+| `Home/common/.local/bin/Declare-BashScript` | Modify | Requirements 1, 3, 4 and 7 |
 | `Home/common/.local/share/man/man1/Declare-BashScript.1` | Modify | Requirement 5 |
-| `tests/Test-DeclareBashScript` | Modify | Requirements 2 and 6 |
-| `docs/plans/chore/268-declare-bashscript-traps.md` | Modify | Requirement 7 |
+| `tests/Test-DeclareBashScript` | Modify | Requirements 2, 6 and 7 |
+| `docs/plans/chore/268-declare-bashscript-traps.md` | Modify | Requirement 8 |
 | `docs/plans/chore/289-set-traps-optional-cleanup.md` | Create | This plan |
 
 ## Out of Scope
@@ -147,6 +166,9 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 - `install.sh`'s narration, both forms of its options, and the helper's handler: lanes 62 and 64,
   NobleFactor/devlore-cli#1037 and #1038, after this pull request.
 - Which scripts call `require_command`: the scripting standards, #266.
+- `Set-Environment`'s three defects, found writing its documentation: #291, lane 66, the next noblefactor-ops pull
+  request. The owner: "log and address the Set-Environment tweak in the next pr."
+- Every other bash function's documentation, 3 of 218 in the form today: #292, for the scripting standards.
 
 ## Open Questions
 
