@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2025 Noble Factor. All rights reserved.
 
-# Test-DeclareBashScript - Tests Declare-BashScript's traps and the bash it requires
+# Test-DeclareBashScript - Tests Declare-BashScript's traps, the bash and getopt it requires, and require_command
 
 [[ -r "$(dirname "$0")/../Home/common/.local/bin/Declare-BashScript" ]] || {
     printf '%s: cannot find Declare-BashScript in %s\n' "${0##*/}" "$(dirname "$0")/../Home/common/.local/bin" >&2
@@ -26,11 +26,13 @@ require_nix
 #   $4  extended regular expressions the program's output must match, one per line, or "" for none
 #   $5  the program, run after the helper is sourced; a line of output reading "not reached" fails the case
 #   $6  the bash to run it with, bash on PATH when omitted
+#   $7  commands the child runs before it sources the helper, none when omitted
 function run_case {
     local name="$1" expected_status="$2" expected_reports="$3" patterns="$4" program="$5" shell="${6:-bash}"
-    local output pattern reports status=0 matched=true
+    local prelude="${7:-}" output pattern reports status=0 matched=true
 
-    output="$("${shell}" -c "source '${helper}' \"\$0\" '' ''
+    output="$("${shell}" -c "${prelude}
+source '${helper}' \"\$0\" '' ''
 ${program}" "${name}" 2>&1)" || status=$?
     reports="$(grep --count --extended-regexp '\] (exited with status|interrupted by SIG)' <<<"${output}" || true)"
 
@@ -152,6 +154,18 @@ echo not reached"
 
 run_case "a normal end" 0 0 'cleanup ran, status 0' "${cleanup}
 echo done"
+
+# A getopt that is not GNU's, as macOS's own is not: its --test exits 0, where GNU's exits 4 (#290). A function stands
+# in for it, since a function runs ahead of any program of that name on PATH.
+run_case "a getopt that is not GNU's" 78 0 'requires GNU getopt' 'echo not reached' bash 'function getopt { return 0; }'
+
+run_case "require_command with a tool that is missing" 69 0 'requires no-such-tool-anywhere: not found on PATH$' '
+require_command bash no-such-tool-anywhere
+echo not reached'
+
+run_case "require_command with every tool found" 0 0 'carried on' '
+require_command bash getopt
+echo carried on'
 
 # An older bash is refused before the helper does anything else. A machine whose /bin/bash is current has none to try.
 if /bin/bash -c '((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 3)))' 2>/dev/null; then

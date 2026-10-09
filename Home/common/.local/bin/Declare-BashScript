@@ -25,6 +25,17 @@
     exit 78 # EX_CONFIG
 }
 
+# GNU getopt parses every consumer's options (#290). macOS's own getopt misparses them and exits 0, so a script would
+# run with its options dropped. Only GNU's getopt --test exits 4: in or out, as for bash, with no search for a copy.
+getopt_test=0
+getopt --test >/dev/null 2>&1 || getopt_test=$?
+((getopt_test == 4)) || {
+    printf '[%s] [\033[31m✘\033[0m] requires GNU getopt, and the getopt first on PATH is not it: %s\n' "${1##*/}" \
+        "install MacPorts' util-linux, or Homebrew's gnu-getopt with its bin directory first on PATH" >&2
+    exit 78 # EX_CONFIG
+}
+unset getopt_test
+
 set -o errexit -o errtrace -o nounset -o pipefail
 shopt -s inherit_errexit
 
@@ -172,6 +183,18 @@ function on_error_or_interrupt {
             error $((128 + $(kill -l "$event"))) "interrupted by SIG${event}"
             ;;
     esac
+}
+
+# require_command stops the script when a tool it needs is not found, naming every one that is missing (#290). hash
+# looks each name up on PATH, and accepts a function of that name too.
+function require_command {
+    local name missing=()
+
+    for name in "$@"; do
+        hash "$name" 2>/dev/null || missing+=("$name")
+    done
+
+    ((${#missing[@]} == 0)) || error $EX_UNAVAILABLE "requires ${missing[*]}: not found on PATH"
 }
 
 function require_darwin {

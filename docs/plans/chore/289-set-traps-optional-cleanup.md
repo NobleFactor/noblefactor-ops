@@ -38,7 +38,7 @@ Measured 2026-10-09 on Danoble-MBP-A, shellcheck 0.11.0, `-x --severity=style`, 
 | --- | --- |
 | `Set-Traps` called with no cleanup | SC2119 (info) at each call: personal's `Start-MacSleep`, `Start-MacWakeup`, `Test-MacUp`, `Unmount-ExternalPhysicalDisks` and `New-RcloneMountUnit`, each at line 16, and this repository's `tests/Test-DeclareBashScript:52`. The gates check warnings and errors only. |
 | The helper's test | SC2016 (info) at lines 100 and 105, where `run_case` is handed programs for a child bash in single quotes. |
-| `getopt` | The helper parses with GNU `getopt --long` (`Declare-BashScript:241`). GNU's `getopt --test` exits 4; macOS's `/usr/bin/getopt` exits 0, and given `Backup-TimeMachine`'s call it returns `-- Backup-TimeMachine -o h --long help,bandwidth-limit: -- --bandwidth-limit 10M extra` with exit 0: the script's loop stops at the first `--`, every option is dropped, and the rest become arguments. On macOS a newer bash and GNU getopt are separate packages, and Homebrew's `gnu-getopt` is not put on PATH, so the bash check vouches for nothing here. Not yet checked: Git for Windows' `getopt`. |
+| `getopt` | The helper parses with GNU `getopt --long` (`Declare-BashScript:241`). GNU's `getopt --test` exits 4; macOS's `/usr/bin/getopt` exits 0, and given `Backup-TimeMachine`'s call it returns `-- Backup-TimeMachine -o h --long help,bandwidth-limit: -- --bandwidth-limit 10M extra` with exit 0: the script's loop stops at the first `--`, every option is dropped, and the rest become arguments. On macOS a newer bash and GNU getopt are separate packages, and Homebrew's `gnu-getopt` is not put on PATH, so the bash check vouches for nothing here. Git for Windows' bash on danoble-wd11-3 has GNU's, util-linux 2.40.2. |
 | A script's own tools | Found missing only where first run: exit 127 and the handler's report, after what came before has run. |
 | The helper's other tools | `dirname`, `basename`, `uname -s` and a bare `xargs`, in their POSIX forms. `man` is only tried by `usage`, which falls back to the synopsis. |
 | `hash` | Tested on bash 5.3.20 and 3.2.57: it reports a tool missing from PATH, accepts a function of that name, and forgets what it found when PATH is assigned; on 5.3.20, it finds a stand-in program first on PATH. |
@@ -78,9 +78,11 @@ among the provided functions.
 
 ### Requirement 6: tests
 
-`tests/Test-DeclareBashScript` gains three cases, and `run_case` a way to run the child with a PATH of the case's own:
+`tests/Test-DeclareBashScript` gains three cases, and `run_case` a prelude the child runs before it sources the
+helper:
 
-1. a `getopt` that is not GNU's first on PATH, a stand-in the test writes: the helper exits 78 with its message
+1. a `getopt` that is not GNU's, a function standing in for it, since a function runs ahead of any program of that name
+   on PATH, so the test writes no file: the helper exits 78 with its message
 2. `require_command` with a tool that is missing: exit 69, naming it
 3. `require_command` with tools that are all found: the program carries on
 
@@ -105,7 +107,10 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 
 ### Phase 3: The tools the helper needs (#290)
 
-- [ ] Requirements 3 to 6.
+- [x] Requirements 3 to 6. Done 2026-10-09: `getopt --test` must exit 4, or the helper exits 78 before anything else
+  runs; `require_command` checks with `hash` and exits 69, naming each missing tool; the man page carries both; and the
+  three new cases pass in `make check` with the fourteen before them. The getopt case's stand-in is a function, so the
+  test writes no file. Two of the man page's older lines, past 120 columns, are wrapped; it renders the same.
 
 ### Phase 4: Plan 268
 
@@ -117,7 +122,8 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 - [ ] Shellcheck at every severity, against this worktree's helper: nothing at personal's five calls as merged in
   David-Noble-at-work/personal#267, nothing in `tests/Test-DeclareBashScript`.
 - [ ] `getopt --test` on danoble-ud24-1 and in Git for Windows' bash on danoble-wd11-3, each read before the change
-  lands, since the check stops every script where it fails.
+  lands, since the check stops every script where it fails. 2026-10-09: danoble-wd11-3 exits 4 (util-linux 2.40.2,
+  bash 5.3.15); danoble-ud24-1 refused the connection, "Host key verification failed".
 - [ ] The deployed check, as lane 60 ran it: the branch checked out in the base clone and deployed, the helper's
   tests run against the deployed helper, and `--help` for the consumers whose code before their option loop runs
   nothing.
