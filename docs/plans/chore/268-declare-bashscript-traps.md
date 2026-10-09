@@ -216,16 +216,29 @@ meets the helper's floor (question 9).
 ### Phase 5: Verification
 
 - [ ] `make check` clean on this Mac, and CI green on the pull request.
-- [ ] `mandoc -Tlint -W warning` on `Declare-BashScript.1`.
-- [ ] The deployed test, as ruled 2026-10-08 for Start-Claude ("checkout the branch in writ's clone for the test"):
+- [x] `mandoc -Tlint -W warning` on `Declare-BashScript.1`: only the `.TH` date warning every page here carries,
+  2026-10-08 (phase 2).
+- [x] The deployed test, as ruled 2026-10-08 for Start-Claude ("checkout the branch in writ's clone for the test"):
   writ's base layer is `/Users/david-noble/Workspace/NobleFactor/noblefactor-ops`, so the owner checks this branch
   out there and runs `writ deploy`; the tests run against `~/.local/bin/Declare-BashScript`; the owner returns the
-  clone to `develop` and deploys again.
-- [ ] `--help` under the new helper for every consumer whose code before its option loop is only the guard, the
-  `source` line and `require_*`, so nothing else runs.
-- [ ] Every `$(...)` holding more than one command in the 70 scripts that source the helper, read for one that
+  clone to `develop` and deploys again. 2026-10-08 on Danoble-MBP-A, by a script the owner had run: the clone
+  checked out 1609177 detached, `writ deploy --allow-dirty` deployed 270 links (personal's clone held the inventory
+  lists Upgrade-Mac had just written, and the flag plans against its last commit), the deployed helper resolved into
+  the clone and carried `Set-Traps`, the 14 tests passed against it, and the clone went back to `develop` and was
+  deployed again. The first run, without the flag, was refused at its first deploy and tested nothing.
+- [x] `--help` under the new helper for every consumer whose code before its option loop is only the guard, the
+  `source` line and `require_*`, so nothing else runs. The same run: 23 such commands, of the 62 scripts in the
+  three layers' `Home` directories that source the helper; the 18 deployed on this Mac exit 0, among them the three
+  `git-*` commands and NobleFactor/devlore-cli's `New-DevloreKeyVaults`, and the 5 for Linux alone are not deployed
+  here.
+- [x] Every `$(...)` holding more than one command in the 70 scripts that source the helper, read for one that
   relies on running past a failure, which `inherit_errexit` would stop (question 4); each found is listed here with
-  its fix, which lands before this does.
+  its fix, which lands before this does. 2026-10-08, the 72 that source it now, here-documents excluded: none. The
+  one-line hits are semicolons inside quoted awk programs, and the test's deliberate `$(false; echo hi)`; the
+  multi-line ones are each one command or one pipeline, or one `if`. `package=$(curl | jq | grep)` in the two
+  `Tools/*/Initialize-*` tools stops the script when grep finds nothing, but that is `pipefail`, unchanged here.
+- [x] No launchd job or cron entry on Danoble-MBP-A runs these scripts, where launchd's default PATH would hand them
+  `/bin/bash` 3.2, 2026-10-08.
 
 ### Phase 6: Acceptance and closure
 
