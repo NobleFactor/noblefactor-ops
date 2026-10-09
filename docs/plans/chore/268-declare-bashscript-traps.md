@@ -204,7 +204,14 @@ meets the helper's floor (question 9).
 
 ### Phase 4: The base's script
 
-- [ ] Requirement 4.
+- [x] Requirement 4. 2026-10-08: `scripts/setup-ground-zero.sh` sources the helper under the guard and the directive,
+  parses with the helper's option loop, narrates with `note`, `success`, `error 0` for its warnings and `error $EX_*`
+  for its failures, and removes its Azure output file through `Set-Traps cleanup`. Its Azure and GitHub commands are
+  unchanged. Run on Danoble-MBP-A: `--help` prints its help and exits 0; an unknown option, a missing `--name` and a
+  stray argument exit 64; the dry run read Azure and GitHub and stopped at the prerequisites with 69, this session's
+  `gh auth status` reporting no login. The live path, which provisions Azure and configures GitHub, was not run. Two
+  old defects fixed on the way: a missing CLI's `error` exited before the line meant to record it ran, and the secret
+  count printed two lines when `gh` failed, now one (shown against a repository that does not exist).
 
 ### Phase 5: Verification
 
