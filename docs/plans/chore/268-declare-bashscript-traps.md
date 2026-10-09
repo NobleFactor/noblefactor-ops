@@ -155,15 +155,17 @@ two siblings, `setup-azure-swa.sh` and `setup-github-repo.sh`, set no trap and a
 
 ### Requirement 5: tests
 
-A committed test script, `tests/Test-DeclareBashScript`, shows each of the three defects, and every row of the
-candidate's table, failing against today's copied handler and passing against the helper's (question 6). It sources
-the helper as Requirement 4's script does, and runs from the `Makefile`, not from `.github` (question 7).
+A committed test script, `tests/Test-DeclareBashScript`, asserts the helper's behavior for every row of the handler's
+table (question 6). The copied handler's failures are the measurements in Current State; no copy of it is kept
+(question 10). It sources the helper as Requirement 4's script does, and runs from the `Makefile`, not from `.github`
+(question 7).
 
 ### Requirement 6: the `Makefile`
 
 A root `Makefile`, modeled on devlore-cli's (question 7). `make test` runs every script under `tests/`. `make check`
 runs every gate CI runs (frontmatter, spelling, shell-lint, PowerShell, Starlark) and then `test`. CI keeps installing
-the gates' tools and calls `make check`, so a local run and CI are one command.
+the gates' tools and calls `make check`, so a local run and CI are one command. CI runs on `ubuntu-26.04`, whose bash
+meets the helper's floor (question 9).
 
 ## Implementation Phases
 
@@ -188,9 +190,17 @@ the gates' tools and calls `make check`, so a local run and CI are one command.
 
 ### Phase 3: The tests and the `Makefile`
 
-- [ ] Requirement 5: `tests/Test-DeclareBashScript`, failing against the copied handler and passing against the
-  helper's.
-- [ ] Requirement 6: the `Makefile`'s `test` and `check`, and CI calling `make check`.
+- [x] Requirement 5: `tests/Test-DeclareBashScript`, asserting the helper's behavior. 2026-10-08 on Danoble-MBP-A,
+  14 cases pass in 1.8 s: a failure at top level, inside a function, inside `x="$(false)"`, before the last command
+  of a substitution, inside a subshell and in a pipeline, each reported once with its status; a failure under
+  `set +o errexit`, in an `if` test and before `||`, not reported; SIGHUP, SIGINT and SIGTERM, reported and ended
+  with 129, 130 and 143, the cleanup run; an `error` call and a normal end, the cleanup run with their status; and
+  `/bin/bash` 3.2.57 refused with 78. A machine whose `/bin/bash` is 5.3 or later, as CI's will be, notes that case
+  as not tried.
+- [x] Requirement 6: the `Makefile`'s `help`, `check` and one target per gate, `test` among them, with each gate's
+  reasons moved beside its target; CI on `ubuntu-26.04`, installing the tools and calling `make check`. `make check`
+  passes on Danoble-MBP-A in 7.8 s. CI's own run comes with the pull request (phase 5); the workflow's YAML was not
+  linted here, having no actionlint.
 
 ### Phase 4: The base's script
 
@@ -225,7 +235,7 @@ the gates' tools and calls `make check`, so a local run and CI are one command.
 | `scripts/setup-ground-zero.sh` | Modify | Requirement 4 |
 | `tests/Test-DeclareBashScript` | Create | Requirement 5 |
 | `Makefile` | Create | Requirement 6 |
-| `.github/workflows/ci.yaml` | Modify | Requirement 6: CI calls `make check` |
+| `.github/workflows/ci.yaml` | Modify | Requirement 6: CI calls `make check`, on `ubuntu-26.04` |
 | `docs/plans/chore/268-declare-bashscript-traps.md` | Create | This plan |
 
 ## Out of Scope
@@ -273,3 +283,9 @@ the gates' tools and calls `make check`, so a local run and CI are one command.
 8. **Where the `Set-Traps` call goes. Ruled 2026-10-08, offered after the cleanup function it names and before the
    arguments are parsed (1), or at the head of `Main` (2): "1".** A usage error or an interrupt during argument
    handling is reported and cleaned up.
+9. **CI's bash. Ruled 2026-10-08, offered CI on `ubuntu-26.04` (1) or installing bash 5.3 on `ubuntu-24.04` (2),
+   after finding that CI's last run used `ubuntu-24.04`, whose image ships bash 5.2.21, below the floor, and that
+   GitHub's `ubuntu-26.04` ships 5.3.9: "On 1. I prefer a. update to ubunt-26.04."**
+10. **What the test asserts. Ruled 2026-10-08, offered the helper's behavior only, the copied handler's failures cited
+    from Current State (1), or every case also run against a kept copy of the old handler (2): "I do not wish to keep
+    the old handler. i prefer a."** The owner, of the test's home: "tests/ is the right place for the tests."
