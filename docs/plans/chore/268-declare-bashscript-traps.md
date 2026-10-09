@@ -242,6 +242,9 @@ meets the helper's floor (question 9).
 
 ### Phase 6: Acceptance and closure
 
+These boxes, and phase 5's CI box, close with the pull request itself, after this plan's last commit, so the plan
+stays active until they do (agent-rules rule 12).
+
 - [ ] The pull request, the merge, and `git close-branch`.
 - [ ] Lanes 61 and 62 then carry the handler into personal's fourteen scripts and devlore-cli's three; the owner's
   acceptance is met when both have merged.
