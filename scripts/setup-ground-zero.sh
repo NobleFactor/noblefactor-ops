@@ -3,15 +3,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
+# setup-ground-zero.sh - Complete infrastructure setup for a new DevLore project
 #
-# Ground Zero Setup - Complete infrastructure setup for a new DevLore project
-# Orchestrates Azure Static Web App and GitHub repository configuration
-#
-# Usage:
-#   ./setup-ground-zero.sh --name <project-name> --domain <custom-domain> --repo <owner/repo>
-#
-# Example:
-#   ./setup-ground-zero.sh --name devlore-site --domain devlore.noblefactor.com --repo NobleFactor/devlore.noblefactor.com
+# Orchestrates Azure Static Web App and GitHub repository configuration.
 #
 # Prerequisites:
 #   - Azure CLI installed and logged in (az login)
@@ -19,75 +13,35 @@
 #   - Admin access to the GitHub repository
 #   - Azure subscription with resource creation permissions
 
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Colors
-if [[ -t 1 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    BLUE='\033[0;34m'
-    CYAN='\033[0;36m'
-    NC='\033[0m'
-else
-    RED='' GREEN='' YELLOW='' BLUE='' CYAN='' NC=''
-fi
-
-info() { echo -e "${BLUE}info:${NC} $*"; }
-success() { echo -e "${GREEN}success:${NC} $*"; }
-warn() { echo -e "${YELLOW}warning:${NC} $*"; }
-error() {
-    echo -e "${RED}error:${NC} $*" >&2
-    exit 1
+[[ -r "$(dirname "$0")/../Home/common/.local/bin/Declare-BashScript" ]] || {
+    printf '%s: cannot find Declare-BashScript in %s\n' "${0##*/}" "$(dirname "$0")/../Home/common/.local/bin" >&2
+    exit 72 # EX_OSFILE
 }
-phase() { echo -e "\n${CYAN}=== $* ===${NC}\n"; }
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/../Home/common/.local/bin/Declare-BashScript" "$0" \
+    "help,name:,domain:,repo:,default-branch:,skip-azure,skip-github,dry-run" "h" "$@"
+require_nix
 
-# Parse arguments
-PROJECT_NAME=""
-CUSTOM_DOMAIN=""
-GITHUB_REPO=""
-DEFAULT_BRANCH="develop"
-SKIP_AZURE=false
-SKIP_GITHUB=false
-DRY_RUN=false
+###########
+# Functions
+###########
 
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --name)
-            PROJECT_NAME="$2"
-            shift 2
-            ;;
-        --domain)
-            CUSTOM_DOMAIN="$2"
-            shift 2
-            ;;
-        --repo)
-            GITHUB_REPO="$2"
-            shift 2
-            ;;
-        --default-branch)
-            DEFAULT_BRANCH="$2"
-            shift 2
-            ;;
-        --skip-azure)
-            SKIP_AZURE=true
-            shift
-            ;;
-        --skip-github)
-            SKIP_GITHUB=true
-            shift
-            ;;
-        --dry-run)
-            DRY_RUN=true
-            shift
-            ;;
-        --help | -h)
-            cat <<EOF
-Ground Zero Setup - Complete DevLore infrastructure provisioning
+AZURE_OUTPUT=""
 
-Usage: $0 --name <project> --domain <domain> --repo <owner/repo> [options]
+# cleanup removes the file Phase 1 captures the Azure setup's output in, whichever way the script ends.
+function cleanup {
+    [[ -z "${AZURE_OUTPUT}" ]] || rm -f "${AZURE_OUTPUT}"
+}
+
+Set-Traps cleanup
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="Ground Zero Setup - Complete DevLore infrastructure provisioning
+
+Usage: setup-ground-zero.sh --name <project> --domain <domain> --repo <owner/repo> [options]
 
 Required:
   --name     Project name (used for Azure resource naming)
@@ -125,19 +79,69 @@ What this script does:
     - Output DNS configuration
 
 Example:
-  $0 --name devlore-site --domain devlore.noblefactor.com --repo NobleFactor/devlore.noblefactor.com
+  setup-ground-zero.sh --name devlore-site --domain devlore.noblefactor.com --repo NobleFactor/devlore.noblefactor.com"
 
-EOF
-            exit 0
+eval set -- "$script_arguments"
+
+PROJECT_NAME=""
+CUSTOM_DOMAIN=""
+GITHUB_REPO=""
+DEFAULT_BRANCH="develop"
+SKIP_AZURE=false
+SKIP_GITHUB=false
+DRY_RUN=false
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis"
             ;;
-        *) error "Unknown option: $1" ;;
+        --name)
+            PROJECT_NAME="$2"
+            shift 2
+            ;;
+        --domain)
+            CUSTOM_DOMAIN="$2"
+            shift 2
+            ;;
+        --repo)
+            GITHUB_REPO="$2"
+            shift 2
+            ;;
+        --default-branch)
+            DEFAULT_BRANCH="$2"
+            shift 2
+            ;;
+        --skip-azure)
+            SKIP_AZURE=true
+            shift 1
+            ;;
+        --skip-github)
+            SKIP_GITHUB=true
+            shift 1
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift 1
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
     esac
 done
 
-# Validate required arguments
-[[ -z "$PROJECT_NAME" ]] && error "Missing required --name argument"
-[[ -z "$CUSTOM_DOMAIN" ]] && error "Missing required --domain argument"
-[[ -z "$GITHUB_REPO" ]] && error "Missing required --repo argument"
+(($# == 0)) || error $EX_USAGE "Unexpected argument: $1"
+[[ -n "$PROJECT_NAME" ]] || error $EX_USAGE "Missing required --name argument"
+[[ -n "$CUSTOM_DOMAIN" ]] || error $EX_USAGE "Missing required --domain argument"
+[[ -n "$GITHUB_REPO" ]] || error $EX_USAGE "Missing required --repo argument"
+
+######
+# Main
+######
 
 # Banner
 echo ""
@@ -152,69 +156,62 @@ echo "Branch:     $DEFAULT_BRANCH"
 echo ""
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    warn "DRY RUN MODE - No changes will be made"
+    note "DRY RUN MODE - No changes will be made"
     echo ""
 fi
 
-# Check prerequisites
-phase "Checking Prerequisites"
+note "Checking Prerequisites"
+
+readonly azure_cli_url="https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+command -v az >/dev/null 2>&1 || error $EX_UNAVAILABLE "Azure CLI not found. Install from ${azure_cli_url}"
+command -v gh >/dev/null 2>&1 || error $EX_UNAVAILABLE "GitHub CLI not found. Install from https://cli.github.com/"
 
 PREREQ_OK=true
 
-if ! command -v az &>/dev/null; then
-    error "Azure CLI not found. Install from https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
-    PREREQ_OK=false
-fi
-
-if ! command -v gh &>/dev/null; then
-    error "GitHub CLI not found. Install from https://cli.github.com/"
-    PREREQ_OK=false
-fi
-
 if ! az account show &>/dev/null; then
-    warn "Not logged in to Azure. Run 'az login' first."
+    error 0 "Not logged in to Azure. Run 'az login' first."
     PREREQ_OK=false
 else
     success "Azure CLI authenticated"
 fi
 
 if ! gh auth status &>/dev/null; then
-    warn "Not logged in to GitHub. Run 'gh auth login' first."
+    error 0 "Not logged in to GitHub. Run 'gh auth login' first."
     PREREQ_OK=false
 else
     success "GitHub CLI authenticated"
 fi
 
 if ! gh repo view "$GITHUB_REPO" &>/dev/null; then
-    warn "Cannot access repository $GITHUB_REPO"
+    error 0 "Cannot access repository $GITHUB_REPO"
     PREREQ_OK=false
 else
     success "Repository $GITHUB_REPO accessible"
 fi
 
-[[ "$PREREQ_OK" != "true" ]] && error "Prerequisites not met. Fix the issues above and retry."
+[[ "$PREREQ_OK" == "true" ]] || error $EX_UNAVAILABLE "Prerequisites not met. Fix the issues above and retry."
 
 # Confirm
 echo ""
 read -p "Proceed with setup? [y/N] " -n 1 -r
 echo
-[[ ! $REPLY =~ ^[Yy]$ ]] && exit 1
+[[ $REPLY =~ ^[Yy]$ ]] || error $EX_TEMPFAIL "Not confirmed; nothing was changed."
 
 # Phase 1: Azure Infrastructure
 if [[ "$SKIP_AZURE" != "true" ]]; then
-    phase "Phase 1: Azure Infrastructure"
+    note "Phase 1: Azure Infrastructure"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        info "Would run: setup-azure-swa.sh --name $PROJECT_NAME --domain $CUSTOM_DOMAIN"
+        note "Would run: setup-azure-swa.sh --name $PROJECT_NAME --domain $CUSTOM_DOMAIN"
     else
-        # Capture output for secret extraction
+        # Capture output for secret extraction; cleanup removes the file however the script ends.
         AZURE_OUTPUT=$(mktemp)
-        trap 'rm -f "$AZURE_OUTPUT"' EXIT
 
-        "$SCRIPT_DIR/setup-azure-swa.sh" --name "$PROJECT_NAME" --domain "$CUSTOM_DOMAIN" | tee "$AZURE_OUTPUT"
+        "$script_root/setup-azure-swa.sh" --name "$PROJECT_NAME" --domain "$CUSTOM_DOMAIN" | tee "$AZURE_OUTPUT"
 
         # Extract secrets from output for GitHub configuration
-        AZURE_STATIC_WEB_APPS_API_TOKEN=$(grep -A1 "AZURE_STATIC_WEB_APPS_API_TOKEN:" "$AZURE_OUTPUT" | tail -1 | tr -d '[:space:]')
+        AZURE_STATIC_WEB_APPS_API_TOKEN=$(grep -A1 "AZURE_STATIC_WEB_APPS_API_TOKEN:" "$AZURE_OUTPUT" | tail -1 |
+            tr -d '[:space:]')
         export AZURE_STATIC_WEB_APPS_API_TOKEN
         AZURE_CREDENTIALS=$(grep -A1 "AZURE_CREDENTIALS:" "$AZURE_OUTPUT" | tail -1)
         export AZURE_CREDENTIALS
@@ -224,45 +221,46 @@ if [[ "$SKIP_AZURE" != "true" ]]; then
         export AAD_CLIENT_SECRET
     fi
 else
-    warn "Skipping Azure setup (--skip-azure)"
+    note "Skipping Azure setup (--skip-azure)"
 fi
 
 # Phase 2: GitHub Configuration
 if [[ "$SKIP_GITHUB" != "true" ]]; then
-    phase "Phase 2: GitHub Configuration"
+    note "Phase 2: GitHub Configuration"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-        info "Would run: setup-github-repo.sh --repo $GITHUB_REPO --default-branch $DEFAULT_BRANCH"
+        note "Would run: setup-github-repo.sh --repo $GITHUB_REPO --default-branch $DEFAULT_BRANCH"
     else
-        "$SCRIPT_DIR/setup-github-repo.sh" --repo "$GITHUB_REPO" --default-branch "$DEFAULT_BRANCH"
+        "$script_root/setup-github-repo.sh" --repo "$GITHUB_REPO" --default-branch "$DEFAULT_BRANCH"
     fi
 else
-    warn "Skipping GitHub setup (--skip-github)"
+    note "Skipping GitHub setup (--skip-github)"
 fi
 
 # Phase 3: Verification
-phase "Phase 3: Verification"
+note "Phase 3: Verification"
 
 if [[ "$DRY_RUN" == "true" ]]; then
-    info "Would verify Azure resources and GitHub configuration"
+    note "Would verify Azure resources and GitHub configuration"
 else
-    info "Verifying Azure resources..."
+    note "Verifying Azure resources..."
     RESOURCE_GROUP="rg-${PROJECT_NAME}"
     if az group show --name "$RESOURCE_GROUP" &>/dev/null; then
         success "Resource group exists: $RESOURCE_GROUP"
     else
-        warn "Resource group not found: $RESOURCE_GROUP"
+        error 0 "Resource group not found: $RESOURCE_GROUP"
     fi
 
     if az staticwebapp show --name "$PROJECT_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-        SWA_HOSTNAME=$(az staticwebapp show --name "$PROJECT_NAME" --resource-group "$RESOURCE_GROUP" --query defaultHostname -o tsv)
+        SWA_HOSTNAME=$(az staticwebapp show --name "$PROJECT_NAME" --resource-group "$RESOURCE_GROUP" \
+            --query defaultHostname -o tsv)
         success "Static Web App exists: $PROJECT_NAME ($SWA_HOSTNAME)"
     else
-        warn "Static Web App not found: $PROJECT_NAME"
+        error 0 "Static Web App not found: $PROJECT_NAME"
     fi
 
-    info "Verifying GitHub configuration..."
-    SECRET_COUNT=$(gh secret list --repo "$GITHUB_REPO" 2>/dev/null | wc -l || echo "0")
+    note "Verifying GitHub configuration..."
+    SECRET_COUNT=$(gh secret list --repo "$GITHUB_REPO" 2>/dev/null | wc -l) || SECRET_COUNT=0
     success "GitHub secrets configured: $SECRET_COUNT"
 
     RULESET_COUNT=$(gh api "repos/${GITHUB_REPO}/rulesets" --jq 'length' 2>/dev/null || echo "0")
@@ -270,7 +268,7 @@ else
 fi
 
 # Summary
-phase "Setup Complete"
+note "Setup Complete"
 
 cat <<EOF
 Ground Zero setup completed for $PROJECT_NAME.

@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025 Noble Factor. All rights reserved.
+
+# Test-DeclareBashScript - Tests Declare-BashScript's traps and the bash it requires
+
+[[ -r "$(dirname "$0")/../Home/common/.local/bin/Declare-BashScript" ]] || {
+    printf '%s: cannot find Declare-BashScript in %s\n' "${0##*/}" "$(dirname "$0")/../Home/common/.local/bin" >&2
+    exit 72 # EX_OSFILE
+}
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/../Home/common/.local/bin/Declare-BashScript" "$0" "help" "h" "$@"
+require_nix
+
+###########
+# Functions
+###########
+
+# run_case runs one program under the helper in a child bash and checks how it ends.
+#
+# Parameters:
+#   $1  the case's name, which the child also takes as its script name
+#   $2  the exit status the program must end with
+#   $3  how many times the handler must report: 0 or 1
+#   $4  extended regular expressions the program's output must match, one per line, or "" for none
+#   $5  the program, run after the helper is sourced; a line of output reading "not reached" fails the case
+#   $6  the bash to run it with, bash on PATH when omitted
+function run_case {
+    local name="$1" expected_status="$2" expected_reports="$3" patterns="$4" program="$5" shell="${6:-bash}"
+    local output pattern reports status=0 matched=true
+
+    output="$("${shell}" -c "source '${helper}' \"\$0\" '' ''
+${program}" "${name}" 2>&1)" || status=$?
+    reports="$(grep --count --extended-regexp '\] (exited with status|interrupted by SIG)' <<<"${output}" || true)"
+
+    while IFS= read -r pattern; do
+        [[ -z "${pattern}" ]] || grep --quiet --extended-regexp --regexp="${pattern}" <<<"${output}" || matched=false
+    done <<<"${patterns}"
+    if grep --quiet --line-regexp --fixed-strings 'not reached' <<<"${output}"; then matched=false; fi
+
+    if ((status == expected_status && reports == expected_reports)) && [[ "${matched}" == true ]]; then
+        success "${name}"
+        return 0
+    fi
+
+    error 0 "${name}: wanted status ${expected_status} and ${expected_reports} report, got ${status} and ${reports}:"
+    printf '    %s\n' "${output//$'\n'/$'\n'    }" >&2
+    failures=$((failures + 1))
+}
+
+Set-Traps
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="Test-DeclareBashScript [-h|--help]"
+eval set -- "$script_arguments"
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis"
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
+    esac
+done
+
+######
+# Main
+######
+
+helper="$(cd "$(dirname "$0")/../Home/common/.local/bin" && pwd)/Declare-BashScript"
+failures=0
+
+# A cleanup that says it ran and with what status, for the cases that check the EXIT trap.
+cleanup='function cleanup { echo "cleanup ran, status $?"; }
+Set-Traps cleanup'
+
+run_case "a failure at top level" 1 1 'exited with status 1 at line [0-9]+: false$
+cleanup ran, status 1' "${cleanup}
+false
+echo not reached"
+
+run_case "a failure inside a function" 1 1 'exited with status 1 at line [0-9]+: false$' '
+Set-Traps
+f() {
+    false
+    echo not reached
+}
+f'
+
+run_case "a failing command substitution" 1 1 'x="\$\(false\)"$' '
+Set-Traps
+x="$(false)"
+echo not reached'
+
+run_case "a failure before the last command of a substitution" 1 1 '' '
+Set-Traps
+x="$(false; echo hi)"
+echo not reached'
+
+run_case "a failure inside a subshell" 1 1 '' '
+Set-Traps
+(
+    false
+    echo not reached
+)
+echo not reached'
+
+run_case "a failing pipeline" 1 1 '' '
+Set-Traps
+false | true
+echo not reached'
+
+run_case "a failure tolerated under set +o errexit" 0 0 'carried on' '
+Set-Traps
+set +o errexit
+false
+set -o errexit
+echo carried on'
+
+run_case "a failure in an if test and before ||" 0 0 'handled' '
+Set-Traps
+if false; then
+    echo not reached
+fi
+false || echo handled'
+
+for signal in HUP INT TERM; do
+    run_case "SIG${signal}" $((128 + $(kill -l "${signal}"))) 1 "interrupted by SIG${signal}
+cleanup ran, status $((128 + $(kill -l "${signal}")))" "${cleanup}
+(sleep 0.2; kill -${signal} \$\$) &
+sleep 5 >/dev/null 2>&1 &
+wait \$!
+echo not reached"
+done
+
+run_case "an error call" 64 0 'Unrecognized option: --nope
+cleanup ran, status 64' "${cleanup}
+error \$EX_USAGE 'Unrecognized option: --nope'
+echo not reached"
+
+run_case "a normal end" 0 0 'cleanup ran, status 0' "${cleanup}
+echo done"
+
+# An older bash is refused before the helper does anything else. A machine whose /bin/bash is current has none to try.
+if /bin/bash -c '((BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 3)))' 2>/dev/null; then
+    run_case "bash older than 5.3" 78 0 'requires bash 5.3 or later' 'echo not reached' /bin/bash
+else
+    note "bash older than 5.3: not tried, /bin/bash here is $(/bin/bash -c 'echo "$BASH_VERSION"')"
+fi
+
+((failures == 0)) || error $EX_SOFTWARE "${failures} of the cases failed"
+success "every case passed"
