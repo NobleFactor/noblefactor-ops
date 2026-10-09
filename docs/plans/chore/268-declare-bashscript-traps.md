@@ -1,7 +1,7 @@
 ---
 title: "on_error_or_interrupt moves into Declare-BashScript: one handler, its defects fixed, each script stating its traps and cleanup"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/268
-status: approved
+status: active
 created: 2026-10-08
 updated: 2026-10-08
 ---
@@ -174,7 +174,17 @@ the gates' tools and calls `make check`, so a local run and CI are one command.
 
 ### Phase 2: The handler
 
-- [ ] Requirements 1 and 3.
+- [x] Requirements 1 and 3. 2026-10-08 on Danoble-MBP-A, bash 5.3.15, sourcing this worktree's helper from `bash -c`
+  probes: a failure at top level, inside a function, inside `x="$(...)"` and inside `x="$(false; echo hi)"` is
+  reported once with its line and command and exits with its status; a failure under `set +o errexit`, in an `if`
+  test or before `||` is not reported; SIGHUP, SIGINT and SIGTERM are reported and exit 129, 130 and 143; the cleanup
+  ran after a failure, each signal, `error 64` and a normal end, reading the status from `$?`; macOS's `/bin/bash`
+  3.2.57 is refused with 78 and a message. Two behaviors of bash itself, written into the man page: a failing
+  pipeline is reported with its last command's text, and a function called as an `if` test runs past its own
+  failure. The helper's `getopt` call, 131 columns, is wrapped at 120, and still parses.
+  `.github/scripts/shell-lint.sh` clean; `mandoc -Tlint -W warning`: only the `.TH` date warning every page here
+  carries. Until lane 61 lands, the five personal scripts that define their own `on_error_or_interrupt` keep it,
+  theirs overriding the helper's, now under `errtrace`.
 
 ### Phase 3: The tests and the `Makefile`
 

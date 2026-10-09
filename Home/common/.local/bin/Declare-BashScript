@@ -18,7 +18,15 @@
 # 1. BSD sysexits.h exit codes
 #    https://man.freebsd.org/cgi/man.cgi?query=sysexits
 
-set -o errexit -o nounset -o pipefail
+# Every consumer runs on bash 5.3 or later, what current Linux ships (#268). The check comes before any statement an
+# older bash would reject, so it cannot use error: nothing below it has been read yet.
+((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3))) || {
+    printf '[%s] [\033[31m✘\033[0m] requires bash 5.3 or later; this is bash %s\n' "${1##*/}" "$BASH_VERSION" >&2
+    exit 78 # EX_CONFIG
+}
+
+set -o errexit -o errtrace -o nounset -o pipefail
+shopt -s inherit_errexit
 
 ###########
 # Variables
@@ -114,6 +122,18 @@ function Set-Environment {
     done
 }
 
+# Set-Traps sends ERR, HUP, INT and TERM to on_error_or_interrupt, and EXIT to the cleanup function a script names
+# (#268). A script calls it once, after that function is defined and before its arguments are parsed: an early exit
+# with EXIT naming a function not yet defined fails with "command not found".
+function Set-Traps {
+    trap 'on_error_or_interrupt ERR' ERR
+    trap 'on_error_or_interrupt HUP' HUP
+    trap 'on_error_or_interrupt INT' INT
+    trap 'on_error_or_interrupt TERM' TERM
+    # shellcheck disable=SC2064 # The cleanup's name is expanded now, by design: it is what EXIT runs.
+    if [[ -n ${1:-} ]]; then trap "$1" EXIT; fi
+}
+
 function error {
     local rc=$1
     shift 1
@@ -128,6 +148,29 @@ function note {
         return
     fi
     printf "[%s] [+] %s\n" "$script_name" "$*" >&2
+}
+
+# on_error_or_interrupt reports a failure or a signal that ends the script, once, in error's own form (#268).
+#
+# Parameters:
+#   $1  the trapped event: ERR, HUP, INT or TERM
+#
+# A failure the script tolerates, under set +o errexit, ends nothing and goes unreported. Inside a subshell, the shell
+# that started it reports the failure when the command holding the subshell fails. A signal ends the script with 128
+# plus its number, so the EXIT trap's cleanup runs.
+function on_error_or_interrupt {
+    local status=$? event=$1
+
+    case $event in
+        ERR)
+            [[ $- == *e* ]] || return 0
+            ((BASH_SUBSHELL == 0)) || exit "$status"
+            error "$status" "exited with status ${status} at line ${BASH_LINENO[0]}: ${BASH_COMMAND}"
+            ;;
+        HUP | INT | TERM)
+            error $((128 + $(kill -l "$event"))) "interrupted by SIG${event}"
+            ;;
+    esac
 }
 
 function require_darwin {
@@ -195,7 +238,8 @@ function usage {
 # Arguments
 ###########
 
-if ! script_arguments=$(getopt -n "${script_name}" -o "${script_short_options}" --long "${script_long_options}" -- "$@" 2>&1); then
+if ! script_arguments=$(getopt -n "${script_name}" -o "${script_short_options}" --long "${script_long_options}" \
+    -- "$@" 2>&1); then
     error "${EX_USAGE}" "${script_arguments}"
 fi
 readonly script_arguments

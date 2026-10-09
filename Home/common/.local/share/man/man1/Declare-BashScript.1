@@ -1,6 +1,6 @@
 .\" SPDX-FileCopyrightText: 2016-2025 Noble Factor
 .\" SPDX-License-Identifier: Apache-2.0
-.TH Declare-BashScript 1 "September 2026" "Noble Factor" "User Commands"
+.TH Declare-BashScript 1 "October 2026" "Noble Factor" "User Commands"
 .SH NAME
 Declare-BashScript \- Bash script argument and option parsing helper
 .SH SYNOPSIS
@@ -17,6 +17,11 @@ Automatic usage/help display via man pages
 Environment variable loading from .env files
 .IP \(bu 2
 Standardized error, note, and success message functions
+.IP \(bu 2
+Error and signal traps that report once and run the script's cleanup, set with Set-Traps
+.PP
+Requires bash 5.3 or later, what current Linux ships. Under an older bash it exits 78, EX_CONFIG, before anything
+else runs. macOS's /bin/bash is 3.2: install a current bash and put it ahead of /bin on PATH.
 .SH ARGUMENTS
 .TP
 .B <script_path>
@@ -34,6 +39,12 @@ Arguments to pass to the script.
 .TP
 .B Set-Environment [--whitelist "VAR1 VAR2"] <envfile...>
 Loads environment variables from one or more .env files. Supports optional whitelist to limit which variables are exported.
+.TP
+.B Set-Traps [cleanup]
+Sends ERR, HUP, INT and TERM to on_error_or_interrupt, and EXIT to the named cleanup function. See TRAPS.
+.TP
+.B on_error_or_interrupt <event>
+The handler Set-Traps installs. A script does not call it itself.
 .TP
 .B usage <synopsis>
 Displays the man page for the script if available, otherwise falls back to the provided synopsis.
@@ -81,6 +92,41 @@ which neither exits nor shifts, so the loop never ends. Exit 72, EX_OSFILE, is t
 critical file that is missing. Do not write
 .B source ... || exit
 instead: the helper would then run with errexit suppressed.
+.SH TRAPS
+.RS
+.nf
+function cleanup {
+    [[ -z "${download_dir}" ]] || rm -rf "${download_dir}"
+}
+
+Set-Traps cleanup
+.fi
+.RE
+.PP
+A script that traps calls
+.B Set-Traps
+once, after the cleanup function it names is defined and before its arguments are parsed, and sets no trap of its
+own. A script with nothing to undo calls it with no argument.
+.PP
+The helper turns on errtrace, so a failure inside a function reaches the handler, and inherit_errexit, so a failure
+inside $(...) fails the command that holds it. A failure that ends the script is reported once, as
+.B error
+reports, with its line and command, and the script exits with the failing command's status. For a pipeline, the
+command named is the pipeline's last. A failure the script tolerates, under
+.BR "set +o errexit" ,
+in a test such as
+.BR if ,
+or before
+.BR || ,
+is not reported. A failure inside a subshell or a command substitution is reported by the shell that started it.
+.PP
+SIGHUP, SIGINT and SIGTERM are reported and end the script with 128 plus the signal's number: 129, 130 and 143.
+.PP
+The cleanup runs on every way out: a failure, a signal, an
+.B error
+call and a normal end. It reads the exit status from
+.BR $? ,
+so a script that undoes only on failure says so in its cleanup.
 .SH AUTHOR
 David Noble
 .SH COPYRIGHT
