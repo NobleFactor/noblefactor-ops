@@ -97,11 +97,13 @@ f() {
 }
 f'
 
+# shellcheck disable=SC2016 # The program is for the child bash, so its $ must reach it unexpanded (#289).
 run_case "a failing command substitution" 1 1 'x="\$\(false\)"$' '
 Set-Traps
 x="$(false)"
 echo not reached'
 
+# shellcheck disable=SC2016 # The program is for the child bash, so its $ must reach it unexpanded (#289).
 run_case "a failure before the last command of a substitution" 1 1 '' '
 Set-Traps
 x="$(false; echo hi)"

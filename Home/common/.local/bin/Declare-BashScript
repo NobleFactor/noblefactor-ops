@@ -125,6 +125,7 @@ function Set-Environment {
 # Set-Traps sends ERR, HUP, INT and TERM to on_error_or_interrupt, and EXIT to the cleanup function a script names
 # (#268). A script calls it once, after that function is defined and before its arguments are parsed: an early exit
 # with EXIT naming a function not yet defined fails with "command not found".
+# shellcheck disable=SC2120 # The cleanup is optional: a script with nothing to undo calls Set-Traps bare (#289).
 function Set-Traps {
     trap 'on_error_or_interrupt ERR' ERR
     trap 'on_error_or_interrupt HUP' HUP

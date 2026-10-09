@@ -1,7 +1,7 @@
 ---
 title: "The helper's shellcheck notes are gone, and it stops when a tool it needs is missing"
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/289
-status: draft
+status: active
 created: 2026-10-09
 updated: 2026-10-09
 ---
@@ -51,7 +51,7 @@ Measured 2026-10-09 on Danoble-MBP-A, shellcheck 0.11.0, `-x --severity=style`, 
 `# shellcheck disable=SC2120` directly above `function Set-Traps {`, saying why: the cleanup is optional, and a
 script with nothing to undo calls it bare. Shellcheck raises SC2120 at a function that reads its arguments when no
 call passes any, and SC2119 at each such call; disabling the first at the definition silences both, which was tested
-in one file. That it does so through a sourced file is what this requirement proves.
+in one file. That it does so through a sourced file is what this requirement proves (phase 2).
 
 ### Requirement 2: the test's quoted programs (#289)
 
@@ -94,12 +94,14 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 
 ### Phase 1: The plan
 
-- [ ] This plan, committed on `chore/289-set-traps-optional-cleanup` and reviewed with the owner; the open question
-  ruled.
+- [x] This plan, committed on `chore/289-set-traps-optional-cleanup` as 9bf3354 and reviewed with the owner; its
+  question settled by an earlier ruling. Approved 2026-10-09: "approved. let's go."
 
 ### Phase 2: The shellcheck notes (#289)
 
-- [ ] Requirements 1 and 2.
+- [x] Requirements 1 and 2. Done 2026-10-09: shellcheck at every severity, with `-P` at this worktree's helper, is
+  clean on the helper, its test, and personal's five scripts as merged in David-Noble-at-work/personal#267, where
+  `develop`'s helper still draws SC2119 at `Start-MacSleep`. The directive in the sourced file silences every call.
 
 ### Phase 3: The tools the helper needs (#290)
 
@@ -142,9 +144,7 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 
 ## Open Questions
 
-1. **The handler's report under bash 3.2.** Lane 62 copies the handler into `install.sh`, which runs under a fresh
-   Mac's `/bin/bash` 3.2. There the report names the handler's own command, `((BASH_SUBSHELL == 0))`, instead of the
-   one that failed, since 3.2 updates `BASH_COMMAND` inside the handler. Tested 2026-10-09: with the trap passing
-   `"$BASH_COMMAND" "$LINENO"` as it fires, 3.2 names the failing command, its line exact inside a function and the
-   enclosing `case`'s first line at top level, and 5.3.20 stays exact. Offered: fix it here, where the handler lives,
-   as a third issue in this pull request (1, recommended); leave it to lane 62's copy (2); or leave it (3).
+1. **The handler's report under bash 3.2. Settled before it was asked, by the owner's ruling of 2026-10-09: "we stop
+   if we have the wrong version of bash. I'm either in or out based on the bash version number."** Under 3.2 the
+   helper stops before its handler exists, so there is no 3.2 report to fix; the question was withdrawn after the
+   owner's "we're going over the same territory." Lane 61 held the same: "it should not be bound to bash 3.2."
