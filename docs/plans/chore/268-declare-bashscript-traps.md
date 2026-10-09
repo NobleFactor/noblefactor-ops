@@ -3,7 +3,7 @@ title: "on_error_or_interrupt moves into Declare-BashScript: one handler, its de
 issue: https://github.com/NobleFactor/noblefactor-ops/issues/268
 status: active
 created: 2026-10-08
-updated: 2026-10-08
+updated: 2026-10-09
 ---
 
 # Plan: Declare-BashScript traps
@@ -215,7 +215,8 @@ meets the helper's floor (question 9).
 
 ### Phase 5: Verification
 
-- [ ] `make check` clean on this Mac, and CI green on the pull request.
+- [x] `make check` clean on this Mac, and CI green on the pull request: `quality-gate` passed in 35 s on #288. Ticked
+  2026-10-09 in #289's pull request (lane 63), as phase 6 says.
 - [x] `mandoc -Tlint -W warning` on `Declare-BashScript.1`: only the `.TH` date warning every page here carries,
   2026-10-08 (phase 2).
 - [x] The deployed test, as ruled 2026-10-08 for Start-Claude ("checkout the branch in writ's clone for the test"):
@@ -245,9 +246,12 @@ meets the helper's floor (question 9).
 These boxes, and phase 5's CI box, close with the pull request itself, after this plan's last commit, so the plan
 stays active until they do (agent-rules rule 12).
 
-- [ ] The pull request, the merge, and `git close-branch`.
+- [x] The pull request, the merge, and `git close-branch`: #288 merged 2026-10-09 as 5f793ed, and `git close-branch`
+  removed its branch and worktree. Ticked in #289's pull request.
 - [ ] Lanes 61 and 62 then carry the handler into personal's fourteen scripts and devlore-cli's three; the owner's
-  acceptance is met when both have merged.
+  acceptance is met when both have merged. 2026-10-09: lane 61 merged as David-Noble-at-work/personal#267, its
+  thirteen scripts on the handler and `Install-NFBuildTools` removed instead ("nuke Install-NFBuildTools"); lane 62,
+  NobleFactor/devlore-cli#1037, follows #289's pull request.
 
 ## Files
 

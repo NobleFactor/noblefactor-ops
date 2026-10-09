@@ -133,16 +133,20 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 
 ### Phase 5: Plan 268
 
-- [ ] Requirement 8.
+- [x] Requirement 8. Done 2026-10-09 from #288's record: `quality-gate` passed in 35 s, it merged as 5f793ed, and its
+  worktree is gone from the base clone. Plan 268's lanes box records lane 61 and stays open for lane 62, so plan 268
+  stays `active`.
 
 ### Phase 6: Verification
 
 - [ ] `make check` clean on this Mac, and CI green on the pull request.
 - [ ] Shellcheck at every severity, against this worktree's helper: nothing at personal's five calls as merged in
   David-Noble-at-work/personal#267, nothing in `tests/Test-DeclareBashScript`.
-- [ ] `getopt --test` on danoble-ud24-1 and in Git for Windows' bash on danoble-wd11-3, each read before the change
-  lands, since the check stops every script where it fails. 2026-10-09: danoble-wd11-3 exits 4 (util-linux 2.40.2,
-  bash 5.3.15); danoble-ud24-1 refused the connection, "Host key verification failed".
+- [x] `getopt --test` on danoble-ud24-1 and in Git for Windows' bash on danoble-wd11-3, each read before the change
+  lands, since the check stops every script where it fails. 2026-10-09, over SSH through the desktop ssh-agent: both
+  exit 4. danoble-ud24-1.local, Ubuntu 26.04.1 with bash 5.3.9, has util-linux 2.41.3; danoble-wd11-3, Git for
+  Windows' bash 5.3.15, has util-linux 2.40.2. A first try named the Linux machine `danoble-ud24-1`, which
+  `known_hosts` does not record, and ssh refused it: its keys are recorded as `danoble-ud24-1.local`.
 - [ ] The deployed check, as lane 60 ran it: the branch checked out in the base clone and deployed, the helper's
   tests run against the deployed helper, and `--help` for the consumers whose code before their option loop runs
   nothing.
