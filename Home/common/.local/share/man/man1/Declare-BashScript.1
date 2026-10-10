@@ -6,7 +6,9 @@ Declare-BashScript \- Bash script argument and option parsing helper
 .SH SYNOPSIS
 source "$(dirname "$0")/Declare-BashScript" <script_path> <long-options> <short-options> [arguments]
 .SH DESCRIPTION
-Provides argument parsing, usage, error, note, and success functions for bash scripts. Intended to be sourced at the top of other scripts. Supports long and short options, usage display, and error handling for robust script development.
+Provides argument parsing, usage, error, note, and success functions for bash scripts. Intended to be sourced at the
+top of other scripts. Supports long and short options, usage display, and error handling for robust script
+development.
 .PP
 This script provides the following key functionality:
 .IP \(bu 2
@@ -22,6 +24,11 @@ Error and signal traps that report once and run the script's cleanup, set with S
 .PP
 Requires bash 5.3 or later, what current Linux ships. Under an older bash it exits 78, EX_CONFIG, before anything
 else runs. macOS's /bin/bash is 3.2: install a current bash and put it ahead of /bin on PATH.
+.PP
+Requires GNU getopt, the one whose
+.B getopt --test
+exits 4. Where the getopt first on PATH is not GNU's, as macOS's own is not, it exits 78, EX_CONFIG, before anything
+else runs: install MacPorts' util-linux, or Homebrew's gnu-getopt and put its bin directory first on PATH.
 .SH ARGUMENTS
 .TP
 .B <script_path>
@@ -38,7 +45,8 @@ Arguments to pass to the script.
 .SH PROVIDED FUNCTIONS
 .TP
 .B Set-Environment [--whitelist "VAR1 VAR2"] <envfile...>
-Loads environment variables from one or more .env files. Supports optional whitelist to limit which variables are exported.
+Loads environment variables from one or more .env files. Supports optional whitelist to limit which variables are
+exported.
 .TP
 .B Set-Traps [cleanup]
 Sends ERR, HUP, INT and TERM to on_error_or_interrupt, and EXIT to the named cleanup function. See TRAPS.
@@ -57,6 +65,12 @@ Prints an informational message to stderr with a + symbol. Respects SILENT envir
 .TP
 .B success <message>
 Prints a success message to stderr with a green ✔ symbol.
+.TP
+.B require_command <name...>
+Stops the script with exit 69, EX_UNAVAILABLE, when a tool it names is not found, naming every one that is missing.
+Each name is looked up with
+.BR hash ,
+which searches PATH and accepts a function of that name.
 .SH PROVIDED VARIABLES
 .TP
 .B script_root
