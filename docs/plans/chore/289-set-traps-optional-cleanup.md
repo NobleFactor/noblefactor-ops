@@ -162,7 +162,11 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 
 ### Phase 7: Acceptance and closure
 
-- [ ] The pull request, the merge, and `git close-branch`; lanes 63 and 65 marked on NobleFactor/devlore-cli#916.
+This box, and phase 6's CI box, close with the pull request itself, after this plan's last commit, so the plan stays
+active until they do (agent-rules rule 12). The next noblefactor-ops pull request, lane 66's (#291), ticks them.
+
+- [ ] The pull request, the merge, and `git close-branch`; lanes 63 and 65 marked on NobleFactor/devlore-cli#916, and
+  the plan rows of #289 and #290 pointed at `develop`.
 
 ## Files
 
