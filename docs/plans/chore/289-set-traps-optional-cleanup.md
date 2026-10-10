@@ -139,17 +139,26 @@ David-Noble-at-work/personal#267 and stays open for lane 62, so plan 268 stays `
 
 ### Phase 6: Verification
 
-- [ ] `make check` clean on this Mac, and CI green on the pull request.
-- [ ] Shellcheck at every severity, against this worktree's helper: nothing at personal's five calls as merged in
-  David-Noble-at-work/personal#267, nothing in `tests/Test-DeclareBashScript`.
+- [ ] `make check` clean on this Mac, and CI green on the pull request. This Mac: clean 2026-10-09, in phase 5's
+  commit run.
+- [x] Shellcheck at every severity, against this worktree's helper: nothing at personal's five calls as merged in
+  David-Noble-at-work/personal#267, nothing in `tests/Test-DeclareBashScript`. Done 2026-10-09, after phases 3 and 4
+  changed the helper and its test: `-x` with `-P` at this worktree's helper, clean on personal's five, the test and the
+  helper itself.
 - [x] `getopt --test` on danoble-ud24-1 and in Git for Windows' bash on danoble-wd11-3, each read before the change
   lands, since the check stops every script where it fails. 2026-10-09, over SSH through the desktop ssh-agent: both
   exit 4. danoble-ud24-1.local, Ubuntu 26.04.1 with bash 5.3.9, has util-linux 2.41.3; danoble-wd11-3, Git for
   Windows' bash 5.3.15, has util-linux 2.40.2. A first try named the Linux machine `danoble-ud24-1`, which
   `known_hosts` does not record, and ssh refused it: its keys are recorded as `danoble-ud24-1.local`.
-- [ ] The deployed check, as lane 60 ran it: the branch checked out in the base clone and deployed, the helper's
+- [x] The deployed check, as lane 60 ran it: the branch checked out in the base clone and deployed, the helper's
   tests run against the deployed helper, and `--help` for the consumers whose code before their option loop runs
-  nothing.
+  nothing. 2026-10-09 on Danoble-MBP-A, by a script the owner ran: the clone took 82f042c detached, and
+  `writ deploy --allow-dirty` deployed 266 links; the deployed helper resolved into the clone and carried the getopt
+  check and `require_command`; the 17 cases passed against it. One step lane 60's lacked: sourced with only
+  `/usr/bin` and `/bin` on PATH, so macOS's own getopt came first, the helper stopped with its message and 78. Of
+  lane 60's 23 consumers, re-read first (only `Install-AwsClient` now sets a trap before its loop, and its cleanup
+  has nothing to remove), the 18 deployed here exited 0 from `--help` and the 5 for Linux alone are not deployed
+  here. The clone went back to `develop` and was deployed again.
 
 ### Phase 7: Acceptance and closure
 
